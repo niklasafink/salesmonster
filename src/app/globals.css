@@ -386,7 +386,7 @@ a.btn{text-decoration:none}
 /* Einrichtung inside the portal panel: second sidebar (what gets stored), chat in the claude.ai look, panel for lists and mails */
 .cl{position:relative; flex:1; min-height:0; display:grid; grid-template-columns:272px minmax(0,1fr)}
 .cl-main{
-  --cl-bg:#faf9f5; --cl-comp:#ffffff; --cl-bubble:#f0eee6; --cl-line:#e8e6dc; --cl-line-2:#dedcd1;
+  --cl-bg:#ffffff; --cl-comp:#ffffff; --cl-bubble:#f4f4f5; --cl-line:#e4e4e7; --cl-line-2:#d8d8de;
   --cl-fg:#141413; --cl-fg-2:#5e5d59; --cl-fg-3:#8f8d86; --cl-hover:rgb(20 20 19 / .05); --cl-accent:#c6613f; --cl-accent-h:#b4552f;
   --cl-serif:var(--font-serif),"Tiempos Text",ui-serif,Georgia,Cambria,serif;
   background:var(--cl-bg); color:var(--cl-fg); font-size:14px
