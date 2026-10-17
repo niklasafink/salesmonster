@@ -36,7 +36,7 @@ svg.lucide{width:15px; height:15px; stroke-width:1.75; flex-shrink:0}
 .sb{display:flex; flex-direction:column; gap:2px; padding:10px 8px; min-height:0}
 .ws{display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:8px; border:0; background:none; width:100%; text-align:left; font-weight:600}
 .ws:hover{background:var(--hover)}
-.tic{flex:none; display:grid; place-items:center; width:20px; height:20px; border-radius:5px; overflow:hidden; background:var(--hover); color:var(--fg-3); font-size:9px; font-weight:600}
+.tic{flex:none; display:grid; place-items:center; width:16px; height:16px; border-radius:4px; overflow:hidden; background:var(--hover); color:var(--fg-3); font-size:8px; font-weight:600}
 .tic img{width:100%; height:100%; object-fit:contain}
 .tic:has(img:not([hidden])){background:none}
 .ws .lucide{margin-left:auto; color:var(--fg-3); width:14px; height:14px}
@@ -370,8 +370,36 @@ th:first-child,td:first-child{padding-left:0} th:last-child,td:last-child{paddin
 
 /* App additions */
 body{margin:0}
-.login{min-height:100%; display:grid; place-items:center; padding:16px}
-.login .dlg{margin-top:0}
+/* Login: split screen, animated beam panel left, form right */
+.login{height:100%; display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); background:var(--panel)}
+.lg-art{position:relative; overflow:hidden; margin:8px; border-radius:16px; background:#07081a; isolation:isolate}
+.lg-aurora{position:absolute; inset:-20%; filter:blur(70px); opacity:.75; z-index:-1}
+.lg-aurora i{position:absolute; border-radius:50%; animation:lg-drift 18s ease-in-out infinite alternate}
+.lg-aurora i:nth-child(1){width:55%; height:50%; left:5%; top:45%; background:#3d63dd}
+.lg-aurora i:nth-child(2){width:45%; height:40%; left:45%; top:15%; background:#6d4bd8; animation-duration:22s; animation-delay:-6s}
+.lg-aurora i:nth-child(3){width:35%; height:35%; left:30%; top:60%; background:#1f8fb8; opacity:.6; animation-duration:26s; animation-delay:-12s}
+@keyframes lg-drift{50%{transform:translate(8%,-6%) scale(1.1)} 100%{transform:translate(-6%,5%) scale(.95)}}
+.lg-grid{position:absolute; inset:0; background-image:radial-gradient(rgb(255 255 255 / .16) 1px, transparent 1px); background-size:22px 22px; mask-image:radial-gradient(ellipse 70% 60% at 40% 60%, #000 30%, transparent 80%)}
+.lg-beams{position:absolute; inset:0; width:100%; height:100%}
+.lg-track{fill:none; stroke:rgb(255 255 255 / .06); stroke-width:1}
+.lg-beam{fill:none; stroke:url(#lg-beam); stroke-width:1.6; stroke-linecap:round; stroke-dasharray:.18 .82; stroke-dashoffset:1; animation:lg-run 7s linear infinite; filter:drop-shadow(0 0 6px #7091ff)}
+@keyframes lg-run{to{stroke-dashoffset:0}}
+.lg-brand{position:absolute; top:28px; left:28px; display:flex; align-items:center; gap:10px; color:#fff; font-size:15px; font-weight:600; letter-spacing:-.01em}
+.lg-side{display:grid; place-items:center; padding:24px 16px}
+.lg-form{width:min(340px,100%); display:flex; flex-direction:column; gap:16px; animation:lg-in .5s cubic-bezier(.2,.8,.2,1) both}
+.lg-form h1{margin:0 0 6px; font-size:26px; font-weight:600; letter-spacing:-.025em}
+.lg-form .fld .inp{height:38px; border-radius:9px; transition:border-color .15s, box-shadow .15s}
+.lg-form .fld .inp:focus{box-shadow:0 0 0 4px color-mix(in srgb, var(--ring) 18%, transparent)}
+.lg-pw{position:relative; display:block}
+.lg-pw .inp{padding-right:38px}
+.lg-pw button{position:absolute; right:4px; top:50%; translate:0 -50%; display:grid; place-items:center; width:30px; height:30px; border:0; border-radius:7px; background:none; color:var(--fg-3)}
+.lg-pw button:hover{color:var(--fg); background:var(--hover)}
+.lg-go{height:40px; border-radius:9px; margin-top:4px; gap:8px}
+.lg-go .lucide{transition:transform .15s}
+.lg-go:hover .lucide{transform:translateX(2px)}
+@keyframes lg-in{from{opacity:0; transform:translateY(8px)}}
+@media (max-width:820px){.login{grid-template-columns:1fr} .lg-art{display:none}}
+@media (prefers-reduced-motion:reduce){.lg-aurora i,.lg-beam,.lg-form{animation:none}}
 .empty{flex:1; display:grid; place-items:center; text-align:center; padding:40px}
 .empty .h2{margin:0 0 14px}
 .toast .btn{height:26px; background:rgb(255 255 255 / .14); color:inherit}
