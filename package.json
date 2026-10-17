@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
+    "@assistant-ui/react": "^0.15.29",
+    "@assistant-ui/react-markdown": "^0.14.23",
     "@neondatabase/serverless": "^1.2.0",
     "@pdf-lib/fontkit": "^1.1.1",
     "ai": "^7.0.143",

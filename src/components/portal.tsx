@@ -116,9 +116,9 @@ export default function Portal() {
       <div id="app" className={sbo ? "sbo" : ""} onClick={e => { if (sbo && !(e.target as HTMLElement).closest(".sb")) setSbo(false); }}>
         <aside className="sb">
           <div className="rel">
-            <button className="ws" onClick={() => setPop(pop === "ws" ? null : "ws")}>{t?.name || "Kein Mandant"}<Icon n="chevrons-up-down" /></button>
+            <button className="ws" onClick={() => setPop(pop === "ws" ? null : "ws")}>{t && <TenantIcon key={t.slug} t={t} />}{t?.name || "Kein Mandant"}<Icon n="chevrons-up-down" /></button>
             {pop === "ws" && <div className="pop" style={{ top: 38 }}>
-              {st.tenants.map((x, i) => <button key={x.slug} onClick={() => switchTenant(x.slug)} title={i < 9 ? `⌘${i + 1}` : undefined}>{x.name}{x.slug === t?.slug && <Icon n="check" className="end" />}</button>)}
+              {st.tenants.map((x, i) => <button key={x.slug} onClick={() => switchTenant(x.slug)} title={i < 9 ? `⌘${i + 1}` : undefined}><TenantIcon t={x} />{x.name}{x.slug === t?.slug && <Icon n="check" className="end" />}</button>)}
               <hr /><button onClick={() => { setPop(null); setDlg("tenant"); }}><Icon n="plus" />Mandant hinzufügen</button>
             </div>}
           </div>
@@ -160,6 +160,12 @@ export default function Portal() {
       {toastS && <div className="toast"><Icon n="check" /><span>{toastS.m}</span>{toastS.action && <a className="btn" href={toastS.action.href}><Icon n="download" />{toastS.action.label}</a>}</div>}
     </>
   );
+}
+
+/* Website icon of the tenant, initials until it loads or when there is none */
+function TenantIcon({ t }: { t: { slug: string; initials: string } }) {
+  const [ok, setOk] = useState(false), [bad, setBad] = useState(false);
+  return <span className="tic">{!ok && t.initials.slice(0, 2)}{!bad && <img src={`/api/tenants/${t.slug}/icon`} alt="" hidden={!ok} onLoad={() => setOk(true)} onError={() => { setBad(true); setOk(false); }} />}</span>;
 }
 
 function TenantDialog({ onClose, onDone }: { onClose: () => void; onDone: (slug: string) => void }) {
