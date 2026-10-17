@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Outreach",
-    short_name: "Outreach",
+    name: "Sales Monster",
+    short_name: "Sales Monster",
     start_url: "/",
     display: "standalone",
     background_color: "#f5f5f6",

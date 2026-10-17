@@ -2,16 +2,6 @@
 import { useState } from "react";
 import { Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
 
-/* Beam paths for the art panel: curves fanning out from the lower left */
-const BEAMS = [
-  "M-40 820 C 180 640, 260 420, 620 300",
-  "M-40 760 C 220 600, 320 360, 640 200",
-  "M-40 880 C 140 700, 360 560, 660 460",
-  "M-40 700 C 160 520, 300 260, 600 80",
-  "M-40 940 C 260 780, 420 660, 680 600",
-  "M-40 640 C 120 460, 200 200, 480 -20",
-];
-
 export default function Login() {
   const [email, setEmail] = useState(""), [pw, setPw] = useState(""), [show, setShow] = useState(false), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent) {
@@ -23,22 +13,11 @@ export default function Login() {
   return (
     <div className="login">
       <aside className="lg-art" aria-hidden>
-        <div className="lg-aurora"><i /><i /><i /></div>
-        <div className="lg-grid" />
-        <svg className="lg-beams" viewBox="0 0 600 900" preserveAspectRatio="xMidYMid slice">
-          <defs>
-            <linearGradient id="lg-beam" x1="0" y1="1" x2="1" y2="0">
-              <stop offset="0" stopColor="#7091ff" stopOpacity="0" />
-              <stop offset=".5" stopColor="#9db4ff" />
-              <stop offset="1" stopColor="#c4b5fd" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          {BEAMS.map((d, i) => <path key={"t" + i} d={d} className="lg-track" />)}
-          {BEAMS.map((d, i) => <path key={"b" + i} d={d} pathLength={1} className="lg-beam" style={{ animationDelay: `${i * -1.3}s`, animationDuration: `${6 + (i % 3) * 1.5}s` }} />)}
-        </svg>
+        <div className="lg-mesh"><i /><i /><i /><i /></div>
+        <svg className="lg-grain"><filter id="lg-noise"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3" stitchTiles="stitch" /></filter><rect width="100%" height="100%" filter="url(#lg-noise)" /></svg>
         <div className="lg-brand">
           <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="7" fill="#3d63dd" /><g transform="translate(5.5 5.5) scale(.65)" fill="#fff" stroke="#fff" strokeWidth="2" strokeLinejoin="round"><path d="M28.5 3.5 3.5 13.5l9 4.5Z" /><path d="M28.5 3.5 14 19.5l4.5 9Z" /></g></svg>
-          Outreach
+          Sales Monster
         </div>
       </aside>
       <main className="lg-side">

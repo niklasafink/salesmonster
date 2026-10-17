@@ -6,7 +6,7 @@ const sans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const mono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 const serif = Source_Serif_4({ variable: "--font-serif", subsets: ["latin"] });
 
-export const metadata: Metadata = { title: "Outreach", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Sales Monster", robots: { index: false, follow: false } };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 /* Theme is applied before paint to avoid a flash */
