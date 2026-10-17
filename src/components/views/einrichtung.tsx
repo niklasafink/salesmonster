@@ -200,7 +200,7 @@ function Connect({ ctx, onDone }: { ctx: Ctx; onDone: () => void }) {
     setBusy(false);
   }
   return <div className="cl-ai">
-    <p>Ich richte mit dir den Vertrieb für {t.name} ein. Dafür brauche ich zuerst Zugang zu einem Sprachmodell. Am einfachsten ist OpenRouter: ein Schlüssel für Claude, Gemini und GPT, abgerechnet nach Verbrauch.</p>
+    <h2 className="cl-h">Verbinde deine KI</h2>
     <form className="cl-connect" onSubmit={go}>
       <div className="seg"><button type="button" className={kind === "openrouter" ? "on" : ""} onClick={() => setKind("openrouter")}>OpenRouter</button>
         <button type="button" className={kind === "claude" ? "on" : ""} onClick={() => setKind("claude")}>Claude-API</button></div>
