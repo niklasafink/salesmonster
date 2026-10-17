@@ -1,16 +1,16 @@
 "use client";
 import {
-  ArrowLeft, ArrowRight, Bell, Building2, Check, CheckCheck, ChevronDown, ChevronUp, ChevronsUpDown, Database, Dot, Download, FileCheck2, FileText, Globe,
-  Inbox, KeyRound, Landmark, LayoutDashboard, LoaderCircle, LogOut, Mail, Menu, Plus, ReceiptText, Search, Send, Server, Settings2, Sparkles, SunMoon,
-  Target, TriangleAlert, Upload, User, Users, X, type LucideIcon,
+  ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Check, CheckCheck, ChevronDown, ChevronUp, ChevronsUpDown, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe,
+  Inbox, KeyRound, Landmark, LayoutDashboard, LoaderCircle, LogOut, Mail, Menu, Plus, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, SunMoon,
+  Target, ThumbsDown, ThumbsUp, TriangleAlert, Upload, User, Users, X, type LucideIcon,
 } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
-  "arrow-left": ArrowLeft, "arrow-right": ArrowRight, bell: Bell, "building-2": Building2, check: Check, "check-check": CheckCheck, "chevron-down": ChevronDown,
-  "chevron-up": ChevronUp, "chevrons-up-down": ChevronsUpDown, database: Database, dot: Dot, download: Download, "file-check-2": FileCheck2, "file-text": FileText,
+  "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-up": ArrowUp, bell: Bell, "building-2": Building2, check: Check, "check-check": CheckCheck, "chevron-down": ChevronDown,
+  "chevron-up": ChevronUp, "chevrons-up-down": ChevronsUpDown, database: Database, dot: Dot, download: Download, "external-link": ExternalLink, "file-check-2": FileCheck2, "file-text": FileText,
   globe: Globe, inbox: Inbox, "key-round": KeyRound, landmark: Landmark, "layout-dashboard": LayoutDashboard, loader: LoaderCircle, "log-out": LogOut, mail: Mail,
-  menu: Menu, plus: Plus, "receipt-text": ReceiptText, search: Search, send: Send, server: Server, "settings-2": Settings2, sparkles: Sparkles, "sun-moon": SunMoon,
-  target: Target, "triangle-alert": TriangleAlert, upload: Upload, user: User, users: Users, x: X,
+  menu: Menu, plus: Plus, "receipt-text": ReceiptText, search: Search, send: Send, server: Server, "settings-2": Settings2, sparkles: Sparkles, square: Square, "sun-moon": SunMoon,
+  target: Target, "thumbs-down": ThumbsDown, "thumbs-up": ThumbsUp, "triangle-alert": TriangleAlert, upload: Upload, user: User, users: Users, x: X,
 };
 
 export function Icon({ n, className }: { n: string; className?: string }) {

@@ -34,7 +34,7 @@ function Ziel({ ctx }: { ctx: Ctx }) {
     <label className="fld"><span>System-Prompt</span><textarea className="prompt" value={p} onChange={e => setP(e.target.value)} /></label>
     <label className="row2 list-box" style={{ minHeight: 44 }}><span>Ausschreibungen je Lead suchen</span>
       <button className={`sw ${t.tenders ? "on" : ""}`} aria-label="Ausschreibungen" onClick={async e => { e.preventDefault(); await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { tenders: !t.tenders } }); ctx.reload(); }} /></label>
-    <div><button className="btn" onClick={save}>Speichern</button></div>
+    <div className="row3"><button className="btn" onClick={save}>Speichern</button><button className="btn sec" onClick={() => ctx.setView("einrichtung")}><Icon n="sparkles" />Mit KI einrichten</button></div>
   </>;
 }
 
@@ -98,7 +98,9 @@ function Integ({ ctx }: { ctx: Ctx }) {
         {s?.on ? <button className="btn gh act" onClick={() => disconnect(i.k)}>Trennen</button> : i.auth === "pending" ? null : <button className="btn sec" onClick={() => open(i.k)}>Verbinden</button>}</div>; })}</div>
     {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" onSubmit={connect}>
       <div className="dlg-h">{x.name} verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
-      {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span><input className="inp" type={f.type || "text"} value={vals[f.id] || ""} autoFocus={i === 0} autoComplete="off" onChange={e => setVals({ ...vals, [f.id]: e.target.value })} /></label>)}
+      {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
+        ? <select className="inp" value={vals[f.id] || ""} onChange={e => setVals({ ...vals, [f.id]: e.target.value })}>{f.options.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>
+        : <input className="inp" type={f.type || "text"} value={vals[f.id] || ""} autoFocus={i === 0} autoComplete="off" onChange={e => setVals({ ...vals, [f.id]: e.target.value })} />}</label>)}
       {err && <div className="warn">{err}</div>}
       <button className="btn pri wide" disabled={busy}>{busy ? <Icon n="loader" /> : null}Verbinden</button>
     </form></div>}

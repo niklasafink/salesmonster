@@ -27,15 +27,17 @@ export async function hubspotVerify(token: string) {
 
 export const domainOf = (s: string) => s.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
 
-/* Is this company or address already in HubSpot? Returns a reason or null. */
-export async function hubspotKnown(token: string, company: string, website: string, email: string): Promise<string | null> {
+export type Known = { why: string; companyId?: string };
+
+/* Is this company or address already in HubSpot? Returns a reason (and the company, if found) or null. */
+export async function hubspotKnown(token: string, company: string, website: string, email: string): Promise<Known | null> {
   const filters = [[{ propertyName: "name", operator: "EQ", value: company }]];
   if (website) filters.push([{ propertyName: "domain", operator: "EQ", value: domainOf(website) }]);
   const c = await hs(token, "/crm/v3/objects/companies/search", { method: "POST", body: JSON.stringify({ filterGroups: filters.map(f => ({ filters: f })), limit: 1 }) });
-  if (c.total > 0) return "In HubSpot";
+  if (c.total > 0) return { why: "In HubSpot", companyId: String(c.results[0].id) };
   if (email) {
     const p = await hs(token, "/crm/v3/objects/contacts/search", { method: "POST", body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }], limit: 1 }) });
-    if (p.total > 0) return "Kontakt in HubSpot";
+    if (p.total > 0) return { why: "Kontakt in HubSpot" };
   }
   return null;
 }
@@ -51,12 +53,17 @@ export async function hubspotReserve(token: string, l: { email: string; first: s
   const domain = l.website ? domainOf(l.website) : "";
   const co = await hs(token, "/crm/v3/objects/companies", { method: "POST", body: JSON.stringify({ properties: { name: l.company, domain, city: l.city } }) });
   if (l.email || l.last) {
-    await hs(token, "/crm/v3/objects/contacts", { method: "POST", body: JSON.stringify({
-      properties: { email: l.email, firstname: l.first, lastname: l.last, company: l.company, jobtitle: l.role, website: l.website },
-      associations: [{ to: { id: co.id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 1 }] }] }) })
+    await hubspotAddContact(token, String(co.id), l)
       .catch(async e => { await hs(token, `/crm/v3/objects/companies/${co.id}`, { method: "DELETE" }).catch(() => {}); throw e; });
   }
   return String(co.id);
+}
+
+/* Another person at a company that is already in HubSpot: stored there, never written to */
+export async function hubspotAddContact(token: string, companyId: string, l: { email: string; first: string; last: string; company: string; role: string; website: string }) {
+  await hs(token, "/crm/v3/objects/contacts", { method: "POST", body: JSON.stringify({
+    properties: { email: l.email, firstname: l.first, lastname: l.last, company: l.company, jobtitle: l.role, website: l.website },
+    associations: [{ to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 1 }] }] }) });
 }
 
 export type HsCompany = { id: string; co: string; domain: string; street: string; zip: string; city: string; contact: string; email: string; salut: string };

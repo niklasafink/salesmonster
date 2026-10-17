@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { db, leads } from "@/db";
 import { HttpError, route, tenantBySlug } from "@/lib/api";
 import { parseImport } from "@/lib/claude";
-import { getInteg } from "@/lib/integrations";
+import { aiFor } from "@/lib/ai";
 import { hubspotKnown, hubspotToken } from "@/lib/hubspot";
 import { norm } from "@/lib/outreach";
 
@@ -24,14 +24,20 @@ export const POST = route(async (req, _c, me) => {
   const { t: slug, text } = await req.json();
   const t = await tenantBySlug(slug, me);
   if (!String(text || "").trim()) throw new HttpError(400, "Keine Daten");
-  const key = (await getInteg(t.id, "claude"))?.key;
+  const key = await aiFor(t.id);
   const rows = key ? await parseImport(key, text) : regexParse(text);
-  const have = new Set((await db.select({ c: leads.company }).from(leads).where(eq(leads.tenantId, t.id))).map(r => norm(r.c)));
+  /* One person per company gets the mail; further people at that company are kept as contacts.
+     Only rows that add nothing new (same address, or a known company without an address) are dropped. */
+  const prev = await db.select({ c: leads.company, e: leads.email }).from(leads).where(eq(leads.tenantId, t.id));
+  const companies = new Set(prev.map(r => norm(r.c))), emails = new Set(prev.map(r => r.e.toLowerCase()).filter(Boolean));
   const hub = await hubspotToken(t.id);
-  const out = await Promise.all(rows.map(async r => {
-    let dup = have.has(norm(r.co)) ? "Schon in der Liste" : "";
-    if (!dup && hub) dup = (await hubspotKnown(hub, r.co, r.web, r.email).catch(() => null)) ? "In HubSpot" : "";
-    return { ...r, dup };
-  }));
+  const inHub = await Promise.all(rows.map(r => hub ? hubspotKnown(hub, r.co, r.web, r.email).catch(() => null) : null));
+  const out = rows.map((r, i) => {
+    const email = (r.email || "").toLowerCase(), known = companies.has(norm(r.co)) || !!inHub[i];
+    const dup = email && emails.has(email) ? "Schon in der Liste" : inHub[i]?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : known && !email ? "Firma bekannt" : "";
+    const extra = !dup && known ? "Weiterer Kontakt" : "";
+    companies.add(norm(r.co)); if (email) emails.add(email);
+    return { ...r, dup, extra };
+  });
   return { rows: out };
 });

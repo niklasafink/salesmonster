@@ -379,3 +379,63 @@ body{margin:0}
 .runs{font-size:12.5px}
 .btn .lucide{width:15px; height:15px}
 a.btn{text-decoration:none}
+
+/* Einrichtung: conversation left, results right */
+.ob-steps{display:flex; gap:2px; margin-left:8px; overflow-x:auto; min-width:0}
+.ob-steps button{border:0; background:none; height:28px; padding:0 9px; border-radius:7px; color:var(--fg-3); font-weight:500; display:inline-flex; align-items:center; gap:5px; white-space:nowrap}
+.ob-steps button:hover{background:var(--hover); color:var(--fg)}
+.ob-steps button.dn{color:var(--fg-2)}
+.ob-steps button.on{background:var(--hover); color:var(--fg)}
+.ob-steps .lucide{width:13px; height:13px; color:var(--g)}
+.ob-count{display:none}
+.ob{display:grid; grid-template-columns:minmax(340px,420px) minmax(0,1fr); flex:1; min-height:0}
+.ob-chat{display:flex; flex-direction:column; border-right:1px solid var(--line); min-height:0}
+.ob-thread{flex:1; overflow:auto; padding:20px; display:flex; flex-direction:column; gap:14px}
+.ob-ai{line-height:1.6; white-space:pre-wrap}
+.ob-me{align-self:flex-end; max-width:85%; background:var(--hover); border-radius:12px; padding:8px 12px; line-height:1.5; white-space:pre-wrap}
+.ob-busy{display:flex; align-items:center; gap:8px}
+.ob-foot{padding:0 12px 12px; display:flex; flex-direction:column; gap:8px}
+.ob-chips{display:flex; flex-wrap:wrap; gap:6px}
+.ob-chips button{border:1px solid var(--line-2); background:var(--panel); border-radius:999px; height:28px; padding:0 12px; color:var(--fg-2); text-align:left}
+.ob-chips button:hover{background:var(--hover); color:var(--fg)}
+.ob-comp{border:1px solid var(--line-2); border-radius:12px; background:var(--panel); box-shadow:var(--shadow)}
+.ob-comp:focus-within{border-color:var(--ring)}
+.ob-comp textarea{display:block; width:100%; border:0; background:none; resize:none; outline:none; padding:10px 12px 4px; line-height:1.5}
+.ob-bar{display:flex; align-items:center; gap:6px; padding:6px}
+.ob-bar .sp{flex:1}
+.ob-connect{display:flex; flex-direction:column; gap:12px; align-items:stretch}
+.ob-connect .seg{align-self:flex-start}
+.ob-panel{overflow:auto; min-height:0; padding:24px 28px 40px; display:flex; flex-direction:column; gap:28px}
+.ob-sec{display:flex; flex-direction:column; gap:12px; max-width:760px}
+.ob-sec.wide{max-width:none}
+.ob-sec h2{font-size:15px; font-weight:600; margin:0; letter-spacing:-.01em}
+.ob-props{margin:0; display:flex; flex-direction:column}
+.ob-props > div{display:grid; grid-template-columns:120px minmax(0,1fr); gap:12px; padding:9px 0; border-top:1px solid var(--line)}
+.ob-props dt{color:var(--fg-3)}
+.ob-props dd{margin:0; line-height:1.55}
+.ob-props ul{margin:0; padding-left:16px}
+.ob-q{display:inline-flex; align-items:center; gap:6px; color:var(--fg-2); font-size:12px; text-decoration:none; overflow-wrap:anywhere}
+.ob-q:hover{color:var(--accent)}
+.ob-panel td{white-space:normal; vertical-align:top}
+.ob-panel td a{color:inherit; text-decoration:none} .ob-panel td a:hover{color:var(--accent)}
+.ob-co{font-weight:500}
+.ob-why{color:var(--fg-2); line-height:1.5; max-width:420px}
+.ob-reason{margin-top:6px; height:28px}
+.ob-vote{display:flex; gap:2px; justify-content:flex-end}
+.ob-vote .up{color:var(--g); background:var(--g-bg)} .ob-vote .down{color:var(--r); background:var(--r-bg)}
+tr.ob-out .ob-co,tr.ob-out .ob-co a{color:var(--fg-3); text-decoration:line-through}
+.ob-mails{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px}
+.ob-mh{display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--line)}
+.ob-mh .num{margin-left:auto; font-size:12px}
+.ob-mw{padding:10px 16px; border-top:1px solid var(--line); font-size:12.5px}
+.ob-skel{display:flex; flex-direction:column; gap:12px; max-width:560px}
+.ob-skel i{display:block; height:12px; border-radius:6px; background:var(--hover); animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.5}}
+@media (prefers-reduced-motion: reduce){.ob-skel i{animation:none}}
+@media (max-width: 1100px){ .ob-steps button:not(.on){display:none} .ob-count{display:inline} }
+@media (max-width: 860px){
+  .ob{grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr) auto; overflow:auto}
+  .ob-chat{border-right:0; border-bottom:1px solid var(--line); min-height:60vh}
+  .ob-panel{padding:20px 16px 40px; overflow:visible}
+  .ob-props > div{grid-template-columns:96px minmax(0,1fr)}
+}

@@ -4,7 +4,7 @@ import { Icon, Top, api } from "../ui";
 import type { Ctx } from "../types";
 
 type Lead = { id: number; company: string; first: string; last: string; role: string; email: string; city: string; source: string; status: string; note: string };
-type Parsed = { co: string; p: string; role: string; email: string; web: string; city: string; dup: string };
+type Parsed = { co: string; p: string; role: string; email: string; web: string; city: string; dup: string; extra: string };
 const LS: Record<string, [string, string]> = { neu: ["Neu", "b"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", ""], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", ""] };
 const FILTERS: [string, string][] = [["alle", "Alle"], ["neu", "Neu"], ["freigabe", "In Freigabe"], ["angeschrieben", "Angeschrieben"], ["beantwortet", "Beantwortet"], ["dublette", "Dublette"]];
 
@@ -70,7 +70,7 @@ export function Leads({ ctx }: { ctx: Ctx }) {
         <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>E-Mail</th><th></th></tr></thead><tbody>
           {imp.rows.map((r, i) => <tr key={i}><td style={{ fontWeight: 500 }}>{r.co}</td><td>{r.p ? <>{r.p}{r.role && <span className="f3"> ({r.role})</span>}</> : <span className="f3">–</span>}</td>
             <td className="mono" style={{ fontSize: 12.5 }}>{r.email || (r.web ? <span className="f3">{r.web}</span> : <span className="f3">fehlt</span>)}</td>
-            <td>{r.dup ? <span className="pill">{r.dup}</span> : <span className="pill b">Neu</span>}</td></tr>)}
+            <td>{r.dup ? <span className="pill">{r.dup}</span> : r.extra ? <span className="pill">{r.extra}</span> : null}</td></tr>)}
         </tbody></table></div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button className="btn sec" onClick={() => setImp({ ...imp, rows: null })}>Zurück</button><button className="btn pri" onClick={save} disabled={!ok}>{ok} Leads übernehmen</button></div>
       </>}

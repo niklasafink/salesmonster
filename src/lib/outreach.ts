@@ -3,7 +3,8 @@ import { claims, db, leads, members, messages, runs, templates, tenants, users }
 import { berlinDate } from "./dates";
 import { getInteg } from "./integrations";
 import { enrichLead, researchLeads, type LeadOut } from "./claude";
-import { HubSpotError, domainOf, hubspotCreateContact, hubspotKnown, hubspotPortal, hubspotReserve, hubspotToken } from "./hubspot";
+import { aiFor } from "./ai";
+import { HubSpotError, domainOf, hubspotAddContact, hubspotCreateContact, hubspotKnown, hubspotPortal, hubspotReserve, hubspotToken, type Known } from "./hubspot";
 import { hasReply, sendAs, sendSystem } from "./mail";
 import { JevLimit, scoreMail } from "./jev";
 
@@ -64,31 +65,44 @@ function claimKeys(l: Lead) {
 
 /* Takes the lead for this tenant before it is drafted: first a claim on the shared portal,
    then the HubSpot check, then the HubSpot record itself. Returns why it is taken, or null. */
-async function reserve(t: Tenant, hub: Hub | null, l: Lead): Promise<string | null> {
+async function reserve(t: Tenant, hub: Hub | null, l: Lead): Promise<Known | null> {
   if (!hub || l.hubspotId) return null;
+  let claimed = false;
   for (const key of claimKeys(l)) {
     const [mine] = await db.insert(claims).values({ scope: hub.portal, key, tenantId: t.id, leadId: l.id }).onConflictDoNothing().returning();
     if (mine) continue;
     const [other] = await db.select().from(claims).where(and(eq(claims.scope, hub.portal), eq(claims.key, key)));
-    if (other && other.tenantId !== t.id) return "Schon vergeben";
+    if (other && other.tenantId !== t.id) claimed = true;
   }
-  const why = await hubspotKnown(hub.token, l.company, l.website, l.email).catch(() => null);
-  if (why) return why;
+  const known = await hubspotKnown(hub.token, l.company, l.website, l.email).catch(() => null);
+  if (known) return known;
+  if (claimed) return { why: "Schon vergeben" };
   try {
     const id = await hubspotReserve(hub.token, l);
     await db.update(leads).set({ hubspotId: id }).where(eq(leads.id, l.id));
+    l.hubspotId = id;
   } catch (e) {
-    if (e instanceof HubSpotError && e.status === 409) return "Kontakt in HubSpot";
+    if (e instanceof HubSpotError && e.status === 409) return { why: "Kontakt in HubSpot" };
     await log(t.id, "hubspot", false, `${l.company}: ${(e as Error).message}`);
   }
   return null;
 }
 
+/* One person per company is written to. Further addresses at that company go into HubSpot next to it. */
+async function keepAsContact(t: Tenant, hub: Hub | null, row: Lead, companyId: string | undefined, note: string) {
+  let stored = false;
+  if (hub && companyId && row.email) {
+    try { await hubspotAddContact(hub.token, companyId, row); stored = true; }
+    catch (e) { stored = e instanceof HubSpotError && e.status === 409; if (!stored) await log(t.id, "hubspot", false, `${row.company}: ${(e as Error).message}`); }
+  }
+  await db.update(leads).set({ status: "dublette", note, hubspotId: stored ? companyId! : row.hubspotId }).where(eq(leads.id, row.id));
+}
+
 /* Evening job: fill today's batch with drafts */
 export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
   const today = berlinDate();
-  const key = (await getInteg(t.id, "claude"))?.key;
-  if (!key) throw new Error("Claude ist nicht verbunden");
+  const key = await aiFor(t.id);
+  if (!key) throw new Error("Keine KI verbunden");
   const open = await db.select({ n: sql<number>`count(*)::int` }).from(messages).where(and(eq(messages.tenantId, t.id), eq(messages.batchDate, today)));
   if (open[0].n > 0 && !opts.force) return { created: 0, skipped: "Heute schon recherchiert" };
 
@@ -104,12 +118,21 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
   const seen = new Set(known.map(k => norm(k.company)));
   const ready: Lead[] = [];
 
+  /* Companies this tenant already writes to, by name and domain */
+  const taken = new Map<string, Lead>();
+  const busy = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), inArray(leads.status, ["freigabe", "angeschrieben", "beantwortet", "unzustellbar"])));
+  const take = (l: Lead) => { for (const k of claimKeys(l)) if (!taken.has(k)) taken.set(k, l); };
+  busy.forEach(take);
+  const ownedBy = (l: Lead) => claimKeys(l).map(k => taken.get(k)).find(Boolean);
+
   /* Takes the lead into the batch, or marks why not. Runs one at a time so the batch never overshoots. */
   const admit = async (row: Lead) => {
+    const first = ownedBy(row);
+    if (first) { await keepAsContact(t, hub, row, first.hubspotId || undefined, `Weiterer Kontakt, angeschrieben wird ${[first.first, first.last].filter(Boolean).join(" ") || first.email}`); return; }
     if (!row.email && !row.linkedin) { await db.update(leads).set({ note: "E-Mail fehlt" }).where(eq(leads.id, row.id)); return; }
-    const why = await reserve(t, hub, row);
-    if (why) { await db.update(leads).set({ status: "dublette", note: why }).where(eq(leads.id, row.id)); return; }
-    ready.push(row);
+    const known = await reserve(t, hub, row);
+    if (known) { await keepAsContact(t, hub, row, known.companyId, known.why); return; }
+    ready.push(row); take(row);
   };
 
   /* 1. imported leads first, in list order; a duplicate makes room for the next one */
@@ -117,7 +140,7 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
   for (let next = 0; ready.length < n && next < queue.length;) {
     const chunk = queue.slice(next, next += n - ready.length);
     const rows = await pool(chunk, 4, async l => {
-      if (l.email && (!t.tenders || l.tenders.length)) return l;
+      if (ownedBy(l) || (l.email && (!t.tenders || l.tenders.length))) return l;
       try {
         const e = await enrichLead(key, t.settings.prompt, { company: l.company, city: l.city, website: l.website, first: l.first, last: l.last, role: l.role, email: l.email }, t.tenders);
         if (!e) return l;

@@ -1,0 +1,164 @@
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+import { db, leads, setups, templates, tenants, SETUP_STEPS, type ChatMsg, type SetupLead, type SetupStep } from "@/db";
+import { ask, json } from "./claude";
+import type { Ai } from "./ai";
+import { getInteg } from "./integrations";
+import { scoreMail } from "./jev";
+import { lint } from "./playbook";
+import { skillFor, WEB } from "./skills";
+
+type Tenant = typeof tenants.$inferSelect;
+export type Setup = typeof setups.$inferSelect;
+
+const s = () => z.string().nullish().transform(v => (v ?? "").trim());
+const list = () => z.array(z.string()).nullish().transform(v => (v ?? []).map(x => x.trim()).filter(Boolean));
+const Profile = z.object({ name: s(), summary: s(), offer: s(), valueProps: list(), customers: list(), proof: list(), regions: list(), language: s(), pricing: s() });
+const Segment = z.object({ name: z.string().min(1), industries: list(), size: s(), regions: list(), triggers: list(), why: s(), exclude: list() });
+const Persona = z.object({ role: z.string().min(1), titles: list(), segment: s(), pains: list(), goals: list(), query: s() });
+const Lead = z.object({ company: z.string().min(2), website: s(), city: s(), segment: s(), person: s(), role: s(), linkedin: s(), email: s(), why: s(),
+  vote: z.union([z.literal(1), z.literal(-1)]).nullish().transform(v => v ?? undefined), reason: s() });
+const Tpl = z.object({ key: z.string().min(1), name: s(), tone: s(), subject: z.string().min(2), body: z.string().min(20) });
+const Out = z.object({
+  reply: z.string(), chips: z.array(z.string()).catch([]), advance: z.boolean().catch(false),
+  profile: Profile.nullish().catch(null), segments: z.array(Segment).nullish().catch(null), personas: z.array(Persona).nullish().catch(null),
+  leads: z.array(Lead).nullish().catch(null), templates: z.array(Tpl).nullish().catch(null),
+});
+
+export async function loadSetup(tenantId: number): Promise<Setup> {
+  const [row] = await db.select().from(setups).where(eq(setups.tenantId, tenantId));
+  if (row) return row;
+  return (await db.insert(setups).values({ tenantId }).onConflictDoNothing().returning())[0] ?? (await db.select().from(setups).where(eq(setups.tenantId, tenantId)))[0];
+}
+
+async function save(id: number, set: Partial<typeof setups.$inferInsert>) {
+  return (await db.update(setups).set({ ...set, updatedAt: new Date() }).where(eq(setups.id, id)).returning())[0];
+}
+
+const nextStep = (step: SetupStep) => SETUP_STEPS[Math.min(SETUP_STEPS.indexOf(step) + 1, SETUP_STEPS.length - 1)];
+
+/* What the model sees besides the skill: the results so far, compact */
+function context(t: Tenant, su: Setup) {
+  const parts = [`Unternehmen: ${t.name}\nWebsite: https://${t.domain}`];
+  if (su.profile) parts.push(`Profil:\n${JSON.stringify(su.profile)}`);
+  if (su.step !== "website" && su.segments.length) parts.push(`Segmente:\n${JSON.stringify(su.segments)}`);
+  if (["liste", "ansprache", "fertig"].includes(su.step) && su.personas.length) parts.push(`Ansprechpartner:\n${JSON.stringify(su.personas)}`);
+  if (["liste", "ansprache"].includes(su.step) && su.leads.length) parts.push(`Leads mit Bewertung:\n${JSON.stringify(su.leads)}`);
+  if (su.step === "ansprache" && su.templates.length) parts.push(`Aktuelle Mails:\n${JSON.stringify(su.templates.map(({ score, ...x }) => ({ ...x, jev: score?.weakness })))}`);
+  if (su.skipped.length) parts.push(`Übersprungen: ${su.skipped.join(", ")}`);
+  return parts.join("\n\n");
+}
+
+/* One model call for the current step. text = what the user wrote; auto = decide alone */
+async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean) {
+  const history = su.chat.filter(m => m.step === su.step).slice(-12).map(m => `${m.role === "ai" ? "Du" : "Nutzer"}: ${m.text}`).join("\n");
+  const ask_ = auto ? "Der Nutzer möchte, dass du diesen Schritt ohne Rückfragen selbst erledigst. Triff alle Entscheidungen selbst, fülle die Felder vollständig und setze advance auf true."
+    : text ? `Nutzer: ${text}` : "Beginne diesen Schritt: erledige die Recherche bzw. den Entwurf und stelle dann deine erste Frage.";
+  const raw = await ask({
+    key: ai, system: skillFor(su.step), web: !!WEB[su.step], maxSearches: WEB[su.step] ?? 0, effort: su.step === "liste" ? "medium" : "low",
+    prompt: `${context(t, su)}${history ? `\n\nBisheriger Verlauf in diesem Schritt:\n${history}` : ""}\n\n${ask_}`,
+  });
+  return json(raw, Out);
+}
+
+/* Jev reviews each template once, rendered with the first good lead; optional */
+async function scoreTemplates(t: Tenant, su: Setup, tpls: z.infer<typeof Tpl>[]) {
+  const jev = (await getInteg(t.id, "jev"))?.key;
+  const l = su.leads.find(x => x.vote === 1) || su.leads[0];
+  const fill = (x: string) => x.replace(/{{anrede}}/g, l?.person ? `Guten Tag ${l.person},` : "Guten Tag,").replace(/{{firma}}/g, l?.company || "Muster GmbH")
+    .replace(/{{vorname}}/g, l?.person.split(" ")[0] || "").replace(/{{nachname}}/g, l?.person.split(" ").slice(1).join(" ") || "")
+    .replace(/{{aufhaenger}}/g, l?.why || "die neue Niederlassung").replace(/{{absender}}/g, t.name);
+  return Promise.all(tpls.map(async x => {
+    const score = jev ? await scoreMail(jev, { subject: fill(x.subject), body: fill(x.body), company: l?.company, role: l?.role }, { wait: false }).catch(() => null) : null;
+    return { ...x, tone: x.tone === "du" ? "du" : "sie", score };
+  }));
+}
+
+export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | "goto" | "votes"; text?: string; step?: SetupStep; leads?: SetupLead[] };
+
+export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promise<Setup> {
+  if (a.action === "goto") {
+    if (!a.step || !SETUP_STEPS.includes(a.step)) return su;
+    return save(su.id, { step: a.step });
+  }
+  if (a.action === "votes") return save(su.id, { leads: (a.leads ?? su.leads).map(l => Lead.parse(l)) });
+  if (a.action === "skip") return save(su.id, { step: nextStep(su.step), skipped: [...new Set([...su.skipped, su.step])] });
+  if (a.action === "next") return save(su.id, { step: nextStep(su.step), skipped: su.skipped.filter(x => x !== su.step) });
+  if (su.step === "fertig") return su;
+  if (!ai) throw new Error("Keine KI verbunden");
+
+  const text = (a.text || "").trim().slice(0, 4000);
+  if (a.action === "message" && !text) return su;
+  const chat: ChatMsg[] = [...su.chat];
+  if (text) chat.push({ role: "me", text, step: su.step });
+
+  const o = await think(t, ai, { ...su, chat }, text, a.action === "auto");
+  const set: Partial<typeof setups.$inferInsert> = {};
+  if (o.profile) set.profile = o.profile;
+  if (o.segments?.length) set.segments = o.segments;
+  if (o.personas?.length) set.personas = o.personas;
+  if (o.leads?.length) {
+    /* keep the user's votes for companies that stay on the list */
+    const prev = new Map(su.leads.map(l => [l.company.toLowerCase(), l]));
+    set.leads = o.leads.map(l => { const p = prev.get(l.company.toLowerCase()); return p?.vote ? { ...l, vote: p.vote, reason: p.reason } : { ...l, vote: undefined, reason: "" }; });
+  }
+  if (o.templates?.length) set.templates = await scoreTemplates(t, su, o.templates.slice(0, 3));
+  chat.push({ role: "ai", text: o.reply, step: su.step, chips: o.chips.slice(0, 4) });
+  set.chat = chat.slice(-80);
+  if (a.action === "auto" || (o.advance && a.action === "message")) set.step = nextStep(su.step);
+  return save(su.id, set);
+}
+
+/* The prompt the evening research reads. Keeps the field lines the settings form edits. */
+export function buildPrompt(t: Tenant, su: Setup) {
+  const p = su.profile, segs = su.segments, per = su.personas;
+  const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))].join(", ");
+  const good = su.leads.filter(l => l.vote === 1), bad = su.leads.filter(l => l.vote === -1);
+  return [
+    `Du recherchierst jeden Abend ${t.settings.leadsPerDay} Ansprechpartner für ${t.name}${p?.summary ? `. ${p.summary}` : "."}`,
+    "",
+    `Rollen: ${uniq(per.map(x => x.role))}`,
+    `Branchen: ${uniq(segs.flatMap(x => x.industries))}`,
+    `Regionen: ${uniq(segs.flatMap(x => x.regions)) || uniq(p?.regions ?? []) || "Deutschland"}`,
+    `Größe: ${uniq(segs.map(x => x.size))}`,
+    "",
+    p?.offer && `Angebot: ${p.offer}`,
+    p?.valueProps.length && `Nutzen: ${p.valueProps.join("; ")}`,
+    segs.length && `Segmente, das beste zuerst:\n${segs.map(x => `- ${x.name}: ${x.why}${x.triggers.length ? ` Anlässe: ${x.triggers.join(", ")}.` : ""}${x.exclude.length ? ` Nicht: ${x.exclude.join(", ")}.` : ""}`).join("\n")}`,
+    per.length && `Ansprechpartner:\n${per.map(x => `- ${x.role} (${x.titles.join(", ")}): ${x.pains.join("; ")}`).join("\n")}`,
+    good.length && `Passende Beispiele: ${good.map(l => l.company + (l.reason ? ` (${l.reason})` : "")).join("; ")}`,
+    bad.length && `Nicht passend: ${bad.map(l => l.company + (l.reason ? ` (${l.reason})` : "")).join("; ")}`,
+    "",
+    "Personen findest du im Impressum (Geschäftsführung), auf Team- und Karriereseiten und über die Websuche nach öffentlichen LinkedIn-Profilen (site:linkedin.com/in \"Titel\" \"Firma\"). Melde dich nie bei LinkedIn an.",
+    "Gib den Anlass als {{aufhaenger}} zurück, und zwar als Substantivgruppe im Nominativ, zum Beispiel „die neue Niederlassung in Halle“.",
+    `Überspringe Unternehmen, die bereits in HubSpot stehen oder in den letzten ${t.settings.cooldownDays} Tagen angeschrieben wurden.`,
+  ].filter((x): x is string => typeof x === "string").join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+/* Writes the results into the tenant. Each part is opt-in on the last screen. */
+export async function applySetup(t: Tenant, su: Setup, opts: { prompt?: string; templates?: boolean; leads?: boolean }) {
+  const out = { prompt: false, templates: 0, leads: 0 };
+  if (opts.prompt?.trim()) {
+    await db.update(tenants).set({ settings: { ...t.settings, prompt: opts.prompt.trim() } }).where(eq(tenants.id, t.id));
+    out.prompt = true;
+  }
+  if (opts.templates) {
+    const required = ["{{anrede}}"];
+    for (const x of su.templates.filter(x => !lint(x.subject, x.body, required).some(e => e.includes("unbekannt")))) {
+      const v = { name: x.name || `Variante ${x.key}`, tone: x.tone, subject: x.subject, body: x.body, active: true, origin: "Einrichtung" };
+      await db.insert(templates).values({ tenantId: t.id, key: x.key, ...v }).onConflictDoUpdate({ target: [templates.tenantId, templates.key], set: { ...v, score: null } });
+      out.templates++;
+    }
+  }
+  if (opts.leads) {
+    const known = new Set((await db.select({ c: leads.company }).from(leads).where(eq(leads.tenantId, t.id))).map(r => r.c.toLowerCase()));
+    for (const l of su.leads.filter(l => l.vote === 1 && !known.has(l.company.toLowerCase()))) {
+      const [first, ...rest] = l.person.split(/\s+/);
+      await db.insert(leads).values({ tenantId: t.id, company: l.company, city: l.city, website: l.website, first: first || "", last: rest.join(" "), role: l.role,
+        email: l.email, linkedin: l.linkedin, hook: l.why, source: "Einrichtung", status: "neu" });
+      out.leads++;
+    }
+  }
+  await db.update(setups).set({ step: "fertig", doneAt: new Date(), updatedAt: new Date() }).where(and(eq(setups.id, su.id)));
+  return out;
+}

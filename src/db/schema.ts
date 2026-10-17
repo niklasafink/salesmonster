@@ -154,6 +154,31 @@ export const claims = pgTable("claims", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [uniqueIndex("claims_key").on(t.scope, t.key)]);
 
+/* Guided setup: the AI interviews the user step by step and fills these, then writes prompt and templates */
+export const SETUP_STEPS = ["website", "zielgruppe", "ansprechpartner", "liste", "ansprache", "fertig"] as const;
+export type SetupStep = typeof SETUP_STEPS[number];
+export type Profile = { name: string; summary: string; offer: string; valueProps: string[]; customers: string[]; proof: string[]; regions: string[]; language: string; pricing: string };
+export type Segment = { name: string; industries: string[]; size: string; regions: string[]; triggers: string[]; why: string; exclude: string[] };
+export type Persona = { role: string; titles: string[]; segment: string; pains: string[]; goals: string[]; query: string };
+export type SetupLead = { company: string; website: string; city: string; segment: string; person: string; role: string; linkedin: string; email: string; why: string; vote?: 1 | -1; reason?: string };
+export type SetupTemplate = { key: string; name: string; tone: string; subject: string; body: string; score?: MailScore | null };
+export type ChatMsg = { role: "ai" | "me"; text: string; step: SetupStep; chips?: string[] };
+
+export const setups = pgTable("setups", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }).unique(),
+  step: text("step").$type<SetupStep>().notNull().default("website"),
+  profile: jsonb("profile").$type<Profile | null>(),
+  segments: jsonb("segments").$type<Segment[]>().notNull().default([]),
+  personas: jsonb("personas").$type<Persona[]>().notNull().default([]),
+  leads: jsonb("leads").$type<SetupLead[]>().notNull().default([]),
+  templates: jsonb("templates").$type<SetupTemplate[]>().notNull().default([]),
+  chat: jsonb("chat").$type<ChatMsg[]>().notNull().default([]),
+  skipped: jsonb("skipped").$type<SetupStep[]>().notNull().default([]),
+  doneAt: timestamp("done_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const runs = pgTable("runs", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),

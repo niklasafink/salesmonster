@@ -1,13 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { openrouterAsk, type Ai } from "./ai";
 
 export const MODEL = "claude-sonnet-5-5";
 
-type Opts = { key: string; system: string; prompt: string; web?: boolean; maxSearches?: number; effort?: "low" | "medium" | "high" };
+type Opts = { key: Ai; system: string; prompt: string; web?: boolean; maxSearches?: number; effort?: "low" | "medium" | "high" };
 
 /* One task: streams, resumes pause_turn, returns the final text */
-async function ask({ key, system, prompt, web, maxSearches = 20, effort = "medium" }: Opts): Promise<string> {
-  const client = new Anthropic({ apiKey: key });
+export async function ask({ key, system, prompt, web, maxSearches = 20, effort = "medium" }: Opts): Promise<string> {
+  if (typeof key === "object" && key.provider === "openrouter") return openrouterAsk(key, system, [{ role: "user", content: prompt }], !!web, maxSearches);
+  const client = new Anthropic({ apiKey: typeof key === "string" ? key : key.key });
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = [{ role: "user", content: prompt }];
   const tools: Anthropic.Beta.Messages.BetaToolUnion[] = web
     ? [{ type: "web_search_20260209", name: "web_search", max_uses: maxSearches, user_location: { type: "approximate", country: "DE", timezone: "Europe/Berlin" } },
@@ -27,7 +29,7 @@ async function ask({ key, system, prompt, web, maxSearches = 20, effort = "mediu
   throw new Error("Claude hat die Aufgabe nicht abgeschlossen");
 }
 
-function json<T>(text: string, schema: z.ZodType<T>): T {
+export function json<T>(text: string, schema: z.ZodType<T>): T {
   const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].map(m => m[1]);
   const candidates = [...fenced.reverse(), text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1), text.slice(text.indexOf("["), text.lastIndexOf("]") + 1)];
   for (const c of candidates) {
@@ -49,7 +51,7 @@ const LEAD_FORMAT = `Antworte am Ende mit genau einem JSON-Block in \`\`\`json, 
 {"leads":[{"company":"Firma GmbH","city":"Ort","website":"https://…","first":"Vorname","last":"Nachname","salutation":"Herr|Frau","role":"Rolle","email":"adresse","emailType":"person|info","linkedin":"URL oder leer","hook":"Anlass als Substantivgruppe im Nominativ oder leer","tenders":[{"t":"Titel","s":"Vergabestelle","f":"Frist TT.MM."}]}]}
 Leere Felder als "". Erfinde keine Namen oder Adressen: nur, was du auf einer Quelle gesehen hast.`;
 
-export async function researchLeads(key: string, prompt: string, n: number, exclude: string[], focus: string, tenders: boolean) {
+export async function researchLeads(key: Ai, prompt: string, n: number, exclude: string[], focus: string, tenders: boolean) {
   const text = await ask({
     key, effort: "medium", web: true, maxSearches: 10 + n * 4,
     system: `${prompt}\n\nDu arbeitest als Recherche-Assistent für Vertrieb im Mittelstand. ${LEAD_FORMAT}`,
@@ -61,7 +63,7 @@ ${exclude.slice(0, 400).join("; ") || "(keine)"}`,
   return json(text, z.object({ leads: z.array(LeadOut) })).leads.slice(0, n);
 }
 
-export async function enrichLead(key: string, prompt: string, lead: Partial<LeadOut> & { company: string }, tenders: boolean) {
+export async function enrichLead(key: Ai, prompt: string, lead: Partial<LeadOut> & { company: string }, tenders: boolean) {
   const text = await ask({
     key, effort: "low", web: true, maxSearches: 8,
     system: `${prompt}\n\n${LEAD_FORMAT}`,
@@ -72,7 +74,7 @@ ${JSON.stringify(lead)}`,
 }
 
 const ImportRow = z.object({ co: z.string().min(2), p: s(), role: s(), email: s(), web: s(), city: s() });
-export async function parseImport(key: string, raw: string) {
+export async function parseImport(key: Ai, raw: string) {
   const text = await ask({
     key, effort: "low",
     system: "Du liest unstrukturierte Listen (Bieterlisten, Tabellen, Freitext) und gibst Firmen als JSON zurück.",
@@ -85,7 +87,7 @@ ${raw.slice(0, 40000)}`,
 }
 
 const Imp = z.object({ street: s(), zip: s(), city: s(), gf: s(), vat: s(), hrb: s() });
-export async function impressum(key: string, domain: string) {
+export async function impressum(key: Ai, domain: string) {
   const text = await ask({
     key, effort: "low", web: true, maxSearches: 4,
     system: "Du liest Impressumsseiten deutscher Unternehmen und gibst die Angaben als JSON zurück.",
@@ -97,7 +99,7 @@ Antworte nur mit \`\`\`json {…}\`\`\`.`,
 
 const TplOut = z.object({ name: s(), subject: z.string().min(3), body: z.string().min(20) });
 /* Rewrites one template into new variants; the caller scores them with Jev */
-export async function proposeTemplates(key: string, brief: string, n: number) {
+export async function proposeTemplates(key: Ai, brief: string, n: number) {
   const text = await ask({
     key, effort: "high",
     system: "Du schreibst kurze deutsche Erstkontakt-Mails für den B2B-Mittelstand. Du verbesserst Vorlagen anhand von Messwerten und Regeln, nicht nach Geschmack.",

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, leads, members, messages, runs, templates, tenants, users, type MailScore, type TemplateScore } from "@/db";
 import { getInteg } from "./integrations";
 import { proposeTemplates } from "./claude";
+import { aiFor } from "./ai";
 import { fill } from "./fill";
 import { scoreMail } from "./jev";
 import { lint, PLAYBOOK } from "./playbook";
@@ -49,9 +50,9 @@ ${t.body}`;
 
 export async function optimizeTemplates(t: Tenant) {
   const jev = (await getInteg(t.id, "jev"))?.key;
-  const claude = (await getInteg(t.id, "claude"))?.key;
+  const claude = await aiFor(t.id);
   if (!jev) throw new Error("Jev ist nicht verbunden");
-  if (!claude) throw new Error("Claude ist nicht verbunden");
+  if (!claude) throw new Error("Keine KI verbunden");
 
   const sample = await db.select().from(leads)
     .where(and(eq(leads.tenantId, t.id), t.tenders ? sql`jsonb_array_length(${leads.tenders}) > 0` : sql`${leads.hook} <> ''`))

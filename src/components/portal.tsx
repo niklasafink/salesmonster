@@ -8,8 +8,10 @@ import { Leads } from "./views/leads";
 import { Vorlagen } from "./views/vorlagen";
 import { Einstellungen } from "./views/einstellungen";
 import { Rechnungen } from "./views/rechnungen";
+import { Einrichtung } from "./views/einrichtung";
 
 const VIEWS: Record<string, [string, string]> = {
+  einrichtung: ["Einrichtung", "sparkles"],
   freigabe: ["Freigabe", "inbox"], statistik: ["Übersicht", "layout-dashboard"], leads: ["Leads", "users"],
   vorlagen: ["Vorlagen", "file-text"], rechnungen: ["Rechnungen", "receipt-text"], einstellungen: ["Einstellungen", "settings-2"],
 };
@@ -43,6 +45,8 @@ export default function Portal() {
     const j = await api<State>(`/api/state${s ? `?t=${encodeURIComponent(s)}` : ""}`);
     setSt(j);
     if (j.tenant && j.tenant.slug !== s) { setSlug(j.tenant.slug); ls.set("sp-tenant", j.tenant.slug); }
+    /* a fresh tenant opens in the guided setup */
+    if (j.tenant && !j.setup.started && !j.drafts.length && !location.hash) setViewS("einrichtung");
   }, []);
   const reload = useCallback(() => load(slug), [load, slug]);
 
@@ -60,7 +64,7 @@ export default function Portal() {
   const switchTenant = useCallback((s: string) => { setSlug(s); ls.set("sp-tenant", s); setPop(null); load(s).catch(e => toast(e.message)); }, [load, toast]);
 
   const hasInvoice = !!st?.tenant?.invoice;
-  const navKeys = Object.keys(VIEWS).filter(v => v !== "rechnungen" || hasInvoice);
+  const navKeys = Object.keys(VIEWS).filter(v => (v !== "rechnungen" || hasInvoice) && (v !== "einrichtung" || !st?.setup.done));
   const curView = view === "rechnungen" && st && !hasInvoice ? "freigabe" : view;
 
   const ctx: Ctx | null = st ? { st, reload, toast, setView, openSidebar: () => setSbo(true) } : null;
@@ -73,6 +77,7 @@ export default function Portal() {
       ...st.tenants.filter(t => t.slug !== st.tenant?.slug).map(t => ({ g: "Mandant", ic: "building-2", n: `Wechseln zu ${t.name}`, run: () => switchTenant(t.slug) })),
       { g: "Aktion", ic: "check-check", n: "Alle freigeben", run: async () => { setView("freigabe"); try { const n = await approveAllDrafts(st); await reload(); toast(n ? `${n} Nachrichten freigegeben` : "Alles ist schon freigegeben"); } catch (e) { toast((e as Error).message); } } },
       { g: "Aktion", ic: "target", n: "Zielgruppe bearbeiten", run: () => setView("einstellungen") },
+      { g: "Aktion", ic: "sparkles", n: "Mit KI einrichten", run: () => setView("einrichtung") },
       { g: "Aktion", ic: "sun-moon", n: "Hell / Dunkel umschalten", run: () => toggleTheme() },
       ...st.drafts.map(d => ({ g: "Leads heute", ic: "user", n: d.lead.company, run: () => { setView("freigabe"); setFocusLead(d.id); } })),
     ];
@@ -137,6 +142,7 @@ export default function Portal() {
             : curView === "leads" ? <Leads key={t.slug} ctx={ctx} />
             : curView === "vorlagen" ? <Vorlagen key={t.slug} ctx={ctx} />
             : curView === "rechnungen" ? <Rechnungen key={t.slug} ctx={ctx} />
+            : curView === "einrichtung" ? <Einrichtung key={t.slug} ctx={ctx} />
             : <Einstellungen key={t.slug} ctx={ctx} />}
         </main>
       </div>
@@ -148,7 +154,7 @@ export default function Portal() {
           : <div className="grp">Nichts gefunden</div>}</div>
       </div></div>}
 
-      {dlg === "tenant" && <TenantDialog onClose={() => setDlg(null)} onDone={s => { setDlg(null); switchTenant(s); toast("Mandant angelegt"); }} />}
+      {dlg === "tenant" && <TenantDialog onClose={() => setDlg(null)} onDone={s => { setDlg(null); switchTenant(s); setView("einrichtung"); }} />}
       {dlg === "pw" && <PwDialog onClose={() => setDlg(null)} onDone={() => { setDlg(null); toast("Passwort geändert"); }} />}
 
       {toastS && <div className="toast"><Icon n="check" /><span>{toastS.m}</span>{toastS.action && <a className="btn" href={toastS.action.href}><Icon n="download" />{toastS.action.label}</a>}</div>}

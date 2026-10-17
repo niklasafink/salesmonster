@@ -12,6 +12,7 @@ export type State = {
   me: Person; users: Person[]; tenants: { slug: string; name: string; initials: string }[];
   tenant: TenantInfo | null; templates: Tpl[]; drafts: Draft[];
   integ: Record<string, { on: boolean; detail: string }>; msConfigured: boolean; mailbox: Record<number, string | null>; runs: Run[];
+  setup: { step: string; done: boolean; started: boolean };
 };
 
 export type Ctx = {

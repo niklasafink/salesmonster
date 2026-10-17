@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { db, leads, members, messages, templates, tenants } from "@/db";
+import { db, leads, members, messages, setups, templates, tenants } from "@/db";
 import { qp, route, tenantMembers } from "@/lib/api";
 import { integStatus } from "@/lib/integrations";
 import { lastRuns } from "@/lib/outreach";
@@ -22,6 +22,8 @@ export const GET = route(async (req, _c, me) => {
     .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben", "uebersprungen"])))
     .orderBy(asc(messages.batchDate), asc(messages.id));
 
+  const [su] = await db.select({ step: setups.step, doneAt: setups.doneAt }).from(setups).where(eq(setups.tenantId, t.id));
+
   const mailbox: Record<number, string | null> = {};
   for (const p of people) mailbox[p.id] = await mailboxOf(t.id, p.id);
 
@@ -38,5 +40,6 @@ export const GET = route(async (req, _c, me) => {
     msConfigured: msConfigured(),
     mailbox,
     runs: await lastRuns(t.id),
+    setup: { step: su?.step ?? "website", done: !!su?.doneAt, started: !!su },
   };
 });
