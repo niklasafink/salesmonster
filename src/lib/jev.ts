@@ -146,3 +146,19 @@ export async function guessColumns(key: string, cols: { head: string; samples: s
   }
   return out;
 }
+
+/* Are two contact entries the same person? Up to 25 pairs per call, for the import's unclear cases
+   (initials, typos, legal form or domain instead of the same company name). Only 80 % certainty counts as same. */
+export async function samePeople(key: string, pairs: [string, string][]): Promise<boolean[]> {
+  const out = pairs.map(() => false);
+  for (let i = 0; i < pairs.length; i += 25) {
+    const chunk = pairs.slice(i, i + 25);
+    const questions: Record<string, Question> = Object.fromEntries(chunk.map(([a, b], k) => [`d${k}`, {
+      type: "noul" as const,
+      instructions: `Entry A: ${a}\nEntry B: ${b}\nAre A and B the same person at the same company?`,
+    }]));
+    const r = await decide(key, "Duplicate check for a German B2B lead list. Initials, academic titles, umlaut spellings (ü/ue), typos, legal forms (GmbH, GmbH & Co. KG) and a missing field can still be the same person. A different first name at the same company is usually a colleague, not the same person.", questions, true);
+    chunk.forEach((_, k) => { out[i + k] = pick(r[`d${k}`], "noul").noul >= 0.8; });
+  }
+  return out;
+}
