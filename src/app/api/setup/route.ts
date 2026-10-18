@@ -46,11 +46,11 @@ export const POST = route(async (req, _c, me) => {
     await db.update(tenants).set({ settings: { ...t.settings, ai: pick } }).where(eq(tenants.id, t.id));
     t = { ...t, settings: { ...t.settings, ai: pick } };
     /* the question and the answer stay in the chat, then step 1 starts with the chosen model */
-    const next = await act(t, await aiFor(t.id, me.id), su, { action: "start", intro: [{ role: "ai", text: c.question, step: su.step }, { role: "me", text: o.label, step: su.step }] });
+    const next = await act(t, await aiFor(t.id, me.id), su, { action: "start", intro: [{ role: "ai", text: c.question, step: su.step }, { role: "me", text: o.label, step: su.step }] }, req.signal);
     return { setup: next, sources: await stepSources(t.id, next), parts: promptParts(t, next), keys: PROMPT_KEY, ai: true, choose: null, question: "", chats: await listChats(t.id) };
   }
   if (!["start", "message", "auto", "next", "skip", "goto", "votes", "prompt"].includes(b.action)) throw new HttpError(400, "Unbekannte Aktion");
   const { intro: _drop, ...a } = b as Action & { t: string };
-  const next = await act(t, await aiFor(t.id, me.id), su, a);
+  const next = await act(t, await aiFor(t.id, me.id), su, a, req.signal);
   return { setup: next, sources: await stepSources(t.id, next), parts: promptParts(t, next), keys: PROMPT_KEY, chats: await listChats(t.id) };
 });

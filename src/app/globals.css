@@ -498,6 +498,7 @@ a.btn{text-decoration:none}
 .cl-send:hover{background:var(--cl-accent-h)}
 .cl-send .lucide{width:16px; height:16px; stroke-width:2.25}
 .cl-send:disabled{opacity:.45; pointer-events:none}
+.cl-send .lucide-square{width:12px; height:12px; fill:currentColor; stroke-width:0}
 
 /* Lists and mails inline in the chat */
 .cl-inl{display:flex; flex-direction:column; gap:12px; padding:4px 0 12px}

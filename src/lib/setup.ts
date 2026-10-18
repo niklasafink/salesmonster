@@ -86,12 +86,12 @@ function context(t: Tenant, su: Setup) {
 const EFFORT: Record<SetupStep, "low" | "medium" | "high"> = { website: "medium", zielgruppe: "medium", ansprechpartner: "medium", liste: "medium", ansprache: "high", fertig: "low" };
 
 /* One model call for the current step. text = what the user wrote; auto = decide alone */
-async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean) {
+async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean, signal?: AbortSignal) {
   const history = su.chat.filter(m => m.step === su.step).slice(-12).map(m => `${m.role === "ai" ? "Du" : "Nutzer"}: ${m.text}`).join("\n");
   const ask_ = auto ? "Der Nutzer möchte, dass du diesen Schritt ohne Rückfragen selbst erledigst. Triff alle Entscheidungen selbst, fülle die Felder vollständig und setze advance auf true."
     : text ? `Nutzer: ${text}` : "Beginne diesen Schritt: erledige die Recherche bzw. den Entwurf und stelle dann deine erste Frage.";
   const raw = await ask({
-    key: ai, system: skillFor(su.step), web: !!WEB[su.step], maxSearches: WEB[su.step] ?? 0, effort: EFFORT[su.step],
+    key: ai, system: skillFor(su.step), web: !!WEB[su.step], maxSearches: WEB[su.step] ?? 0, effort: EFFORT[su.step], signal,
     prompt: `${context(t, su)}${history ? `\n\nBisheriger Verlauf in diesem Schritt:\n${history}` : ""}\n\n${ask_}`,
   });
   return json(raw, Out);
@@ -115,7 +115,8 @@ export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | 
 /* Which step writes which prompt section, so an AI update replaces a hand edit */
 const drop = (su: Setup, ...steps: SetupStep[]) => Object.fromEntries(Object.entries(su.prompts).filter(([k]) => !steps.includes(k as SetupStep) && k !== "fertig"));
 
-export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promise<Setup> {
+/* signal: the user stopped the answer in the chat, nothing from this turn is saved */
+export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal?: AbortSignal): Promise<Setup> {
   if (a.action === "goto") {
     if (!a.step || !SETUP_STEPS.includes(a.step)) return su;
     return save(su.id, { step: a.step });
@@ -139,7 +140,8 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promi
   const chat: ChatMsg[] = [...su.chat, ...(a.intro ?? [])];
   if (text) chat.push({ role: "me", text, step: su.step });
 
-  const o = await think(t, ai, { ...su, chat }, text, a.action === "auto");
+  const o = await think(t, ai, { ...su, chat }, text, a.action === "auto", signal);
+  if (signal?.aborted) return su;
   const set: Partial<typeof setups.$inferInsert> = {};
   if (o.profile) set.profile = mergeProfile(su.profile, o.profile);
   if (o.segments?.length) set.segments = o.segments;

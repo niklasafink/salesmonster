@@ -8,11 +8,11 @@ export const MODEL = "claude-sonnet-5-5";
 const NEW_WEB = /^claude-(opus|sonnet)-/;
 const FALLBACK = /^claude-(opus|sonnet|fable)-/;
 
-type Opts = { key: Ai; system: string; prompt: string; web?: boolean; maxSearches?: number; effort?: "low" | "medium" | "high" };
+type Opts = { key: Ai; system: string; prompt: string; web?: boolean; maxSearches?: number; effort?: "low" | "medium" | "high"; signal?: AbortSignal };
 
 /* One task: streams, resumes pause_turn, returns the final text */
-export async function ask({ key, system, prompt, web, maxSearches = 20, effort = "medium" }: Opts): Promise<string> {
-  if (typeof key === "object" && key.provider === "openrouter") return openrouterAsk(key, system, [{ role: "user", content: prompt }], !!web, maxSearches);
+export async function ask({ key, system, prompt, web, maxSearches = 20, effort = "medium", signal }: Opts): Promise<string> {
+  if (typeof key === "object" && key.provider === "openrouter") return openrouterAsk(key, system, [{ role: "user", content: prompt }], !!web, maxSearches, signal);
   const client = new Anthropic({ apiKey: typeof key === "string" ? key : key.key });
   const model = (typeof key === "object" && key.model) || MODEL, modern = NEW_WEB.test(model);
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = [{ role: "user", content: prompt }];
@@ -25,7 +25,7 @@ export async function ask({ key, system, prompt, web, maxSearches = 20, effort =
       model, max_tokens: 32000, system, messages, tools: tools.length ? tools : undefined,
       output_config: { effort },
       ...(FALLBACK.test(model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}),
-    } as Anthropic.Beta.Messages.MessageCreateParamsStreaming).finalMessage();
+    } as Anthropic.Beta.Messages.MessageCreateParamsStreaming, { signal }).finalMessage();
     if (msg.stop_reason === "refusal") throw new Error("Claude hat die Anfrage abgelehnt");
     if (msg.stop_reason === "max_tokens") throw new Error("Antwort von Claude zu lang, bitte in kleineren Teilen versuchen");
     if (msg.stop_reason === "pause_turn") { messages.push({ role: "assistant", content: msg.content as Anthropic.Beta.Messages.BetaContentBlockParam[] }); continue; }

@@ -42,9 +42,9 @@ export class AiMissing extends Error { constructor() { super("Keine KI verbunden
 type Msg = { role: "user" | "assistant"; content: string };
 
 /* OpenRouter chat completion; web search through the web plugin (native search for Anthropic, OpenAI, Google models) */
-export async function openrouterAsk(ai: { key: string; model?: string }, system: string, messages: Msg[], web: boolean, maxResults: number): Promise<string> {
+export async function openrouterAsk(ai: { key: string; model?: string }, system: string, messages: Msg[], web: boolean, maxResults: number, signal?: AbortSignal): Promise<string> {
   const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
+    method: "POST", signal,
     headers: { authorization: `Bearer ${ai.key}`, "content-type": "application/json", "x-title": "Sales Portal", "http-referer": "https://sales-portal-sooty.vercel.app" },
     body: JSON.stringify({
       model: ai.model || OPENROUTER_MODELS[0][0], max_tokens: 16000,

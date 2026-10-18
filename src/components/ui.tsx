@@ -24,8 +24,8 @@ export function Icon({ n, className }: { n: string; className?: string }) {
   return <C className={`${n === "loader" ? "spin " : ""}${className || ""}`} aria-hidden="true" />;
 }
 
-export async function api<T = unknown>(url: string, init?: { method?: string; body?: unknown }): Promise<T> {
-  const r = await fetch(url, { method: init?.method || (init?.body ? "POST" : "GET"), headers: init?.body ? { "content-type": "application/json" } : undefined,
+export async function api<T = unknown>(url: string, init?: { method?: string; body?: unknown; signal?: AbortSignal }): Promise<T> {
+  const r = await fetch(url, { signal: init?.signal, method: init?.method || (init?.body ? "POST" : "GET"), headers: init?.body ? { "content-type": "application/json" } : undefined,
     body: init?.body ? JSON.stringify(init.body) : undefined });
   if (r.status === 401) { location.href = "/login"; throw new Error("Nicht angemeldet"); }
   const j = await r.json().catch(() => ({}));

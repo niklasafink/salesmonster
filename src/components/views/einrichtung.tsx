@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActionBarPrimitive, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useAuiState, useExternalStoreRuntime, type AppendMessage } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { OPENROUTER_MODELS } from "@/lib/integ-meta";
@@ -42,11 +42,14 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   const load = useCallback(() => api<Res>(`/api/setup?t=${t.slug}`).then(apply).catch(e => ctx.toast(e.message, { error: true })), [t.slug, apply, ctx]);
   useEffect(() => { load(); }, [load]);
 
+  /* the running AI request; the stop button aborts it and the server drops the turn */
+  const run = useRef<AbortController | null>(null), stopped = useRef(false), [running, setRunning] = useState(false);
   const post = useCallback(async (body: Record<string, unknown>) => {
-    setBusy(true);
-    try { const r = await api<Res>("/api/setup", { body: { t: t.slug, ...body } }); apply(r); return r.setup; }
-    catch (e) { ctx.toast((e as Error).message, { error: true }); return null; }
-    finally { setBusy(false); }
+    const c = new AbortController();
+    run.current = c; stopped.current = false; setBusy(true); setRunning(true);
+    try { const r = await api<Res>("/api/setup", { body: { t: t.slug, ...body }, signal: c.signal }); apply(r); return r.setup; }
+    catch (e) { stopped.current = c.signal.aborted; if (!stopped.current) ctx.toast((e as Error).message, { error: true }); return null; }
+    finally { if (run.current === c) { run.current = null; setBusy(false); setRunning(false); } }
   }, [t.slug, apply, ctx]);
 
   const good = su ? su.leads.filter(l => l.vote === 1).length : 0;
@@ -68,7 +71,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   }, [su, ai, local, good, choose, question]);
 
   /* Typewriter: what was there on first load counts as read, every later AI turn is typed out in order */
-  const [read, setRead] = useState<Set<string> | null>(null), [tp, setTp] = useState({ id: "", n: 0 });
+  const [read, setRead] = useState<Set<string> | null>(null), [tp, setTp] = useState({ id: "", n: 0 }), [cut, setCut] = useState<Record<string, number>>({});
   useEffect(() => { if (su && !read) setRead(new Set(lines.filter(l => l.id !== "connect" && l.id !== "fertig" && l.id !== "pick").map(l => l.id))); }, [su, read, lines]);
   /* another chat opened: its history counts as read like on first load */
   const suId = su?.id;
@@ -85,9 +88,11 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   }, [next, typed]);
   const shown = useMemo(() => {
     if (!read) return [];
-    if (!next) return lines;
-    return [...lines.slice(0, lines.indexOf(next)), { ...next, text: next.text.slice(0, typed) }];
-  }, [read, lines, next, typed]);
+    /* turns stopped while typing stay cut off where they were */
+    const xs = lines.map(l => l.id in cut ? { ...l, text: l.text.slice(0, cut[l.id]), chips: undefined } : l);
+    if (!next) return xs;
+    return [...xs.slice(0, lines.indexOf(next)), { ...next, text: next.text.slice(0, typed) }];
+  }, [read, lines, next, typed, cut]);
   const typing = !!next;
 
   /* Entering a step the AI has not spoken in yet starts it */
@@ -98,10 +103,14 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     setStarted(key); post({ action: "start" });
   }, [su, ai, choose, busy, started, post]);
 
+  /* a stopped message goes back into the composer, the server never saved it */
+  const back = useRef<(msg: string) => void>(() => {});
   const send = useCallback(async (msg: string) => {
     if (!msg.trim()) return;
     setSu(s => s && { ...s, chat: [...s.chat, { role: "me", text: msg, step: s.step }] });
-    await post({ action: "message", text: msg });
+    if (await post({ action: "message", text: msg }) || !stopped.current) return;
+    setSu(s => s && { ...s, chat: s.chat.slice(0, -1) });
+    back.current(msg);
   }, [post]);
 
   async function pick(label: string) {
@@ -148,10 +157,18 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
 
   const goto = (k: SetupStep) => { setRail(false); if (su && k !== su.step) post({ action: "goto", step: k }); };
 
+  /* stop: aborts the request, or ends the typewriter where it is */
+  const stop = () => {
+    if (run.current) { run.current.abort(); run.current = null; setBusy(false); setRunning(false); }
+    if (next) { setCut(c => ({ ...c, [next.id]: typed })); setRead(r => r && new Set(r).add(next.id)); }
+  };
+
   const runtime = useExternalStoreRuntime({
     messages: shown, convertMessage: convert, isRunning: busy || typing, isDisabled: su?.step === "fertig",
     onNew: async (m: AppendMessage) => { const p = m.content.find(c => c.type === "text"); if (p?.type !== "text") return; if (choose) await pick(p.text); else if (ai) await send(p.text); else await connect(p.text); },
+    onCancel: async () => stop(),
   });
+  useEffect(() => { back.current = msg => runtime.thread.composer.setText(msg); }, [runtime]);
 
   const top = <Top title="Einrichtung" onMenu={ctx.openSidebar}>
     <button className="btn gh ic cl-mob" onClick={() => setRail(true)} aria-label="Schritte anzeigen"><Icon n="menu" /></button>
@@ -164,7 +181,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     {top}
   <div className={`cl ${rail ? "rail" : ""}`}>
     <nav className="cl-rail">
-      <Steps su={su} sources={res?.sources ?? {}} busy={busy} open={k => { setRail(false); setOpen(k); }} />
+      <Steps su={su} sources={res?.sources ?? {}} open={k => { setRail(false); setOpen(k); }} />
       <div className="cl-rs cl-chats">
         <button className="cl-sh" onClick={() => chat({ action: "new" })} disabled={busy || !su.chat.length}><Icon n="plus" />Neuer Chat</button>
         {chats.length > 1 && <>
@@ -190,7 +207,9 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
             <ThreadPrimitive.ViewportFooter className="cl-foot">
               <ComposerPrimitive.Root className="cl-comp">
                 <ComposerPrimitive.Input rows={1} autoFocus placeholder={ai ? "Antworten" : "API-Schlüssel einfügen"} aria-label="Antwort" className="cl-in" />
-                <div className="cl-cbar"><span className="sp" /><ComposerPrimitive.Send className="cl-send" aria-label="Senden"><Icon n="arrow-up" /></ComposerPrimitive.Send></div>
+                <div className="cl-cbar"><span className="sp" />{running || typing
+                  ? <button type="button" className="cl-send" onClick={stop} aria-label="Antwort abbrechen"><Icon n="square" /></button>
+                  : <ComposerPrimitive.Send className="cl-send" aria-label="Senden"><Icon n="arrow-up" /></ComposerPrimitive.Send>}</div>
               </ComposerPrimitive.Root>
             </ThreadPrimitive.ViewportFooter>
           </ThreadPrimitive.Viewport>
@@ -222,7 +241,7 @@ function PromptDialog({ step, text, label, busy, onClose, onGo, onSave }: {
       {step !== "fertig" && <button className="btn sec" onClick={onGo} disabled={busy}>Zu diesem Schritt</button>}
       <span className="sp" />
       <button className="btn gh" onClick={onClose}>Abbrechen</button>
-      <button className="btn pri" onClick={async () => { setSaving(true); await onSave(v); setSaving(false); }} disabled={saving || v === text}>{saving && <Icon n="loader" />}Speichern</button>
+      <button className="btn pri" onClick={async () => { setSaving(true); await onSave(v); setSaving(false); }} disabled={busy || saving || v === text}>{saving && <Icon n="loader" />}Speichern</button>
     </div>
   </div></div>;
 }
@@ -246,11 +265,11 @@ function Spark({ spin }: { spin?: boolean }) {
 }
 
 /* The dot says who filled the step, the highlighted row which step the chat is on */
-function Steps({ su, sources, busy, open }: { su: Setup; sources: Sources; busy: boolean; open: (k: SetupStep) => void }) {
+function Steps({ su, sources, open }: { su: Setup; sources: Sources; open: (k: SetupStep) => void }) {
   return <div className="cl-rs">{STEPS.map(([k, n]) => {
     const cur = k === su.step, skipped = su.skipped.includes(k), src = sources[k];
     return <div key={k} className={`cl-sec ${cur ? "on" : ""}`}>
-      <button className="cl-sh" onClick={() => open(k)} disabled={busy} aria-current={cur ? "step" : undefined}>
+      <button className="cl-sh" onClick={() => open(k)} aria-current={cur ? "step" : undefined}>
         <i className={`cl-dot ${src ?? "off"}`} title={src ? SOURCE[src] : "Offen"} aria-label={src ? SOURCE[src] : "Offen"} />{n}{skipped && <span className="cl-skip">übersprungen</span>}
       </button>
     </div>;
