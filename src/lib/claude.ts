@@ -79,6 +79,7 @@ export async function parseImport(key: Ai, raw: string) {
     key, effort: "low",
     system: "Du liest unstrukturierte Listen (Bieterlisten, Tabellen, Freitext) und gibst Firmen als JSON zurück.",
     prompt: `Erkenne alle Firmen in diesem Text. Je Firma: co (Firmenname mit Rechtsform), p (Ansprechpartner Vor- und Nachname), role (Rolle wie Geschäftsführung, Inhaber), email, web (Website), city (Ort).
+Hat der Text eine Kopfzeile (z. B. Tabulator-getrennte Spalten aus Excel), ordne die Felder anhand der Spaltennamen zu und lies jede weitere Zeile als eine Firma; Vor- und Nachname aus getrennten Spalten zusammensetzen.
 Nichts erfinden. Antworte nur mit \`\`\`json {"rows":[…]}\`\`\`.
 
 ${raw.slice(0, 40000)}`,

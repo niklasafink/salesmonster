@@ -49,4 +49,10 @@ describe("Lead-Import über die Leads-Routen", () => {
       ["Neu Holz AG", "", ""],
     ]);
   });
+
+  it("Tabulator-Text aus einer Datei: Kopfzeile wird kein Lead", async () => {
+    const text = "Firma\tAnsprechpartner\tE-Mail\tWebsite\nWeber Bau GmbH\tAnna Weber\tanna@weber-bau.de\twww.weber-bau.de";
+    const { json } = await call(PARSE, { as: me, body: { t: slug, text } });
+    expect(json.rows.map((r: { co: string; email: string; web: string }) => [r.co, r.email, r.web])).toEqual([["Weber Bau GmbH", "anna@weber-bau.de", "www.weber-bau.de"]]);
+  });
 });
