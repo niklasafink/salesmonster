@@ -1,6 +1,7 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { db, leads, messages, tenants, type RatingInfo } from "@/db";
-import { JevLimit, guessFit, jevKey } from "./jev";
+import { eq, sql } from "drizzle-orm";
+import { db, leads, messages, type RatingInfo } from "@/db";
+import { after } from "next/server";
+import { fitLeads } from "./lead-fit";
 import { learnModel, rateLead, type Outcome, type RateLead } from "./lead-rating";
 
 type Lead = typeof leads.$inferSelect;
@@ -38,33 +39,22 @@ export async function rerate(tenantId: number, now = new Date()) {
   return rows.length;
 }
 
-/* Jev's 0–4 match with the ideal customer for leads that have none yet; a rate limit leaves the rest for the next run */
-export async function fitLeads(tenantId: number, only?: number[]) {
-  const key = await jevKey(tenantId);
-  if (!key) return 0;
-  const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
-  if (!t?.settings.prompt.trim()) return 0;
-  const open = await db.select().from(leads).where(and(eq(leads.tenantId, tenantId), isNull(leads.fit), inArray(leads.status, ["neu", "freigabe"]),
-    only ? inArray(leads.id, only.length ? only : [0]) : isNotNull(leads.id))).limit(200);
-  let n = 0;
-  for (let i = 0; i < open.length; i += 25) {
-    const chunk = open.slice(i, i + 25);
-    try {
-      const fit = await guessFit(key, t.settings.prompt, chunk, { wait: false });
-      const values = sql.join(chunk.map((l, k) => sql`(${l.id}::int, ${fit[k]}::real)`), sql`, `);
-      await db.execute(sql`update leads set fit = v.fit from (values ${values}) as v(id, fit) where leads.id = v.id`);
-      n += chunk.length;
-    } catch (e) {
-      /* rate limit or error: the rest keeps fit null and is asked again next time */
-      if (!(e instanceof JevLimit)) console.error("fit", tenantId, (e as Error).message);
-      break;
-    }
-  }
-  return n;
-}
-
 /* After anything that changes what we know about leads: fit for the new ones, then all ratings */
 export async function refreshRatings(tenantId: number, newIds?: number[]) {
-  await fitLeads(tenantId, newIds).catch(e => console.error("fit", e));
+  const r = await fitLeads(tenantId, newIds).catch(e => ({ judged: 0, failed: 0, error: (e as Error).message }));
+  if (r.error) console.error("fit", tenantId, r.error);
   return rerate(tenantId);
 }
+
+/* Runs after the response inside a request; outside one (scripts, tests) it runs right away */
+export async function later(fn: () => Promise<unknown>) {
+  const run = () => fn().catch(e => console.error("later", (e as Error).message));
+  try { after(run); } catch { await run(); }
+}
+
+/* Leads the AI has not judged yet, or whose data or ideal customer changed, then all ratings */
+export const fitPending = (tenantId: number) => later(async () => {
+  const r = await fitLeads(tenantId);
+  if (r.error) console.error("fit", tenantId, r.error);
+  if (r.judged) await rerate(tenantId);
+});

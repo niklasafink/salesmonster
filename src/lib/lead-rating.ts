@@ -1,12 +1,12 @@
-import type { Tender } from "@/db/schema";
+import type { FitInfo, Tender } from "@/db/schema";
 
-/* How likely a lead is to answer a cold mail, as a score 0–100 with grade and reasons.
+/* How good a lead is, as a score 0–100 with grade and reasons, and how likely it is to answer a cold mail.
    E[reply] = P(delivered) × P(reply | delivered); P(reply) is a sum of log-odds per feature on top of the tenant's base rate.
    Starting odds ratios come from public studies (Belkins 2025, Hunter, MadKudu, LeadMagic/gtm-skills icp-scoring, MIT);
    each feature value then learns from this tenant's own replies with a Beta prior worth 30 mails. See specs/lead-priorisierung/spec.md. */
 
 export type RateLead = { status: string; email: string; emailType: string; first: string; last: string; salutation: string; role: string; linkedin: string;
-  hook: string; tenders: Tender[]; fit: number | null; vote: number; skips: number; source: string; angleId: number | null; createdAt: Date };
+  hook: string; tenders: Tender[]; fit: number | null; fitInfo?: FitInfo | null; vote: number; skips: number; source: string; angleId: number | null; createdAt: Date };
 export type Outcome = { lead: RateLead; delivered: boolean; replied: boolean; bounced?: boolean };
 export type Reason = { pts: number; text: string; learned?: boolean };
 export type Part = "fit" | "reach" | "role" | "timing" | "feedback";
@@ -17,7 +17,6 @@ export type Model = { b0: number; base: number; stats: Record<string, Stat>; bou
 const PRIOR = 0.04, K = 30, DAMP = 0.7, MIN_N = 30, MIN_R = 3;
 const logit = (p: number) => Math.log(p / (1 - p));
 const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
-const pts = (lnOr: number) => Math.round(10 * lnOr / Math.LN2);
 
 const UNRATED = new Set(["unzustellbar", "papierkorb", "dublette", "kontakt"]);
 export const FREEMAIL = /@(gmail|googlemail|gmx|web|t-online|outlook|hotmail|live|yahoo|icloud|me|posteo|aol|mail|freenet|online)\.[a-z.]+$/i;
@@ -93,47 +92,65 @@ export function learnModel(history: Outcome[]): Model {
 /* Learned log-odds of a feature value against the base rate; its prior is the starting odds ratio */
 function weight(m: Model, key: string, lnOr: number) {
   const s = m.stats[key], p = sigmoid(m.b0 + lnOr);
-  if (!s) return { w: lnOr, learned: false };
-  return { w: logit((s.r + K * p) / (s.n + K)) - m.b0, learned: s.n >= MIN_N && s.r >= MIN_R };
+  if (!s) return { w: lnOr, learned: false, n: 0 };
+  return { w: logit((s.r + K * p) / (s.n + K)) - m.b0, learned: s.n >= MIN_N && s.r >= MIN_R, n: s.n };
 }
 
 const days = (a: Date, b: Date) => Math.max(0, Math.floor((b.getTime() - a.getTime()) / 864e5));
 
+/* The score 0–100 is the AI's fit (lib/lead-fit.ts) times how reachable the person is, times trigger, thumbs and what replies taught us.
+   `expected` stays the reply probability from the log-odds model above, for angles and strategy. Without a fit the lead is not rated yet. */
+const REACH: Record<Adr, number> = { person: 1, freemail: 0.85, role: 0.6, linkedin: 0.55, none: 0.3 };
+
 export function rateLead(l: RateLead, m: Model, now = new Date()): Rating {
   const parts: Record<Part, number> = { fit: 0, reach: 0, role: 0, timing: 0, feedback: 0 };
   if (UNRATED.has(l.status)) return { rating: null, grade: null, expected: 0, parts, reasons: [] };
-  /* nobody to write to: no mail and no LinkedIn means no chance of a reply */
-  if (!l.email && !l.linkedin) return { rating: 0, grade: "D", expected: 0, parts, reasons: [{ pts: -50, text: "Keine E-Mail und kein LinkedIn" }] };
-  const reasons: Reason[] = [];
-  let lo = 0;
-  const term = (part: Part, lnOr: number, text: string, learned = false, damp = true) => {
-    const x = damp ? DAMP * lnOr : lnOr;
-    lo += x; parts[part] += pts(x);
-    if (Math.abs(pts(x)) >= 1) reasons.push({ pts: pts(x), text, ...(learned ? { learned } : {}) });
-  };
-
-  const adr = address(l), rg = roleGroup(l.role);
-  const wa = weight(m, `adr:${adr}`, Math.log(ADR[adr].or)); term("reach", wa.w, ADR[adr].text, wa.learned);
-  if (l.email && !l.last && adr !== "role") term("reach", Math.log(0.7), "Kein Name");
-  if (adr === "role" && !l.last) term("reach", Math.log(0.7), "Kein Name");
-  const wr = weight(m, `role:${rg}`, Math.log(ROLE[rg].or)); term("role", wr.w, ROLE[rg].text, wr.learned);
-  if (l.fit !== null) { const wf = weight(m, `fit:${Math.round(l.fit)}`, Math.log(fitOr(l.fit))); term("fit", wf.w, fitText(l.fit), wf.learned, false); }
-  if (l.angleId !== null) { const wg = weight(m, `angle:${l.angleId}`, 0); term("fit", wg.w, wg.w >= 0 ? "Suchrichtung antwortet gut" : "Suchrichtung antwortet schlecht", wg.learned); }
-  const ws = weight(m, `src:${l.source}`, 0); if (ws.learned) term("fit", ws.w, ws.w >= 0 ? `Quelle ${l.source} antwortet gut` : `Quelle ${l.source} antwortet schlecht`, true);
-
-  /* a reason to write now fades: tenders with a half-life of 14 days until their deadline, other news 30 days */
-  const age = days(l.createdAt, now);
+  const adr = address(l), rg = roleGroup(l.role), age = days(l.createdAt, now);
   const tenders = l.tenders.filter(t => open(t, now));
-  if (tenders.length) term("timing", Math.log(1 + 2 ** (-age / 14)), `Ausschreibung, ${age === 1 ? "1 Tag" : `${age} Tage`} alt`, false, false);
-  else if (l.hook) term("timing", Math.log(1 + 0.6 * 2 ** (-age / 30)), `Anlass, ${age === 1 ? "1 Tag" : `${age} Tage`} alt`, false, false);
 
-  if (l.vote) term("feedback", Math.log(l.vote > 0 ? 1.5 : 0.3), l.vote > 0 ? "Daumen hoch" : "Daumen runter", false, false);
-  if (l.skips) term("feedback", l.skips * Math.log(0.85), l.skips === 1 ? "In der Freigabe übersprungen" : `${l.skips}× übersprungen`, false, false);
+  /* reply probability, log-odds per feature on the tenant's base rate */
+  let lo = 0;
+  const odds = (lnOr: number, damp = true) => { lo += damp ? DAMP * lnOr : lnOr; };
+  const wa = weight(m, `adr:${adr}`, Math.log(ADR[adr].or)); odds(wa.w);
+  if (l.email && !l.last) odds(Math.log(0.7));
+  const wr = weight(m, `role:${rg}`, Math.log(ROLE[rg].or)); odds(wr.w);
+  if (l.fit !== null) odds(weight(m, `fit:${Math.round(l.fit)}`, Math.log(fitOr(l.fit))).w, false);
+  const wg = l.angleId !== null ? weight(m, `angle:${l.angleId}`, 0) : null; if (wg) odds(wg.w);
+  const ws = weight(m, `src:${l.source}`, 0); if (ws.learned) odds(ws.w);
+  if (tenders.length) odds(Math.log(1 + 2 ** (-age / 14)), false); else if (l.hook) odds(Math.log(1 + 0.6 * 2 ** (-age / 30)), false);
+  if (l.vote) odds(Math.log(l.vote > 0 ? 1.5 : 0.3), false);
+  if (l.skips) odds(l.skips * Math.log(0.85), false);
+  const bounced = !!l.email && m.bounced.includes(domain(l.email));
+  const expected = Math.round(ADR[adr].deliver * (bounced ? 0.5 : 1) * sigmoid(m.b0 + lo) * 1000) / 1000;
+  if (l.fit === null) return { rating: null, grade: null, expected, parts, reasons: [] };
 
-  let deliver = ADR[adr].deliver;
-  if (l.email && m.bounced.includes(domain(l.email))) { deliver *= 0.5; reasons.push({ pts: -10, text: "Domain schon unzustellbar" }); parts.reach -= 10; }
-  const expected = deliver * sigmoid(m.b0 + lo);
-  const rating = Math.max(0, Math.min(100, Math.round(50 + 10 * Math.log2(expected / PRIOR))));
-  return { rating, grade: rating >= 60 ? "A" : rating >= 53 ? "B" : rating >= 45 ? "C" : "D", expected: Math.round(expected * 1000) / 1000, parts,
-    reasons: reasons.sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts)) };
+  const reasons: Reason[] = [];
+  const info = l.fitInfo;
+  let score = 100 * Math.max(0, Math.min(4, l.fit)) / 4;
+  parts.fit = Math.round(score);
+  if (info?.ko) reasons.push({ pts: -100, text: info.ko });
+  else reasons.push({ pts: parts.fit, text: info?.why || fitText(l.fit) });
+  /* each factor moves the score by a share of what it is at that point */
+  const factor = (part: Part, k: number, text: string, learned = false) => {
+    const d = score * (k - 1);
+    score += d; parts[part] += Math.round(d);
+    if (Math.abs(d) >= 0.5) reasons.push({ pts: Math.round(d), text, ...(learned ? { learned } : {}) });
+  };
+  /* how far replies moved a feature from its prior, trusted by the number of mails behind it */
+  const lift = (w: { w: number; n: number }, prior: number) => Math.max(0.5, Math.min(2, Math.exp((w.w - prior) * w.n / (w.n + MIN_N))));
+  if (REACH[adr] !== 1) factor("reach", REACH[adr], ADR[adr].text);
+  factor("reach", lift(wa, Math.log(ADR[adr].or)), wa.w >= Math.log(ADR[adr].or) ? `${ADR[adr].text} antwortet gut` : `${ADR[adr].text} antwortet schlecht`, wa.learned);
+  if (l.email && !l.last) factor("reach", 0.85, "Kein Name");
+  if (bounced) factor("reach", 0.5, "Domain schon unzustellbar");
+  if (wg) factor("fit", lift(wg, 0), wg.w >= 0 ? "Suchrichtung antwortet gut" : "Suchrichtung antwortet schlecht", wg.learned);
+  if (ws.learned) factor("fit", lift(ws, 0), ws.w >= 0 ? `Quelle ${l.source} antwortet gut` : `Quelle ${l.source} antwortet schlecht`, true);
+  /* the model already judged what the trigger says; its age adds a little urgency on top */
+  if (tenders.length) factor("timing", 1 + 0.15 * 2 ** (-age / 14), `Ausschreibung, ${age === 1 ? "1 Tag" : `${age} Tage`} alt`);
+  else if (l.hook) factor("timing", 1 + 0.05 * 2 ** (-age / 30), `Anlass, ${age === 1 ? "1 Tag" : `${age} Tage`} alt`);
+  if (l.vote) factor("feedback", l.vote > 0 ? 1.2 : 0.5, l.vote > 0 ? "Daumen hoch" : "Daumen runter");
+  if (l.skips) factor("feedback", 0.9 ** l.skips, l.skips === 1 ? "In der Freigabe übersprungen" : `${l.skips}× übersprungen`);
+
+  const rating = Math.max(0, Math.min(100, Math.round(score)));
+  return { rating, grade: rating >= 70 ? "A" : rating >= 50 ? "B" : rating >= 30 ? "C" : "D", expected, parts,
+    reasons: [reasons[0], ...reasons.slice(1).sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts))] };
 }

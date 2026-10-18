@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { GET, POST } from "@/app/api/leads/route";
 import { PATCH } from "@/app/api/leads/[id]/route";
 import { setInteg } from "@/lib/integrations";
-import { call, fakeOpenRouter, fixtures } from "./helpers";
+import { call, fakeOpenRouter, fitAnswer, fixtures } from "./helpers";
 
 const fx = fixtures();
 let me: { id: number }, slug: string;
@@ -24,7 +24,7 @@ afterAll(() => fx.cleanup());
 describe("Bewertete Leads", () => {
   it("Import: Jev schätzt die Passung, die Liste kommt nach Bewertung sortiert mit Gründen", async () => {
     /* Jev: Tiefbau passt genau, die Bäckerei kaum */
-    fakeOpenRouter({ jev: (_s, q) => Object.fromEntries(Object.entries(q).map(([k, v]) => [k, { type: "score", score: String((v as { instructions: string }).instructions).includes("Tiefbau") ? 4 : 0.5 }])) });
+    fakeOpenRouter({ chat: b => fitAnswer(b, l => l.firma.includes("Tiefbau") ? { company: 4, person: 4, need: 3 } : { company: 0, person: 3, need: 0 }) });
     const rows = [
       { co: "Bäckerei Korn", p: "Jan Korn", role: "Inhaber", email: "jan@korn.de", web: "", city: "" },
       { co: "Tiefbau Nord GmbH", p: "", role: "", email: "info@tiefbau-nord.de", web: "", city: "" },

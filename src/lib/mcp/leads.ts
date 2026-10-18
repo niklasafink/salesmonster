@@ -7,6 +7,7 @@ import { cleanLead, emailTypeOf } from "@/lib/lead-fields";
 import { HttpError, checkEmail, tenantBySlug } from "@/lib/api";
 import { addLeads } from "@/lib/lead-import";
 import { setLeadStatus } from "@/lib/outreach";
+import { later, refreshRatings } from "@/lib/ratings";
 import { checkRun } from "@/lib/workflows";
 import { tool } from "./tool";
 
@@ -28,6 +29,8 @@ const newLead = z.object({
   linkedin: s("LinkedIn-Profil-URL"),
   hook: s("Aufhänger: konkreter Anlass für die erste Mail als Substantivgruppe, z. B. „die neue Niederlassung in Halle“"),
   sourceUrl: s("URL, unter der die Angaben gefunden wurden"),
+  note: s("Notiz, z. B. Firmentyp oder Größe"),
+  research: s("Rechercheergebnis als Text; daraus bewertet die KI, wie gut der Lead passt"),
 });
 
 const STATUS = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt"] as const;
@@ -84,8 +87,13 @@ export function leadTools(server: McpServer) {
     }),
   }, async ({ tenant: slug, rows, source, run: runId }, user) => {
     const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_add");
+<<<<<<< Updated upstream
     const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", phone: r.phone || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl })), source || wr?.workflow || "Claude");
+=======
+    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl, note: r.note, research: r.research })), source || wr?.workflow || "Claude");
+>>>>>>> Stashed changes
     await wr?.count({ added: out.added.length, skipped: out.skipped.length });
+    if (out.added.length) await later(() => refreshRatings(t.id, out.added.map(a => a.id)));
     return out;
   });
 
@@ -123,6 +131,7 @@ export function leadTools(server: McpServer) {
     }
     if (moved) await attachCompanies(t.id);
     await wr?.count({ updated: updated.length });
+    if (updated.length) await later(() => refreshRatings(t.id, updated));
     return { updated, notFound };
   });
 }

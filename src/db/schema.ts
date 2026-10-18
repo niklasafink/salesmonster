@@ -24,6 +24,8 @@ export type MailScore = { reply: number; specific: number; easyAsk: number; weak
   total?: number; issues?: string[]; hash?: string; expected?: number };
 export type TemplateScore = MailScore & { hash: string; n: number; weaknesses: Record<string, number> };
 
+/* lib/lead-fit.ts: the model's judgement behind leads.fit, parts 0–4; hash says on which inputs it was made */
+export type FitInfo = { company: number; person: number; need: number; evidence: number; segment: string; ko: string; why: string; model: string; hash: string; at: string };
 export type RatingInfo = { grade: "A" | "B" | "C" | "D"; expected: number; parts: Record<"fit" | "reach" | "role" | "timing" | "feedback", number>; reasons: { pts: number; text: string; learned?: boolean }[] };
 
 export type Plan = { key: string; n: string; m: number; label: string; noFree?: boolean };
@@ -142,6 +144,7 @@ export const leads = pgTable("leads", {
   rating: integer("rating"),
   ratingInfo: jsonb("rating_info").$type<RatingInfo | null>(),
   fit: real("fit"),
+  fitInfo: jsonb("fit_info").$type<FitInfo | null>(),
   vote: integer("vote").notNull().default(0),
   angleId: integer("angle_id").references((): AnyPgColumn => angles.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

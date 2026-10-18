@@ -5,7 +5,7 @@ import { GET as LEADS } from "@/app/api/leads/route";
 import { GET as ANGLES } from "@/app/api/angles/route";
 import { setInteg } from "@/lib/integrations";
 import { researchLoop } from "@/lib/strategy";
-import { call, fakeOpenRouter, fixtures } from "./helpers";
+import { call, fakeOpenRouter, fitAnswer, fixtures, isFit } from "./helpers";
 
 const fx = fixtures();
 let me: { id: number }, t: typeof tenants.$inferSelect;
@@ -25,8 +25,8 @@ describe("Laufende Recherche", () => {
   it("macht die fälligen Runden, ordnet Leads ihrer Suchrichtung zu, bewertet sie und ändert die Strategie", async () => {
     let n = 0;
     const seen = fakeOpenRouter({
-      jev: (_s, q) => Object.fromEntries(Object.keys(q).map(k => [k, { type: "score", score: 3 }])),
-      chat: b => b.messages[0].content.includes("Recherche-Assistent")
+      chat: b => isFit(b) ? fitAnswer(b, () => ({ company: 3, person: 3, need: 3 }))
+        : b.messages[0].content.includes("Recherche-Assistent")
         ? "```json\n" + JSON.stringify({ leads: [1, 2].map(() => { n++; return { company: `Tiefbau ${n} GmbH`, first: "Eva", last: `Stein${n}`, role: "Geschäftsführerin", email: `eva@tiefbau${n}.de`, hook: "der neue Auftrag" }; }) }) + "\n```"
         : "```json\n" + JSON.stringify({ angles: [{ label: "Kanalbau NRW", query: "Kanalbaufirmen in NRW" }, { label: "Straßenbau Bayern", query: "Straßenbau mit neuen Losen" }] }) + "\n```",
     });

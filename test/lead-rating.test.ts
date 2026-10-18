@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fitOf } from "@/lib/lead-fit";
 import { learnModel, rateLead, type RateLead } from "@/lib/lead-rating";
 
 const NOW = new Date("2026-10-18T12:00:00Z");
@@ -27,7 +28,7 @@ describe("Lead-Bewertung", () => {
     expect(tender.rating!).toBeGreaterThan(oldHook.rating!);
     expect(oldHook.rating!).toBeGreaterThan(rate({}).rating! - 1);
     expect(expired.rating).toBe(rate({}).rating);
-    expect(tender.reasons[0].text).toBe("Ausschreibung, 2 Tage alt");
+    expect(tender.reasons.map(r => r.text)).toContain("Ausschreibung, 2 Tage alt");
   });
 
   it("Noten: bester Fall A, info@ ohne Namen, Rolle und Anlass D", () => {
@@ -35,20 +36,40 @@ describe("Lead-Bewertung", () => {
     expect(rate({ email: "info@x.de", emailType: "info", first: "", last: "", salutation: "", role: "", fit: 2 }).grade).toBe("D");
   });
 
-  it("nur LinkedIn: niedrig, aber nicht null; gar kein Weg: null", () => {
+  it("ohne Mail: nur LinkedIn niedriger, gar kein Weg noch niedriger, aber die Passung bleibt sichtbar", () => {
     const li = rate({ email: "", linkedin: "https://linkedin.com/in/k" }), none = rate({ email: "" });
-    expect(li.rating!).toBeGreaterThan(20);
-    expect(none.rating).toBe(0);
-    expect(rate({ email: "", first: "", last: "", role: "", fit: null, vote: 1, tenders: [{ t: "Kanal", s: "Stadt", f: "30.11." }] }).rating).toBe(0);
+    expect(rate({}).rating!).toBeGreaterThan(li.rating!);
+    expect(li.rating!).toBeGreaterThan(none.rating!);
+    expect(none.rating!).toBeGreaterThan(10);
   });
 
-  it("Daumen hoch etwa +6, Daumen runter etwa −17, Überspringen leicht negativ", () => {
+  it("Ausschluss der KI oder Passung 0 ergibt 0, auch mit Daumen und Ausschreibung", () => {
+    const ko = { company: 0, person: 0, need: 0, evidence: 0, segment: "", ko: "Testeintrag, keine echte Firma", why: "", model: "m", hash: "h", at: "" };
+    const r = rate({ email: "", first: "", last: "", role: "", fit: 0, fitInfo: ko, vote: 1, tenders: [{ t: "Kanal", s: "Stadt", f: "30.11." }] });
+    expect(r.rating).toBe(0);
+    expect(r.grade).toBe("D");
+    expect(r.reasons[0].text).toBe("Testeintrag, keine echte Firma");
+  });
+
+  it("noch nicht von der KI bewertet: keine Zahl", () => {
+    expect(rate({ fit: null }).rating).toBeNull();
+  });
+
+  it("Daumen hoch hebt, Daumen runter halbiert, Überspringen senkt leicht", () => {
     const r0 = rate({}).rating!;
-    expect(rate({ vote: 1 }).rating! - r0).toBeGreaterThanOrEqual(5);
-    expect(rate({ vote: 1 }).rating! - r0).toBeLessThanOrEqual(6);
-    expect(r0 - rate({ vote: -1 }).rating!).toBeGreaterThanOrEqual(16);
-    expect(r0 - rate({ vote: -1 }).rating!).toBeLessThanOrEqual(18);
+    expect(rate({ vote: 1 }).rating! - r0).toBeGreaterThanOrEqual(8);
+    expect(rate({ vote: 1 }).rating! - r0).toBeLessThanOrEqual(16);
+    expect(rate({ vote: -1 }).rating!).toBeLessThanOrEqual(Math.ceil(r0 / 2));
     expect(rate({ skips: 1 }).rating!).toBeLessThan(r0);
+  });
+
+  it("Streuung: verschiedene Teilurteile der KI ergeben verschiedene Werte", () => {
+    const seen = new Set<number>();
+    for (const company of [0, 1, 2, 3, 4]) for (const person of [0, 1, 2, 3, 4]) for (const need of [0, 2, 4]) for (const email of ["k.albers@albers-bau.de", "info@albers-bau.de"]) {
+      const fit = fitOf({ company, person, need, evidence: 2 }, "");
+      seen.add(rate({ fit, email, emailType: email.startsWith("info") ? "info" : "person" }).rating!);
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(45);
   });
 
   it("unzustellbar, Papierkorb, Dublette und Postfach-Kontakte bekommen keine Bewertung", () => {

@@ -162,9 +162,12 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   }, [post]);
 
   async function pick(label: string) {
-    if (label === NEW_KEY) { setChoose(null); setAi(false); return; }
-    const o = choose?.find(x => x.label === label);
-    if (!o || !su) return;
+    /* typed answers count too: "grok" or "sonnet" picks the option whose name contains it */
+    const q = label.trim().toLowerCase(), hit = (s: string) => s.toLowerCase() === q;
+    if (hit(NEW_KEY) || q === "neuer schlüssel") { setChoose(null); setAi(false); return; }
+    const o = choose?.find(x => hit(x.label)) ?? (q ? choose?.filter(x => x.label.toLowerCase().includes(q)).at(0) : undefined);
+    if (!su) return;
+    if (!o) { back.current(label); ctx.toast(`${label.trim()} gibt es hier nicht. Wähle eine der KIs oder verbinde einen anderen Schlüssel.`, { error: true }); return; }
     /* the question was already read in the chat, the server stores it as the first turn */
     setRead(r => r && new Set(r).add(`ai:${su.step}:${question}#0`));
     setSu(s => s && { ...s, chat: [...s.chat, { role: "ai", text: question, step: s.step }, { role: "me", text: o.label, step: s.step }] });

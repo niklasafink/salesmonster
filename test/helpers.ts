@@ -111,6 +111,13 @@ export function fakeOpenRouter(opts: { jev?: (state: string, questions: Record<s
   return seen;
 }
 
+/* Is this chat request the lead-fit judge of lib/lead-fit.ts? */
+export const isFit = (body: { messages: { role: string; content: string }[] }) => body.messages[0]?.content.startsWith("Du bewertest Leads");
+
+/* The lead-fit judge's answer: parts per lead from `judge`, which gets each lead as sent to the model */
+export const fitAnswer = (body: { messages: { role: string; content: string }[] }, judge: (l: Record<string, string> & { id: number }) => { company: number; person: number; need: number; ko?: string }) =>
+  JSON.stringify({ leads: (JSON.parse(body.messages[1].content) as (Record<string, string> & { id: number })[]).map(l => ({ id: l.id, segment: "", ko: "", evidence: 2, why: "Begründung", ...judge(l) })) });
+
 /* Jev's answer shape for the mail questions in lib/jev.ts */
 export const jevMail = (reply: number, specific = 1, easyAsk = 1) => ({
   reply: { type: "score", score: reply }, specific: { type: "noul", noul: specific }, easyAsk: { type: "noul", noul: easyAsk }, weakness: { type: "choice", choice: "none" },

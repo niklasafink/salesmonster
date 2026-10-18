@@ -17,7 +17,7 @@ test("Betreff speichern bleibt nach Reload, danach Original zurück", async ({ p
     await expect(subj).not.toHaveValue("");
     await subj.fill(`${orig} ${tag}`);
     await page.locator(".top").getByRole("button", { name: "Speichern" }).click();
-    await expect(page.locator(".toast")).toContainText("Vorlage A gespeichert");
+    await expect(page.locator(".toast")).toContainText("gespeichert");
     await page.reload();
     await page.locator(".vitem", { hasText: "A" }).first().click();
     await expect(page.getByLabel("Betreff")).toHaveValue(`${orig} ${tag}`);
@@ -33,9 +33,37 @@ test("Vorschau ersetzt die Platzhalter", async ({ page }) => {
   await page.getByRole("button", { name: "Vorschau" }).click();
   await expect(page.locator(".doc .subj")).not.toBeEmpty();
   await expect(page.locator(".doc .subj")).not.toContainText("{{");
-  await expect(page.locator(".doc .pv")).not.toContainText("{{");
+  await expect(page.locator(".doc .mailpv")).not.toContainText("{{");
+  await page.screenshot({ path: "test-results/vorlagen-vorschau.png" });
   await page.getByRole("button", { name: "Bearbeiten" }).click();
   await expect(page.getByLabel("Betreff")).toBeVisible();
+});
+
+test("Neue Vorlage anlegen, umbenennen und wieder löschen", async ({ page, request }) => {
+  const before = (await tpls(request)).map(x => x.key);
+  await page.goto("/#vorlagen");
+  await expect(page.getByLabel("Betreff")).toBeVisible();
+  await page.getByRole("button", { name: "Neue Vorlage" }).click();
+  const fresh = async () => (await tpls(request)).find(x => !before.includes(x.key));
+  await expect.poll(fresh).toBeTruthy();
+  const t = (await fresh())!;
+  try {
+    expect(t.active).toBe(false);
+    const name = page.getByLabel("Name der Vorlage");
+    await expect(name).toHaveValue(`Vorlage ${t.key}`);
+    await name.fill("QA Umbenannt");
+    await page.getByLabel("Betreff").fill("QA Betreff");
+    await page.locator(".top").getByRole("button", { name: "Speichern" }).click();
+    await expect(page.locator(".toast")).toContainText("QA Umbenannt gespeichert");
+    await expect(page.locator(".vitem.on")).toContainText("QA Umbenannt");
+    await page.screenshot({ path: "test-results/vorlagen-neu.png" });
+    page.once("dialog", d => d.accept());
+    await page.getByRole("button", { name: "Vorlage löschen" }).click();
+    await expect(page.locator(".toast")).toContainText("gelöscht");
+    await expect(page.locator(".vitem", { hasText: "QA Umbenannt" })).toHaveCount(0);
+  } finally {
+    await request.delete(`/api/templates/${t.id}`);
+  }
 });
 
 test("Platzhalter einfügen ändert nur den Entwurf", async ({ page, request }) => {

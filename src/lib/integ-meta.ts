@@ -16,6 +16,7 @@ export const OPENROUTER_MODELS: [string, string][] = [
   ["anthropic/claude-haiku-5.5", "Claude Haiku 5.5"],
   ["google/gemini-3.8-flash", "Gemini 3.8 Flash"],
   ["openai/gpt-5.6-luna", "GPT-5.6 Luna"],
+  ["x-ai/grok-4.7", "Grok 4.7"],
 ];
 
 export const INTEG: { k: IntegKind; ico: string; name: string; perUser?: boolean; account?: boolean; auth: "oauth" | "fields" | "pending"; fields?: Field[] }[] = [
