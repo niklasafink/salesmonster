@@ -14,6 +14,11 @@ import type { Ctx } from "../types";
 
 const STEPS: [SetupStep, string][] = [["website", "Unternehmen"], ["zielgruppe", "Zielgruppe"], ["ansprechpartner", "Ansprechpartner"], ["liste", "Erste Liste"], ["ansprache", "Ansprache"], ["fertig", "Übernehmen"]];
 const NAME = Object.fromEntries(STEPS) as Record<SetupStep, string>;
+/* Question headings name their step ("### Ansprache: ..."); the step number in front shows how far along the setup is */
+const numbered = (t: string) => t.replace(/^(###[ \t]+)(.+?):/gm, (m, h: string, l: string) => {
+  const i = STEPS.findIndex(([, n]) => n === l);
+  return i < 0 ? m : `${h}${i + 1}. ${l}:`;
+});
 const BUSY: Record<SetupStep, string> = { website: "Lese die Website", zielgruppe: "Leite Zielgruppen ab", ansprechpartner: "Ordne Rollen zu", liste: "Suche Firmen und Ansprechpartner", ansprache: "Schreibe Mails", fertig: "Übernehme" };
 const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier deinen API-Schlüssel ein, von [OpenRouter](https://openrouter.ai/settings/keys) oder von der [Claude-API](https://console.anthropic.com/settings/keys).";
 
@@ -253,7 +258,7 @@ function Msg() {
   const role = useAuiState(s => s.message.role);
   if (role === "user") return <MessagePrimitive.Root className="cl-col cl-me"><div><MessagePrimitive.Parts>{({ part }) => part.type === "text" ? <MarkdownTextPrimitive className="cl-md" /> : null}</MessagePrimitive.Parts></div></MessagePrimitive.Root>;
   return <MessagePrimitive.Root className="cl-col cl-ai">
-    <MessagePrimitive.Parts>{({ part }) => part.type === "text" ? <MarkdownTextPrimitive className="cl-md" components={{ a: Link }} /> : null}</MessagePrimitive.Parts>
+    <MessagePrimitive.Parts>{({ part }) => part.type === "text" ? <MarkdownTextPrimitive className="cl-md" components={{ a: Link }} preprocess={numbered} /> : null}</MessagePrimitive.Parts>
     <ActionBarPrimitive.Root className="cl-acts"><ActionBarPrimitive.Copy className="cl-ib" aria-label="Kopieren"><Icon n="copy" /></ActionBarPrimitive.Copy></ActionBarPrimitive.Root>
   </MessagePrimitive.Root>;
 }
@@ -266,11 +271,11 @@ function Spark({ spin }: { spin?: boolean }) {
 
 /* The dot says who filled the step, the highlighted row which step the chat is on */
 function Steps({ su, sources, open }: { su: Setup; sources: Sources; open: (k: SetupStep) => void }) {
-  return <div className="cl-rs">{STEPS.map(([k, n]) => {
+  return <div className="cl-rs">{STEPS.map(([k, n], i) => {
     const cur = k === su.step, skipped = su.skipped.includes(k), src = sources[k];
     return <div key={k} className={`cl-sec ${cur ? "on" : ""}`}>
       <button className="cl-sh" onClick={() => open(k)} aria-current={cur ? "step" : undefined}>
-        <i className={`cl-dot ${src ?? "off"}`} title={src ? SOURCE[src] : "Offen"} aria-label={src ? SOURCE[src] : "Offen"} />{n}{skipped && <span className="cl-skip">übersprungen</span>}
+        <i className={`cl-dot ${src ?? "off"}`} title={src ? SOURCE[src] : "Offen"} aria-label={src ? SOURCE[src] : "Offen"} />{i + 1}. {n}{skipped && <span className="cl-skip">übersprungen</span>}
       </button>
     </div>;
   })}</div>;
