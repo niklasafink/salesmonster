@@ -146,11 +146,12 @@ test.describe("Mobil 390px", () => {
     await inView(page, ".top .btn:has-text('Speichern')");
   });
 
-  test("Leads: E-Mail-Spalte sichtbar, kein seitliches Scrollen", async ({ page, request }) => {
+  /* the e-mail column is hidden below 640px on purpose since the contact redesign */
+  test("Leads: Firma sichtbar, kein seitliches Scrollen", async ({ page, request }) => {
     await withLead(request, async tag => {
       await page.goto("/#leads");
       await expect(page.locator("table.leads tbody tr", { hasText: tag })).toHaveCount(1);
-      await inView(page, "table.leads th:has-text('E-Mail')");
+      await inView(page, "table.leads th:has-text('Firma')");
       expect(await page.locator(".tbl").first().evaluate(t => t.scrollWidth - t.clientWidth)).toBeLessThanOrEqual(1);
     });
   });

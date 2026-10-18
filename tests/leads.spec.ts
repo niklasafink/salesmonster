@@ -66,12 +66,12 @@ test("Kontakt anlegen, bearbeiten und löschen", async ({ page, request }) => {
     const saved = (await leadsOf(request)).find(l => l.company === co);
     expect(saved?.city).toBe("Bielefeld");
 
+    /* "Löschen" moves the lead to the trash; it stays in the data so research and import recognise it */
     await row.click();
-    page.once("dialog", d => d.accept());
     await dlg.getByRole("button", { name: "Löschen" }).click();
-    await expect(page.locator(".toast")).toContainText("Gelöscht");
+    await expect(page.locator(".toast")).toContainText("In den Papierkorb gelegt");
     await expect(row).toHaveCount(0);
-    expect((await leadsOf(request)).some(l => l.company === co)).toBe(false);
+    expect((await leadsOf(request)).find(l => l.company === co)?.status).toBe("papierkorb");
   } finally {
     await cleanup(request, tag);
   }

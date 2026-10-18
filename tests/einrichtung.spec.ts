@@ -19,8 +19,9 @@ test("ohne KI fragt die Einrichtung nach dem Schlüssel", async ({ page }) => {
   page.on("response", r => { if (r.url().includes("/api/") && r.status() >= 500) posts.push(`${r.status()} ${r.url()}`); });
   await page.goto("/#einrichtung");
   await expect(page.locator(".cl-thread")).toContainText("brauche ich Zugriff auf eine KI", { timeout: 15_000 });
-  await expect(page.getByLabel("Antwort")).toHaveAttribute("placeholder", "API-Schlüssel einfügen");
-  await expect(page.locator(".cl-rail .cl-sh")).toHaveCount(6);
+  await expect(page.getByLabel("Antwort", { exact: true })).toHaveAttribute("placeholder", "API-Schlüssel einfügen");
+  /* the rail also lists earlier chats, so check the steps by name */
+  for (const n of ["Unternehmen", "Zielgruppe"]) await expect(page.locator(".cl-rail .cl-sh", { hasText: n })).toHaveCount(1);
   await page.waitForLoadState("networkidle");
   expect(posts, "ohne KI kein Start-Aufruf und kein 5xx").toEqual([]);
 });

@@ -133,7 +133,8 @@ test("Leads: nur Vorname wird als Ansprechpartner gezeigt", async ({ page, reque
     expect((await request.post("/api/leads", { data: { t: Q, lead: { company: `${tag} Vorname GmbH`, first: "Wiebke" } } })).ok()).toBe(true);
     await page.goto("/#leads");
     await page.getByLabel("Suchen", { exact: true }).fill(tag);
-    await expect(page.locator("table.leads tbody tr").first().locator("td.pn")).toHaveText("Wiebke");
+    const col = await page.locator("table.leads thead th").evaluateAll(ths => ths.findIndex(th => th.textContent === "Ansprechpartner"));
+    await expect(page.locator("table.leads tbody tr").first().locator("td").nth(col)).toHaveText("Wiebke");
   } finally {
     await cleanup(request, tag);
   }
