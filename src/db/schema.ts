@@ -219,3 +219,33 @@ export const oauthGrants = pgTable("oauth_grants", {
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
+
+/* What a workflow may write into the portal */
+export const WRITES = ["leads_add", "leads_update", "templates", "report"] as const;
+export type Write = typeof WRITES[number];
+export type RunCounts = { added: number; skipped: number; updated: number; templates: number };
+
+/* A recurring task Claude runs over the connector; instructions are its prompt */
+export const workflows = pgTable("workflows", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  instructions: text("instructions").notNull().default(""),
+  writes: jsonb("writes").$type<Write[]>().notNull().default([]),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* One start of a workflow from Claude; "läuft" older than 24 h reads as "abgebrochen" */
+export const workflowRuns = pgTable("workflow_runs", {
+  id: serial("id").primaryKey(),
+  workflowId: integer("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("läuft"),
+  report: text("report").notNull().default(""),
+  counts: jsonb("counts").$type<RunCounts>().notNull().default({ added: 0, skipped: 0, updated: 0, templates: 0 }),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, t => [index("workflow_runs_wf").on(t.workflowId, t.startedAt)]);

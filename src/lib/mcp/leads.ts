@@ -7,9 +7,11 @@ import { cleanLead } from "@/lib/lead-fields";
 import { tenantBySlug } from "@/lib/api";
 import { INFO_MAIL, addLeads } from "@/lib/lead-import";
 import { setLeadStatus } from "@/lib/outreach";
+import { checkRun } from "@/lib/workflows";
 import { tool } from "./tool";
 
 const tenant = z.string().describe("Slug des Mandanten aus tenants_list");
+const run = z.number().int().optional().describe("runId aus workflow_start, wenn du einen Workflow ausführst; ohne Workflow weglassen");
 const s = (d: string) => z.string().trim().optional().describe(d);
 
 const SAL = "Anrede mit Titel: Herr, Frau, Herr Dr., Frau Dr., Herr Prof. Dr. oder Frau Prof. Dr."
@@ -76,19 +78,22 @@ export function leadTools(server: McpServer) {
     input: z.object({
       tenant,
       rows: z.array(newLead).min(1).max(200).describe("Die Leads, höchstens 200"),
-      source: s("Quelle, die am Lead steht; Standard „Claude“"),
+      source: s("Quelle, die am Lead steht; Standard „Claude“, im Workflow dessen Name"),
+      run,
     }),
-  }, async ({ tenant: slug, rows, source }, user) => {
-    const t = await tenantBySlug(slug, user);
-    return addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl })), source || "Claude");
+  }, async ({ tenant: slug, rows, source, run: runId }, user) => {
+    const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_add");
+    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl })), source || wr?.workflow || "Claude");
+    await wr?.count({ added: out.added.length, skipped: out.skipped.length });
+    return out;
   });
 
   tool(server, "leads_update", {
     description: "Reichert bestehende Leads des Mandanten an oder korrigiert sie (Felder wie bei leads_list, dazu research). Ein neuer Firmenname ordnet den Kontakt der Firma mit diesem Namen zu (oder einer neuen). Nur Felder mit Inhalt werden geändert; leere oder weggelassene Felder bleiben, wie sie sind. "
       + "Höchstens 200 Leads je Aufruf, bei mehr in Teilen. Rückgabe: updated (geänderte ids) und notFound (ids, die es im Mandanten nicht gibt).",
-    input: z.object({ tenant, updates: z.array(edit).min(1).max(200).describe("Je Lead die id und die neuen Werte") }),
-  }, async ({ tenant: slug, updates }, user) => {
-    const t = await tenantBySlug(slug, user);
+    input: z.object({ tenant, updates: z.array(edit).min(1).max(200).describe("Je Lead die id und die neuen Werte"), run }),
+  }, async ({ tenant: slug, updates, run: runId }, user) => {
+    const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_update");
     const found = new Map((await db.select({ id: leads.id, company: leads.company, first: leads.first, last: leads.last }).from(leads)
       .where(and(eq(leads.tenantId, t.id), inArray(leads.id, updates.map(u => u.id))))).map(l => [l.id, l]));
     const updated: number[] = [], notFound: number[] = [];
@@ -105,6 +110,7 @@ export function leadTools(server: McpServer) {
       updated.push(id);
     }
     if (moved) await attachCompanies(t.id);
+    await wr?.count({ updated: updated.length });
     return { updated, notFound };
   });
 }

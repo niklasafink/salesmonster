@@ -188,6 +188,11 @@ th:first-child,td:first-child{padding-left:0} th:last-child,td:last-child{paddin
 .search .inp{padding-left:30px; width:240px}
 
 /* Templates */
+.ck{display:inline-flex; align-items:center; gap:7px; font-size:13px; cursor:pointer} .ck input{accent-color:var(--accent); margin:0}
+.wfc{display:flex; flex-direction:column; gap:28px; min-width:0}
+.vitem .wfn{font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+td.wfr{white-space:normal; padding:12px 0 16px; line-height:1.6}
+.ra{text-align:right}
 .tpl{display:grid; grid-template-columns:260px minmax(0,1fr); gap:24px}
 .vlist{display:flex; flex-direction:column; gap:6px}
 .vitem{display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel); text-align:left}
