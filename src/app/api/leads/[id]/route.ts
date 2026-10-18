@@ -6,7 +6,7 @@ import { cleanLead } from "@/lib/lead-fields";
 import { setLeadStatus } from "@/lib/outreach";
 
 type Ctx = { params: Promise<{ id: string }> };
-const OK = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette"];
+const OK = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
 
 /* Status change and/or edited fields; a new company name moves the contact to that company */
 export const PATCH = route<Ctx>(async (req, { params }, me) => {

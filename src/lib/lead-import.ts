@@ -22,8 +22,10 @@ async function hubKnown(token: string, r: LeadRow): Promise<Known | null> {
 /* One person per company gets the mail; further people at that company are kept as contacts.
    Only rows that add nothing new (same address, or a known company without an address) are dropped. */
 export async function checkLeads(tenantId: number, rows: LeadRow[]): Promise<CheckedRow[]> {
-  const prev = await db.select({ c: leads.company, e: leads.email }).from(leads).where(eq(leads.tenantId, tenantId));
+  const prev = await db.select({ c: leads.company, e: leads.email, s: leads.status }).from(leads).where(eq(leads.tenantId, tenantId));
   const companies = new Set(prev.map(r => norm(r.c))), emails = new Set(prev.map(r => r.e.toLowerCase()).filter(Boolean));
+  /* trashed leads stay in the list, so they are recognised when they turn up again */
+  const trashed = new Set(prev.filter(r => r.s === "papierkorb").map(r => r.e.toLowerCase()).filter(Boolean));
   const hub = await hubspotToken(tenantId);
   /* unreachable is not "not in HubSpot": such rows are held back instead of imported blindly */
   const inHub = hub ? await pool(rows, 4, r => hubKnown(hub, r).catch(e => { console.error(e); return HUB_DOWN; })) : rows.map(() => null);
@@ -31,7 +33,7 @@ export async function checkLeads(tenantId: number, rows: LeadRow[]): Promise<Che
     const h = inHub[i], hit = typeof h === "object" ? h : null;
     /* a broken address is dropped, the contact stays */
     const raw = (r.email || "").trim(), bad = !!raw && !validEmail(raw), email = bad ? "" : raw.toLowerCase(), known = companies.has(norm(r.co)) || !!hit;
-    const dup = email && emails.has(email) ? "Schon in der Liste" : h === HUB_DOWN ? HUB_DOWN : hit?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : known && !email ? "Firma bekannt" : "";
+    const dup = email && trashed.has(email) ? "Im Papierkorb" : email && emails.has(email) ? "Schon in der Liste" : h === HUB_DOWN ? HUB_DOWN : hit?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : known && !email ? "Firma bekannt" : "";
     const extra = dup ? "" : bad ? "E-Mail ungültig" : known ? "Weiterer Kontakt" : "";
     companies.add(norm(r.co)); if (email) emails.add(email);
     return { ...r, email: bad ? "" : r.email, sal: salutationOf(r.sal || ""), dup, extra };

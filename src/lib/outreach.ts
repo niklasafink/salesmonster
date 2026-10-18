@@ -177,7 +177,7 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
         catch (e) { if (!(e instanceof HubSpotError && e.status === 409)) await log(t.id, "hubspot", false, `${l.company}: ${(e as Error).message}`); }
       }
     }
-    units.push(...plan(c, rows, all.map(l => l.email)));
+    units.push(...plan(c, rows, all.filter(l => l.status !== "papierkorb").map(l => l.email)));
   };
 
   /* 1. imported leads first, company by company in list order */

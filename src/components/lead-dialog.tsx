@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { Tender } from "@/db/schema";
+import { addrsOf, modeOf } from "@/lib/company-mode";
 import { SALUTATIONS, httpUrl } from "@/lib/lead-fields";
 import { Icon, api, useDialog } from "./ui";
 
@@ -10,7 +11,7 @@ export type EditLead = {
 };
 
 export const STATUS: Record<string, [string, string]> = {
-  neu: ["Neu", "n"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", "b"], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", "x"], kontakt: ["Kontakt", "k"],
+  neu: ["Neu", "n"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", "b"], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", "x"], kontakt: ["Kontakt", "k"], papierkorb: ["Papierkorb", "t"],
 };
 
 export const emptyLead = (company = ""): EditLead => ({ company, salutation: "", first: "", last: "", role: "", email: "", emailType: "person", phone: "", linkedin: "", website: "",
@@ -19,13 +20,18 @@ export const emptyLead = (company = ""): EditLead => ({ company, salutation: "",
 const tendersText = (ts: Tender[] = []) => ts.map(x => [x.t, x.s, x.f].filter(Boolean).join(" | ")).join("\n");
 const tendersOf = (s: string): Tender[] => s.split("\n").map(r => r.split("|").map(x => x.trim())).filter(r => r[0]).map(([t, s = "", f = ""]) => ({ t, s, f }));
 
-/* Edit one contact, or add a new one */
-export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, onAdd }: {
-  lead: EditLead; slug: string; tenders: boolean; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onAdd?: (company: string) => void;
+type Co = { id: number; mode: string; email: string };
+
+/* Edit one contact, or add a new one; with colleagues at the same company it also sets how the company is written to */
+export function LeadDialog({ lead, slug, tenders, co, contacts = [], onClose, onSaved, onDeleted, onTrash, onAdd }: {
+  lead: EditLead; slug: string; tenders: boolean; co?: Co; contacts?: { email: string; status: string }[]; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onTrash?: () => void; onAdd?: (company: string) => void;
 }) {
   const [f, setF] = useState(lead), [tt, setTt] = useState(tendersText(lead.tenders)), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const set = (k: keyof EditLead) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const ref = useDialog(onClose);
+  contacts = contacts.filter(c => c.status !== "papierkorb");
+  const addrs = addrsOf(contacts), m = co && contacts.length > 1 && addrs.length ? modeOf(co, contacts) : null;
+  const mode0 = m ? (m.mode === "eine" ? `eine:${m.to[0] || ""}` : m.mode) : "", [mode, setMode] = useState(mode0);
 
   async function save() {
     setBusy(true); setErr("");
@@ -33,7 +39,11 @@ export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, o
     /* only what changed, so fields the caller did not load stay as they are */
     const body = Object.fromEntries(Object.entries(next).filter(([k, v]) => k !== "id" && k !== "source" && JSON.stringify(v) !== JSON.stringify(lead[k as keyof EditLead])));
     try {
-      if (f.id) { if (Object.keys(body).length) await api(`/api/leads/${f.id}`, { method: "PATCH", body }); onSaved(next); }
+      if (f.id) {
+        if (Object.keys(body).length) await api(`/api/leads/${f.id}`, { method: "PATCH", body });
+        if (co && mode !== mode0) { const [mo, email = ""] = mode.split(":"); await api(`/api/companies/${co.id}`, { method: "PATCH", body: { mode: mo, email } }); }
+        onSaved(next);
+      }
       else { const r = await api<{ id: number }>("/api/leads", { body: { t: slug, lead: next } }); onSaved({ ...next, id: r.id, status: "neu" }); }
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
@@ -61,12 +71,18 @@ export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, o
         : <label className="fld s6"><span>Anlass</span><input className="inp" value={f.hook} onChange={set("hook")} /></label>}
       <label className="fld s2"><span>Status</span><select className="inp sel" value={f.status} onChange={set("status")} disabled={!f.id}>{Object.entries(STATUS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></label>
       <label className="fld s4"><span>Quelle{httpUrl(f.sourceUrl) && <a className="src" href={httpUrl(f.sourceUrl)} target="_blank" rel="noreferrer" aria-label="Quelle öffnen"><Icon n="external-link" /></a>}</span><input className="inp" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></label>
+      {m && <label className="fld s6"><span>Anschreiben ({contacts.length} Kontakte bei {f.company || "der Firma"})</span><select className="inp sel" value={mode} onChange={e => setMode(e.target.value)}>
+        <option value="einzeln">Jede Person einzeln</option>
+        {addrs.length > 1 && <option value="alle">Eine Mail an alle Adressen</option>}
+        {addrs.map(a => <option key={a} value={`eine:${a}`}>Eine Mail an {a}</option>)}
+      </select></label>}
       <label className="fld s6"><span>Notiz</span><textarea className="inp ta" rows={2} value={f.note} onChange={set("note")} /></label>
       {(f.id || f.research) && <label className="fld s6"><span>Original</span><textarea className="inp ta" rows={3} value={f.research} onChange={set("research")} /></label>}
     </div>
     {err && <div className="warn"><Icon n="triangle-alert" />{err}</div>}
     <div className="dlg-f">
-      {f.id && onDeleted && <button className="btn gh" onClick={del}>Löschen</button>}
+      {f.id && onTrash && lead.status !== "papierkorb" ? <button className="btn gh" onClick={onTrash}><Icon n="trash-2" />Löschen</button>
+        : f.id && onDeleted && <button className="btn gh" onClick={del}>Endgültig löschen</button>}
       {f.id && onAdd && <button className="btn gh" onClick={() => onAdd(f.company)}><Icon n="plus" />Weiterer Kontakt</button>}
       <span className="sp" />
       <button className="btn sec" onClick={onClose}>Abbrechen</button>

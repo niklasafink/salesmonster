@@ -10,7 +10,7 @@ export const GET = route(async (req, _c, me) => {
   await attachCompanies(t.id);
   const rows = await db.select().from(leads).where(eq(leads.tenantId, t.id)).orderBy(desc(leads.createdAt), asc(leads.id));
   const cos = await db.select({ id: companies.id, name: companies.name, mode: companies.mode, email: companies.email }).from(companies).where(eq(companies.tenantId, t.id));
-  return { rows: rows.map(r => ({ id: r.id, companyId: r.companyId, status: r.status, source: r.source, tenders: r.tenders, createdAt: r.createdAt, ...Object.fromEntries(LEAD_FIELDS.map(k => [k, r[k]])) })), companies: cos };
+  return { rows: rows.map(r => ({ id: r.id, companyId: r.companyId, status: r.status, source: r.source, tenders: r.tenders, createdAt: r.createdAt, lastContactAt: r.lastContactAt, ...Object.fromEntries(LEAD_FIELDS.map(k => [k, r[k]])) })), companies: cos };
 });
 
 /* Import (rows) or one new contact (lead) */

@@ -1,7 +1,6 @@
 "use client";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Tender } from "@/db/schema";
-import { addrsOf, modeOf } from "@/lib/company-mode";
 import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
 import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
@@ -9,11 +8,14 @@ import type { Ctx } from "../types";
 import { FIELDS, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { parseCsv, toTsv } from "@/lib/sheet";
 
-type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[] };
+type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null };
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
 type Parsed = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; dup: string; extra: string };
-const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt"];
+const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
+
+/* we already had contact: a mail went out, an answer came in, or the mailbox knows them */
+const warm = (r: Lead) => !!r.lastContactAt || r.source === "Postfach" || ["angeschrieben", "beantwortet", "kontakt"].includes(r.status);
 
 export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?.[1] || "n"}`} title={STATUS[s]?.[0] || s} />;
 
@@ -35,23 +37,19 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   useEffect(() => { const r = focus != null && rows.find(x => x.id === focus); if (r) { setEdit(r); onFocused?.(); } }, [focus, rows, onFocused]);
 
   const srcs = [...new Set(rows.map(r => r.source))];
-  const cnt = (s: string) => rows.filter(r => s === "alle" || r.status === s).length;
-  const vis = rows.filter(r => (filter === "alle" || r.status === filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q));
+  const inFilter = (r: Lead, s: string) => s === "alle" ? r.status !== "papierkorb" : r.status === s;
+  const cnt = (s: string) => rows.filter(r => inFilter(r, s)).length;
+  const vis = rows.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q));
 
-  /* contacts grouped by company, in list order */
-  const byCo = new Map<string, Lead[]>();
-  for (const r of rows) { const k = r.companyId ? `c${r.companyId}` : `l${r.id}`; byCo.set(k, [...(byCo.get(k) || []), r]); }
-  const groups: { key: string; all: Lead[]; shown: Lead[] }[] = [];
-  for (const r of vis) {
-    const key = r.companyId ? `c${r.companyId}` : `l${r.id}`;
-    const g = groups.find(x => x.key === key);
-    if (g) g.shown.push(r); else groups.push({ key, all: byCo.get(key)!, shown: [r] });
-  }
+  const coOf = (r: Lead) => r.companyId ? cos.find(c => c.id === r.companyId) : undefined;
+  const contactsOf = (r: Lead) => r.companyId ? rows.filter(x => x.companyId === r.companyId) : [r];
 
-  async function setMode(c: Company, v: string) {
-    const [mode, email = ""] = v.split(":");
-    setCos(cs => cs.map(x => x.id === c.id ? { ...x, mode, email: mode === "eine" ? email : x.email } : x));
-    try { await api(`/api/companies/${c.id}`, { method: "PATCH", body: { mode, email } }); } catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
+  /* the trash keeps the lead, so research and import recognise it and nobody writes to it */
+  async function trash(r: Lead, back = false) {
+    const status = back ? (warm({ ...r, status: "" }) ? "kontakt" : "neu") : "papierkorb";
+    setRows(rs => rs.map(x => x.id === r.id ? { ...x, status } : x));
+    try { await api(`/api/leads/${r.id}`, { method: "PATCH", body: { status } }); ctx.toast(back ? "Wiederhergestellt" : "In den Papierkorb gelegt"); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
   }
   /* Files become tab-separated text with header row and go straight to the column view */
   async function pick(f?: File) {
@@ -107,16 +105,19 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
 
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
   const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
-  /* shared: the company has an address this contact is reached through */
-  const row = (r: Lead, showCo: boolean, shared = false) => <tr key={r.id} className="click" tabIndex={0} onClick={() => setEdit(r)}
+  const row = (r: Lead) => <tr key={r.id} className="click" tabIndex={0} onClick={() => setEdit(r)}
     onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } }}>
+    <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
     <td className="dotc"><Dot s={r.status} /></td>
-    <td className="co" style={{ fontWeight: 500 }} title={showCo ? r.company : undefined}>{showCo ? r.company : ""}</td>
+    <td className="co" style={{ fontWeight: 500 }} title={r.company}>{r.company}</td>
     <td className="pn" title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
     <td className="hide-m hide-l f2 clip" title={r.role}>{r.role || <span className="f3">–</span>}</td>
-    <td className="mono em" style={{ fontSize: 12.5 }} title={r.email || undefined}>{r.email || <span className="f3">{shared ? "–" : "fehlt"}</span>}</td>
+    <td className="mono em" style={{ fontSize: 12.5 }} title={r.email || undefined}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : "fehlt"}</span>}</td>
     <td className="hide-m f2 clip" title={t.tenders ? undefined : r.hook}>{hookCell(r)}</td>
     <td className="hide-m f2 src">{r.sourceUrl ? <a className="srcl" href={httpUrl(r.sourceUrl) || undefined} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{r.source}<Icon n="external-link" /></a> : r.source}</td>
+    <td className="act">{r.status === "papierkorb"
+      ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
+      : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td>
   </tr>;
 
   const ok = imp?.rows?.filter(r => !r.dup).length || 0;
@@ -134,28 +135,16 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads"><thead><tr><th className="dotc"></th><th>Firma</th><th>Ansprechpartner</th><th className="hide-m hide-l">Rolle</th><th>E-Mail</th><th className="hide-m">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="hide-m">Quelle</th></tr></thead><tbody>
-        {groups.length ? groups.map(g => {
-          if (g.all.length < 2) return row(g.shown[0], true);
-          const c = cos.find(x => `c${x.id}` === g.key);
-          const addrs = addrsOf(g.all);
-          const m = c && modeOf(c, g.all), val = m ? (m.mode === "eine" ? `eine:${m.to[0] || ""}` : m.mode) : "";
-          return <Fragment key={g.key}>
-            <tr className="grp"><td className="dotc"></td><td colSpan={2} style={{ fontWeight: 500 }}><div className="gname" title={g.all[0].company}>{g.all[0].company}</div></td>
-              <td colSpan={4} className="modec">{c && addrs.length > 0 && <select className="inp sel modesel" value={val} onChange={e => setMode(c, e.target.value)} aria-label="Wie anschreiben">
-                <option value="einzeln">Getrennt anschreiben</option>
-                {addrs.length > 1 && <option value="alle">Eine Mail an alle Adressen</option>}
-                {addrs.map(a => <option key={a} value={`eine:${a}`}>Eine Mail an {a}</option>)}
-              </select>}</td></tr>
-            {g.shown.map(r => row(r, false, addrs.length > 0))}
-          </Fragment>;
-        }) : <tr><td colSpan={7} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+      <div className="tbl"><table className="leads"><thead><tr><th className="warm"></th><th className="dotc"></th><th>Firma</th><th>Ansprechpartner</th><th className="hide-m hide-l">Rolle</th><th>E-Mail</th><th className="hide-m">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="hide-m">Quelle</th><th className="act"></th></tr></thead><tbody>
+        {vis.length ? vis.map(row) : <tr><td colSpan={9} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
     </div></div>
 
-    {edit && <LeadDialog key={edit.id ?? `new-${edit.company}`} lead={edit} slug={t.slug} tenders={t.tenders} onClose={() => setEdit(null)}
+    {edit && <LeadDialog key={edit.id ?? `new-${edit.company}`} lead={edit} slug={t.slug} tenders={t.tenders}
+      co={"companyId" in edit ? coOf(edit as Lead) : undefined} contacts={"companyId" in edit ? contactsOf(edit as Lead) : []} onClose={() => setEdit(null)}
       onSaved={() => { setEdit(null); ctx.toast("Gespeichert"); load(); }}
       onDeleted={() => { setEdit(null); ctx.toast("Gelöscht"); load(); }}
+      onTrash={() => { const r = edit as Lead; setEdit(null); trash(r); }}
       onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }} />}
 
     {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg" ref={impRef} role="dialog" aria-modal="true" aria-label="Importieren">
