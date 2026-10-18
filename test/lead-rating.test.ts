@@ -35,10 +35,11 @@ describe("Lead-Bewertung", () => {
     expect(rate({ email: "info@x.de", emailType: "info", first: "", last: "", salutation: "", role: "", fit: 2 }).grade).toBe("D");
   });
 
-  it("nur LinkedIn: niedrig, aber nicht null; gar kein Weg: fast null", () => {
+  it("nur LinkedIn: niedrig, aber nicht null; gar kein Weg: null", () => {
     const li = rate({ email: "", linkedin: "https://linkedin.com/in/k" }), none = rate({ email: "" });
-    expect(li.rating!).toBeGreaterThan(none.rating!);
     expect(li.rating!).toBeGreaterThan(20);
+    expect(none.rating).toBe(0);
+    expect(rate({ email: "", first: "", last: "", role: "", fit: null, vote: 1, tenders: [{ t: "Kanal", s: "Stadt", f: "30.11." }] }).rating).toBe(0);
   });
 
   it("Daumen hoch etwa +6, Daumen runter etwa −17, Überspringen leicht negativ", () => {

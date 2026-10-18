@@ -102,6 +102,8 @@ const days = (a: Date, b: Date) => Math.max(0, Math.floor((b.getTime() - a.getTi
 export function rateLead(l: RateLead, m: Model, now = new Date()): Rating {
   const parts: Record<Part, number> = { fit: 0, reach: 0, role: 0, timing: 0, feedback: 0 };
   if (UNRATED.has(l.status)) return { rating: null, grade: null, expected: 0, parts, reasons: [] };
+  /* nobody to write to: no mail and no LinkedIn means no chance of a reply */
+  if (!l.email && !l.linkedin) return { rating: 0, grade: "D", expected: 0, parts, reasons: [{ pts: -50, text: "Keine E-Mail und kein LinkedIn" }] };
   const reasons: Reason[] = [];
   let lo = 0;
   const term = (part: Part, lnOr: number, text: string, learned = false, damp = true) => {
