@@ -108,7 +108,7 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], rating, onV
         <Prop l="LinkedIn" link={httpUrl(f.linkedin) || undefined}><input className="pv" value={f.linkedin} placeholder="–" onChange={set("linkedin")} /></Prop>
         <Prop l="Status"><select className="pv" value={f.status} onChange={set("status")} disabled={!f.id}>{Object.entries(STATUS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></Prop>
         {!tenders && <Prop l="Anlass"><textarea className="pv" rows={1} value={f.hook} placeholder="–" onChange={set("hook")} /></Prop>}
-        <Prop l="Quelle" link={httpUrl(f.sourceUrl) || undefined}><input className="pv" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></Prop>
+        <Prop l="Link zur Quelle" link={httpUrl(f.sourceUrl) || undefined}><input className="pv" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></Prop>
         <Prop l="Notiz"><textarea className="pv" rows={1} value={f.note} placeholder="–" onChange={set("note")} /></Prop>
         {(f.id || f.research) && <Prop l="Original"><textarea className="pv f2" rows={1} value={f.research} placeholder="–" onChange={set("research")} /></Prop>}
       </section>

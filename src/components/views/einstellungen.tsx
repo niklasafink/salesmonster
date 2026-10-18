@@ -4,37 +4,18 @@ import { INTEG } from "@/lib/integ-meta";
 import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx, MailSync } from "../types";
 
-const FIELDS = ["Rollen", "Branchen", "Regionen", "Größe"];
-const fieldRe = (f: string) => new RegExp("^" + f + ":[ \\t]*(.*)$", "m");
-const getField = (p: string, f: string) => { const m = p.match(fieldRe(f)); return m ? m[1] : ""; };
-const setField = (p: string, f: string, v: string) => fieldRe(f).test(p) ? p.replace(fieldRe(f), () => `${f}: ${v}`) : `${p.trimEnd()}\n${f}: ${v}`;
 const when = (s: string) => new Date(s).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 export function Einstellungen({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
-  const [tab, setTab] = useState("zielgruppe");
-  const tabs: [string, string][] = [["zielgruppe", "Zielgruppe"], ["ablauf", "Ablauf"], ["integrationen", "Integrationen"], ["team", "Team"], ...(t.invoice ? [["rechnungen", "Rechnungen"] as [string, string]] : [])];
+  const [tab, setTab] = useState("ablauf");
+  const tabs: [string, string][] = [["ablauf", "Ablauf"], ["integrationen", "Integrationen"], ["team", "Team"], ...(t.invoice ? [["rechnungen", "Rechnungen"] as [string, string]] : [])];
   return <>
     <Top title="Einstellungen" onMenu={ctx.openSidebar} />
     <div className="scroll"><div className="wrap narrow">
       <div className="tabs">{tabs.map(([k, n]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{n}</button>)}</div>
-      {tab === "zielgruppe" ? <Ziel ctx={ctx} /> : tab === "ablauf" ? <Ablauf ctx={ctx} /> : tab === "integrationen" ? <Integ ctx={ctx} /> : tab === "team" ? <Team ctx={ctx} /> : <Billing ctx={ctx} />}
+      {tab === "ablauf" ? <Ablauf ctx={ctx} /> : tab === "integrationen" ? <Integ ctx={ctx} /> : tab === "team" ? <Team ctx={ctx} /> : <Billing ctx={ctx} />}
     </div></div>
-  </>;
-}
-
-function Ziel({ ctx }: { ctx: Ctx }) {
-  const t = ctx.st.tenant!;
-  const [p, setP] = useState(t.settings.prompt);
-  async function save() {
-    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { prompt: p } } }); ctx.toast("Gespeichert"); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
-  }
-  return <>
-    <div className="form">{FIELDS.map(f => <label key={f} className="fld"><span>{f}</span><input className="inp" value={getField(p, f)} onChange={e => setP(setField(p, f, e.target.value))} /></label>)}</div>
-    <label className="fld"><span>System-Prompt</span><textarea className="prompt" value={p} onChange={e => setP(e.target.value)} /></label>
-    <label className="row2 list-box" style={{ minHeight: 44 }}><span>Ausschreibungen je Lead suchen</span>
-      <button className={`sw ${t.tenders ? "on" : ""}`} aria-label="Ausschreibungen" onClick={async e => { e.preventDefault(); await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { tenders: !t.tenders } }); ctx.reload(); }} /></label>
-    <div className="row3"><button className="btn" onClick={save}>Speichern</button><button className="btn sec" onClick={() => ctx.setView("einrichtung")}><Icon n="sparkles" />Mit KI einrichten</button></div>
   </>;
 }
 
@@ -66,6 +47,8 @@ function Ablauf({ ctx }: { ctx: Ctx }) {
         onChange={e => { setRounds(e.target.value); const c = clampR(e.target.value); if (c !== null) saveSettings({ roundsPerDay: c }); }} onBlur={() => setRounds(String(clampR(rounds) ?? t.settings.roundsPerDay ?? 0))} /></label>
       <div className="row2"><span>Top-Leads für Dienstag und Mittwoch aufheben</span><button className={`sw ${hold ? "on" : ""}`} role="switch" aria-checked={hold} aria-label="Top-Leads für Dienstag und Mittwoch aufheben"
         onClick={() => { setHold(!hold); saveSettings({ holdTop: !hold }); }} /></div>
+      <div className="row2"><span>Ausschreibungen je Lead suchen</span><button className={`sw ${t.tenders ? "on" : ""}`} role="switch" aria-checked={!!t.tenders} aria-label="Ausschreibungen je Lead suchen"
+        onClick={async () => { try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { tenders: !t.tenders } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); } }} /></div>
       <div className="row2"><span>Recherche und Freigabe-Mail</span><span className="num f2">So–Do 20:00</span></div>
       <div className="row2"><span>Versand</span><span className="num f2">Mo–Fr 08:00</span></div>
     </div>
