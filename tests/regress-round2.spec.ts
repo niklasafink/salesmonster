@@ -199,3 +199,18 @@ test("Import: Spaltenzuordnung prüfen und ändern", async ({ page }) => {
   await dlg.getByRole("button", { name: "Zurück" }).click();
   await expect(dlg.locator(".dlg-h")).toHaveText("Spalten zuordnen");
 });
+
+test("Import: Datei geht direkt in die Spaltenansicht", async ({ page }) => {
+  await page.goto("/#leads");
+  await page.getByRole("button", { name: "Importieren" }).click();
+  const dlg = page.getByRole("dialog", { name: "Importieren" });
+  await expect(dlg.locator(".drop")).toContainText("hierher ziehen");
+  await dlg.locator("input[type=file]").setInputFiles({ name: "Messe Oktober.csv", mimeType: "text/csv", buffer: Buffer.from("Firma;Telefon;E-Mail\nDatei GmbH;0221 1;a@datei.de\nZwei AG;;b@zwei.de\n") });
+  await expect(dlg.locator(".dlg-h")).toHaveText("Spalten zuordnen");
+  await expect(dlg.locator("table.map tbody tr")).toHaveCount(2);
+  await expect(dlg.locator("table.map tbody tr").first()).toContainText("Datei GmbH");
+  await expect(dlg.getByLabel("Feld für Firma")).toHaveValue("co");
+  await expect(dlg.getByLabel("Feld für Telefon")).toHaveValue("");
+  await dlg.getByRole("button", { name: "Zurück" }).click();
+  await expect(dlg.locator(".dlg-h")).toHaveText("Leads importieren");
+});

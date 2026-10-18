@@ -6,7 +6,7 @@ import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
 import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import type { Ctx } from "../types";
-import { FIELDS, type Column, type Field } from "@/lib/lead-columns";
+import { FIELDS, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { parseCsv, toTsv } from "@/lib/sheet";
 
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[] };
@@ -26,7 +26,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const t = ctx.st.tenant!;
   const [rows, setRows] = useState<Lead[]>([]), [cos, setCos] = useState<Company[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
   const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; cols?: Column[] | null; rows: Parsed[] | null; busy: boolean }>(null);
-  const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null);
+  const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null), [drag, setDrag] = useState(false);
   const [edit, setEdit] = useState<EditLead | null>(null);
   const impRef = useDialog(() => setImp(null));
   const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
@@ -53,37 +53,40 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     setCos(cs => cs.map(x => x.id === c.id ? { ...x, mode, email: mode === "eine" ? email : x.email } : x));
     try { await api(`/api/companies/${c.id}`, { method: "PATCH", body: { mode, email } }); } catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
   }
-  /* Files become tab-separated text with header row, then run through the normal parse */
+  /* Files become tab-separated text with header row and go straight to the column view */
   async function pick(f?: File) {
     if (!f || !imp) return;
     const ext = f.name.split(".").pop()?.toLowerCase(), name = f.name.replace(/\.\w+$/, "");
-    /* reads imp at the time the file is done: a Quelle typed meanwhile stays, one taken from an earlier file name is replaced */
-    const put = (text: string) => setImp(cur => cur && { ...cur, text, ...(!cur.src || cur.auto ? { src: name, auto: true } : {}) });
+    let text;
     try {
       if (ext === "csv") {
         const buf = await f.arrayBuffer();
         let txt; try { txt = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { txt = new TextDecoder("windows-1252").decode(buf); }
-        put(toTsv(parseCsv(txt))); setSheets(null);
+        text = toTsv(parseCsv(txt)); setSheets(null);
       } else if (ext === "xlsx") {
         const { default: read } = await import("read-excel-file/browser");
         const list = await read(f).catch(() => { throw new Error("Datei nicht lesbar"); });
-        put(toTsv(list[0].data)); setSheets(list.length > 1 ? { list, i: 0 } : null);
+        text = toTsv(list[0].data); setSheets(list.length > 1 ? { list, i: 0 } : null);
       } else throw new Error("Nur .xlsx und .csv");
-    } catch (e) { ctx.toast((e as Error).message, { error: true }); }
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); return; }
+    /* a Quelle typed meanwhile stays, one taken from an earlier file name is replaced */
+    setImp(cur => cur && { ...cur, text, ...(!cur.src || cur.auto ? { src: name, auto: true } : {}) });
+    analyze(text);
   }
   function pickSheet(i: number) {
-    if (!imp || !sheets) return; setSheets({ ...sheets, i });
-    let text = "";
-    try { text = toTsv(sheets.list[i].data); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
+    if (!sheets) return; setSheets({ ...sheets, i });
+    let text;
+    try { text = toTsv(sheets.list[i].data); } catch (e) { ctx.toast((e as Error).message, { error: true }); return; }
     setImp(cur => cur && { ...cur, text });
+    analyze(text);
   }
   /* Tables first get a column mapping (Jev) to review; free text goes straight to the parser */
-  async function parse() {
-    if (!imp) return; setImp({ ...imp, busy: true });
+  async function analyze(text: string) {
+    setImp(cur => cur && { ...cur, busy: true });
     try {
-      const { cols } = await api<{ cols: Column[] | null }>("/api/leads/columns", { body: { t: t.slug, text: imp.text } });
-      if (cols) { setImp(cur => cur && { ...cur, cols, busy: false }); return; }
-      const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text: imp.text } });
+      const { cols } = await api<{ cols: Column[] | null }>("/api/leads/columns", { body: { t: t.slug, text } });
+      if (cols) { setImp(cur => cur && { ...cur, cols, rows: null, busy: false }); return; }
+      const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text } });
       setImp(cur => cur && { ...cur, cols: null, rows: r.rows, busy: false });
     } catch (e) { ctx.toast((e as Error).message, { error: true }); setImp(cur => cur && { ...cur, busy: false }); }
   }
@@ -117,6 +120,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   </tr>;
 
   const ok = imp?.rows?.filter(r => !r.dup).length || 0;
+  const table = imp?.cols && !imp.rows ? splitTable(imp.text) : null;
   return <>
     <Top title="Leads" onMenu={ctx.openSidebar}>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
@@ -157,33 +161,41 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg" ref={impRef} role="dialog" aria-modal="true" aria-label="Importieren">
       {imp.cols && !imp.rows ? <>
         <div className="dlg-h">Spalten zuordnen<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
-        <div className="tbl"><table><thead><tr><th>Spalte</th><th>Beispiele</th><th>Feld</th></tr></thead><tbody>
-          {imp.cols.map((c, i) => <tr key={i}>
-            <td style={{ fontWeight: 500 }}>{c.head || <span className="f3">–</span>}</td>
-            <td className="f2 clip" style={{ maxWidth: 320 }} title={c.samples.join("\n")}>{c.samples.slice(0, 3).join(", ") || <span className="f3">leer</span>}</td>
-            <td><select className="inp sel" style={{ width: "auto" }} aria-label={`Feld für ${c.head}`} value={c.field} onChange={e => setField(i, e.target.value as Field)}>
-              <option value="">Ignorieren</option>
-              {Object.entries(FIELDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select></td></tr>)}
+        {sheets && <select className="inp sel" aria-label="Blatt" value={sheets.i} onChange={e => pickSheet(Number(e.target.value))} disabled={imp.busy}>{sheets.list.map((s, i) => <option key={i} value={i}>{s.sheet}</option>)}</select>}
+        <div className="tbl"><table className="map"><thead>
+          <tr>{imp.cols.map((c, i) => <th key={i} className={c.field ? "" : "off"} title={c.head}>{c.head || "–"}</th>)}</tr>
+          <tr className="mapsel">{imp.cols.map((c, i) => <th key={i}><select className={`inp sel${c.field ? "" : " off"}`} aria-label={`Feld für ${c.head}`} value={c.field} onChange={e => setField(i, e.target.value as Field)}>
+            <option value="">Ignorieren</option>
+            {Object.entries(FIELDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></th>)}</tr>
+        </thead><tbody>
+          {table?.rows.slice(0, 100).map((r, k) => <tr key={k}>{imp.cols!.map((c, i) => <td key={i} className={c.field ? "" : "off"} title={r[i] || undefined}>{r[i] || ""}</td>)}</tr>)}
         </tbody></table></div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button className="btn sec" onClick={() => setImp({ ...imp, cols: null })}>Zurück</button><button className="btn pri" onClick={mapped} disabled={imp.busy}>{imp.busy && <Icon n="loader" />}Kontakte erkennen</button></div>
+        <div className="dlg-f">{table && <span className="f3">{table.rows.length} {table.rows.length === 1 ? "Zeile" : "Zeilen"}</span>}<span className="sp" />
+          <button className="btn sec" onClick={() => { setImp({ ...imp, cols: null }); setSheets(null); }}>Zurück</button><button className="btn pri" onClick={mapped} disabled={imp.busy}>{imp.busy && <Icon n="loader" />}Kontakte erkennen</button></div>
       </> : !imp.rows ? <>
         <div className="dlg-h">Leads importieren<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <label className="btn sec"><Icon n="upload" />Datei wählen<input type="file" accept=".xlsx,.csv" hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = ""; }} /></label>
-          {sheets && <select className="inp" style={{ width: "auto" }} aria-label="Blatt" value={sheets.i} onChange={e => pickSheet(Number(e.target.value))}>{sheets.list.map((s, i) => <option key={i} value={i}>{s.sheet}</option>)}</select>}
-        </div>
-        <label className="fld"><span>Daten</span><textarea className="prompt" style={{ minHeight: 220 }} placeholder="Liste, Tabelle oder Text einfügen" value={imp.text} onChange={e => setImp({ ...imp, text: e.target.value })} autoFocus /></label>
-        <label className="fld"><span>Quelle</span><input className="inp" value={imp.src} placeholder="z. B. DTVP Oktober" onChange={e => setImp({ ...imp, src: e.target.value, auto: false })} /></label>
-        <button className="btn pri wide" onClick={parse} disabled={imp.busy || !imp.text.trim()}>{imp.busy && <Icon n="loader" />}Daten erkennen</button>
+        <label className={`drop${drag ? " on" : ""}`} onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+          onDrop={e => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files[0]); }}>
+          {imp.busy ? <Icon n="loader" /> : <Icon n="upload" />}<span>Excel- oder CSV-Datei hierher ziehen oder <u>auswählen</u></span>
+          <input type="file" accept=".xlsx,.csv" className="vh" onChange={e => { pick(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+        <label className="fld"><span>Oder Text einfügen</span><textarea className="prompt" style={{ minHeight: 88 }} placeholder="Liste, Tabelle oder Text einfügen" value={imp.text}
+          onChange={e => setImp({ ...imp, text: e.target.value })}
+          /* a pasted table goes straight to the column view */
+          onPaste={e => { const txt = e.clipboardData.getData("text"); if (!imp.text.trim() && splitTable(txt)) { e.preventDefault(); setImp({ ...imp, text: txt }); setSheets(null); analyze(txt); } }} /></label>
+        <button className="btn pri wide" onClick={() => analyze(imp.text)} disabled={imp.busy || !imp.text.trim()}>{imp.busy && <Icon n="loader" />}Daten erkennen</button>
       </> : <>
         <div className="dlg-h">{imp.rows.length} {imp.rows.length === 1 ? "Kontakt" : "Kontakte"} erkannt<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
-        <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>E-Mail</th><th></th></tr></thead><tbody>
-          {imp.rows.map((r, i) => <tr key={i}><td style={{ fontWeight: 500 }}>{r.co}</td><td>{r.p ? <>{[r.sal, r.p].filter(Boolean).join(" ")}{r.role && <span className="f3"> ({r.role})</span>}</> : <span className="f3">–</span>}</td>
+        <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th className="hide-m">Rolle</th><th>E-Mail</th><th className="hide-m">Ort</th><th></th></tr></thead><tbody>
+          {imp.rows.map((r, i) => <tr key={i}><td style={{ fontWeight: 500 }}>{r.co}</td><td>{r.p ? [r.sal, r.p].filter(Boolean).join(" ") : <span className="f3">–</span>}</td>
+            <td className="hide-m f2">{r.role || <span className="f3">–</span>}</td>
             <td className="mono" style={{ fontSize: 12.5 }}>{r.email || (r.web ? <span className="f3">{r.web}</span> : <span className="f3">fehlt</span>)}</td>
+            <td className="hide-m f2">{r.city || <span className="f3">–</span>}</td>
             <td>{r.dup ? <span className="pill">{r.dup}</span> : r.extra ? <span className="pill">{r.extra}</span> : null}</td></tr>)}
         </tbody></table></div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button className="btn sec" onClick={() => setImp({ ...imp, rows: null })}>Zurück</button><button className="btn pri" onClick={save} disabled={!ok}>{ok} {ok === 1 ? "Lead" : "Leads"} übernehmen</button></div>
+        <div className="dlg-f"><input className="inp" style={{ width: 220 }} aria-label="Quelle" value={imp.src} placeholder="Quelle, z. B. DTVP Oktober" onChange={e => setImp({ ...imp, src: e.target.value, auto: false })} /><span className="sp" />
+          <button className="btn sec" onClick={() => setImp({ ...imp, rows: null })}>Zurück</button><button className="btn pri" onClick={save} disabled={!ok}>{ok} {ok === 1 ? "Lead" : "Leads"} übernehmen</button></div>
       </>}
     </div></div>}
   </>;

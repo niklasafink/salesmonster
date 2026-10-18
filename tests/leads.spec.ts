@@ -99,10 +99,10 @@ test("Import erkennt Text ohne KI, markiert Dubletten", async ({ page, request }
     await page.getByRole("button", { name: "Importieren" }).click();
     const dlg = page.locator(".dlg");
     await expect(dlg.getByRole("button", { name: "Daten erkennen" })).toBeDisabled();
-    await dlg.getByLabel("Daten").fill(text);
-    await dlg.getByLabel("Quelle").fill(tag);
+    await dlg.getByPlaceholder("Liste, Tabelle oder Text einfügen").fill(text);
     await dlg.getByRole("button", { name: "Daten erkennen" }).click();
     await expect(dlg.locator(".dlg-h")).toContainText("1 Kontakt erkannt");
+    await dlg.getByLabel("Quelle").fill(tag);
     await expect(dlg).toContainText(co);
     await expect(dlg).toContainText("Herr Max Muster");
     await expect(dlg).toContainText(mail);
