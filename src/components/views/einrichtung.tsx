@@ -19,7 +19,7 @@ const numbered = (t: string) => t.replace(/^(###[ \t]+)(.+?):/gm, (m, h: string,
   const i = STEPS.findIndex(([, n]) => n === l);
   return i < 0 ? m : `${h}${i + 1}. ${l}:`;
 });
-const BUSY: Record<SetupStep, string> = { website: "Lese die Website", zielgruppe: "Leite Zielgruppen ab", ansprechpartner: "Ordne Rollen zu", liste: "Suche Firmen und Ansprechpartner", ansprache: "Schreibe Mails", fertig: "Übernehme" };
+const BUSY: Record<SetupStep, string> = { website: "Denke nach", zielgruppe: "Leite Zielgruppen ab", ansprechpartner: "Ordne Rollen zu", liste: "Suche Firmen und Ansprechpartner", ansprache: "Schreibe Mails", fertig: "Übernehme" };
 const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier deinen API-Schlüssel ein, von [OpenRouter](https://openrouter.ai/settings/keys) oder von der [Claude-API](https://console.anthropic.com/settings/keys).";
 
 const NEW_KEY = "Anderen Schlüssel verbinden";
@@ -101,6 +101,8 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     return [...xs.slice(0, lines.indexOf(next)), { ...next, text: next.text.slice(0, typed) }];
   }, [read, lines, next, typed, cut]);
   const typing = !!next;
+  /* the website is read only in the first turn of step 1, later turns work from the notes */
+  const reading = !!su && su.step === "website" && !!t.domain && !su.chat.some(m => m.role === "ai" && m.step === "website");
 
   /* Entering a step the AI has not spoken in yet starts it */
   useEffect(() => {
@@ -206,7 +208,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
         <ThreadPrimitive.Root className="cl-thread">
           <ThreadPrimitive.Viewport className="cl-vp">
             <ThreadPrimitive.Messages>{() => <Msg />}</ThreadPrimitive.Messages>
-            {busy && !typing && <div className="cl-col cl-run"><Spark spin />{ai ? BUSY[su.step] : "Prüfe den Schlüssel"}{ai && su.step === "website" ? ` ${t.domain}` : ""}</div>}
+            {busy && !typing && <div className="cl-col cl-run"><Spark spin />{!ai ? "Prüfe den Schlüssel" : reading ? `Lese die Website ${t.domain}` : su.step === "website" ? "Denke nach" : BUSY[su.step]}</div>}
             {quiet && ai && su.step === "liste" && su.leads.length > 0 && <div className="cl-col cl-inl"><LeadList su={su} busy={busy} post={post} send={send} /></div>}
             {quiet && ai && su.step === "ansprache" && su.templates.length > 0 && <div className="cl-col cl-inl"><Mails xs={su.templates} /></div>}
             {/* answer options belong to the last AI turn, directly below it and its lists */}
