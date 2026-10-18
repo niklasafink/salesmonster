@@ -110,6 +110,11 @@ async function scoreTemplates(t: Tenant, su: Setup, tpls: z.infer<typeof Tpl>[])
   }));
 }
 
+/* Each question heading names the step on the left it belongs to; when the model leaves it out, the current step is used */
+const LABEL: Record<SetupStep, string> = { website: "Unternehmen", zielgruppe: "Zielgruppe", ansprechpartner: "Ansprechpartner", liste: "Erste Liste", ansprache: "Ansprache", fertig: "Übernehmen" };
+const labelled = (reply: string, step: SetupStep) => reply.replace(/^###[ \t]+(.+)$/gm, (m, q: string) =>
+  Object.values(LABEL).some(l => q.startsWith(`${l}:`)) ? m : `### ${LABEL[step]}: ${q}`);
+
 export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | "goto" | "votes" | "prompt"; text?: string; step?: SetupStep; leads?: SetupLead[]; intro?: ChatMsg[] };
 
 /* Which step writes which prompt section, so an AI update replaces a hand edit */
@@ -158,7 +163,7 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
     /* written from the user's answer counts as input, on its own (start, auto) as AI */
     set.sources = { ...su.sources, ...Object.fromEntries(wrote.map(k => [k, text ? "nutzer" : "ki"])) };
   }
-  chat.push({ role: "ai", text: o.reply, step: su.step, chips: o.chips.slice(0, 4) });
+  chat.push({ role: "ai", text: labelled(o.reply, su.step), step: su.step, chips: o.chips.slice(0, 4) });
   set.chat = chat.slice(-80);
   if (a.action === "auto" || (o.advance && a.action === "message")) set.step = nextStep(su.step);
   return save(su.id, set);
