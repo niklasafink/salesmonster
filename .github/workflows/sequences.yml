@@ -9,4 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
-      - run: curl -fsS --max-time 300 -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://sales-portal-sooty.vercel.app/api/cron/sequences
+      - name: Strecken ausführen
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 300 -H "Authorization: Bearer $CRON_SECRET" https://sales-portal-sooty.vercel.app/api/cron/sequences
