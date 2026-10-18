@@ -52,13 +52,13 @@ export async function switchSetup(tenantId: number, id: number): Promise<Setup |
   return (await db.update(setups).set({ active: true }).where(eq(setups.id, id)).returning())[0];
 }
 
-export type ChatItem = { id: number; at: string };
+export type ChatItem = { id: number; at: string; step: SetupStep; done: boolean };
 
 /* The chats of a tenant for the rail, newest first; empty ones are left out except the active one */
 export async function listChats(tenantId: number): Promise<ChatItem[]> {
-  const rows = await db.select({ id: setups.id, active: setups.active, at: setups.updatedAt, chat: setups.chat })
+  const rows = await db.select({ id: setups.id, active: setups.active, at: setups.updatedAt, chat: setups.chat, step: setups.step, doneAt: setups.doneAt })
     .from(setups).where(eq(setups.tenantId, tenantId)).orderBy(desc(setups.updatedAt));
-  return rows.filter(r => r.active || r.chat.length).map(r => ({ id: r.id, at: r.at.toISOString() }));
+  return rows.filter(r => r.active || r.chat.length).map(r => ({ id: r.id, at: r.at.toISOString(), step: r.step, done: !!r.doneAt }));
 }
 
 async function save(id: number, set: Partial<typeof setups.$inferInsert>) {

@@ -30,6 +30,8 @@ type Res = { setup: Setup; sources: Sources; parts: Record<SetupStep, string>; k
 type Line = { id: string; role: "ai" | "me"; text: string; chips?: string[] };
 
 const when = (iso: string) => new Date(iso).toLocaleString("de-DE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+/* a chat is named after how far it got, the day tells same-named chats apart */
+const chatName = (c: ChatItem) => `${c.done ? "Übernommen" : NAME[c.step]} (${new Date(c.at).toLocaleDateString("de-DE", { day: "numeric", month: "short" })})`;
 
 const convert = (l: Line) => ({ id: l.id, role: l.role === "ai" ? "assistant" as const : "user" as const, content: l.text });
 
@@ -192,7 +194,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
         {chats.length > 1 && <>
           <div className="cl-cap">Chats</div>
           {chats.map(c => <div key={c.id} className={`cl-sec ${c.id === su.id ? "on" : ""}`}>
-            <button className="cl-sh" onClick={() => c.id !== su.id && chat({ action: "switch", id: c.id })} disabled={busy} aria-current={c.id === su.id ? "true" : undefined}>{when(c.at)}</button>
+            <button className="cl-sh" onClick={() => c.id !== su.id && chat({ action: "switch", id: c.id })} disabled={busy} aria-current={c.id === su.id ? "true" : undefined} title={when(c.at)}>{chatName(c)}</button>
           </div>)}
         </>}
       </div>
