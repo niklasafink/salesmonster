@@ -13,7 +13,7 @@ type Lead = EditLead & { id: number; companyId: number | null; source: string; t
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
 type Campaign = { id: string; name: string; status: string; totalLeads: number };
-type Parsed = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; note?: string; dup: string; extra: string };
+type Parsed = { co: string; sal?: string; p: string; role: string; email: string; phone?: string; web: string; city: string; note?: string; dup: string; extra: string };
 const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
 
 /* we already had contact: a mail went out, an answer came in, or the mailbox knows them */
@@ -250,10 +250,11 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         <button className="btn pri wide" onClick={() => analyze(imp.text)} disabled={imp.busy || !imp.text.trim()}>{imp.busy && <Icon n="loader" />}Daten erkennen</button>
       </> : <>
         <div className="dlg-h">{imp.rows.length} {imp.rows.length === 1 ? "Kontakt" : "Kontakte"} erkannt<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
-        <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th className="hide-m">Rolle</th><th>E-Mail</th><th className="hide-m">Ort</th><th></th></tr></thead><tbody>
+        <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th className="hide-m">Rolle</th><th>E-Mail</th><th className="hide-m">Telefon</th><th className="hide-m">Ort</th><th></th></tr></thead><tbody>
           {imp.rows.map((r, i) => <tr key={i}><td style={{ fontWeight: 500 }}>{r.co}</td><td>{r.p ? [r.sal, r.p].filter(Boolean).join(" ") : <span className="f3">–</span>}</td>
             <td className="hide-m f2" title={r.note || undefined}>{r.role || <span className="f3">–</span>}</td>
             <td className="mono" style={{ fontSize: 12.5 }}>{r.email || (r.web ? <span className="f3">{r.web}</span> : <span className="f3">fehlt</span>)}</td>
+            <td className="hide-m f2 num">{r.phone || <span className="f3">–</span>}</td>
             <td className="hide-m f2">{r.city || <span className="f3">–</span>}</td>
             <td>{r.dup ? <span className="pill">{r.dup}</span> : r.extra ? <span className="pill">{r.extra}</span> : null}</td></tr>)}
         </tbody></table></div>

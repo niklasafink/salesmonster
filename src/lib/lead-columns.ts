@@ -1,6 +1,6 @@
 /* Column mapping for pasted or uploaded lead tables. Pure, so the import dialog can use it too. */
 
-/* CRM fields a column can feed; "" = ignore the column */
+/* CRM fields a column can feed, named as in the contact record; "" = ignore the column */
 export const FIELDS = {
   co: "Firma",
   sal: "Anrede",
@@ -9,11 +9,12 @@ export const FIELDS = {
   name: "Vor- und Nachname",
   role: "Rolle",
   email: "E-Mail",
+  phone: "Telefon",
+  li: "LinkedIn",
   web: "Website",
   city: "Ort",
-  li: "LinkedIn",
   hook: "Anlass",
-  url: "Quell-Link",
+  url: "Link zur Quelle",
   note: "Notiz",
 } as const;
 export type Field = keyof typeof FIELDS | "";
@@ -28,6 +29,7 @@ const HEAD: [Field, RegExp][] = [
   ["name", /^(name|fullname|kontakt|kontaktperson|ansprechpartner(in)?|contact|contactname|contactperson|person)$/],
   ["role", /^(rolle|position|funktion|role|jobtitle|title|job)$/],
   ["email", /^(e?mail|emailadresse|mailadresse|emailaddress)$/],
+  ["phone", /^(tel|telefon|telefonnummer|phone|phonenumber|telephone|rufnummer|mobil|mobile|mobilnummer|handy|handynummer|durchwahl|festnetz)$/],
   ["web", /^(website|webseite|homepage|internet|url|web|domain)$/],
   ["city", /^(ort|stadt|city|standort|location|town)$/],
   ["li", /^(linkedin|linkedinurl|linkedinprofil|linkedinprofile)$/],
@@ -88,6 +90,8 @@ const FITS: Partial<Record<Field, (v: string) => boolean>> = {
   role: v => v.length <= 100 && !/@/.test(v) && !/^[A-Z]{0,2}\d{0,2}$/i.test(v),
   note: v => !/^[A-Z]{0,2}\d{0,2}$/i.test(v),
   email: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+  /* one or several numbers, e.g. "+49 69 967 65 1141 / +49 152 01 234567" */
+  phone: v => v.length <= 120 && !/[@a-z]{3}/i.test(v) && v.replace(/\D/g, "").length >= 5,
   web: v => URL_RE.test(v) && !/@/.test(v),
   url: v => URL_RE.test(v),
   li: v => /linkedin\./i.test(v),
@@ -109,20 +113,49 @@ export function columnsOf(t: { head: string[]; rows: string[][] }): Column[] {
   });
 }
 
-export type MappedRow = { co: string; sal: string; p: string; role: string; email: string; web: string; city: string; li: string; hook: string; url: string; note: string };
+export type MappedRow = { co: string; sal: string; p: string; role: string; email: string; phone: string; web: string; city: string; li: string; hook: string; url: string; note: string };
+
+/* Values of several people in one cell: "Max Muster / Ida Bau", "a@x.de; b@x.de", one per line */
+const SEP = /\s+\/\s+|\s*[;|\n]\s*|\s+(?:und|&)\s+/;
+function parts(x: string, f: Field) {
+  const p = x.split(f === "email" ? new RegExp(`${SEP.source}|\\s*,\\s*`) : SEP).map(s => s.trim()).filter(Boolean);
+  /* "069 / 96765" is one number with area code, only full numbers count as several */
+  if (f === "phone" && p.some(n => n.replace(/\D/g, "").length < 6)) return [x];
+  return p;
+}
 
 /* Applies the reviewed mapping; columns set to "" are ignored, rows without a company are dropped.
-   Several columns on one field: the first non-empty cell wins (e.g. "E-Mail 1", "E-Mail 2");
-   columns on Notiz are collected as "Spalte: Wert", so side facts sit in one short text instead of fields of their own. */
+   One person: several columns on one field, the first non-empty cell wins (e.g. "E-Mail 1", "E-Mail 2"); phone numbers are all kept.
+   Several people, as several name columns ("Ansprechpartner A", "Ansprechpartner B") or several names in one cell:
+   each becomes a contact of the company, and person cells with as many values as people are spread in order,
+   so "+49 69 … / +49 152 …" next to two names gives each person their number. A single value stays with the first person, a phone number goes to all.
+   Columns on Notiz are collected as "Spalte: Wert", so side facts sit in one short text instead of fields of their own. */
 export function applyMap(t: { head: string[]; rows: string[][] }, map: Field[]): MappedRow[] {
-  return t.rows.map(c => {
+  return t.rows.flatMap(c => {
     /* a cell that does not fit its field (a code as role, a date as city) is left out, the rest of the row stays;
        a broken address goes on, so the review can flag it */
     const cell = (i: number, f: Field) => { const x = cellOf(c[i] || "", f); return f === "co" || f === "email" || !FITS[f] || FITS[f]!(x) ? x : ""; };
     const v = (f: Field) => map.reduce<string>((acc, m, i) => acc || (m === f ? cell(i, f) : ""), "");
-    /* "Herr Dr. Max Muster" in one cell: the title goes to the salutation */
-    const [, title, p] = (v("name") || [v("first"), v("last")].filter(Boolean).join(" ")).match(/^((?:(?:Herr|Frau|Prof\.|Dr\.)\s+)*)(.*)$/)!;
+    const all = (f: Field) => map.flatMap((m, i) => m === f && cell(i, f) ? [cell(i, f)] : []);
+    /* person values in column order, each cell split into the people it names */
+    const vals = (f: Field) => all(f).flatMap(x => parts(x, f));
+    const names = vals("name"), firsts = vals("first"), lasts = vals("last");
+    const n = Math.max(names.length, firsts.length, lasts.length, 1);
+    const pick = (f: Field, k: number) => {
+      const xs = vals(f);
+      if (n > 1 && xs.length === n) return xs[k];
+      if (f === "phone") return !k || xs.length === 1 ? [...new Set(all(f))].join(" / ") : "";
+      /* "a@x.de; b@x.de" for one person: the first address */
+      return k ? "" : f === "email" ? xs[0] || "" : v(f);
+    };
     const note = map.map((m, i) => m === "note" && cell(i, m) ? `${t.head[i]}: ${cell(i, m)}` : "").filter(Boolean).join(" · ").slice(0, 500);
-    return { co: v("co"), sal: v("sal") || title.trim(), p: p.trim(), role: v("role"), email: v("email"), web: v("web"), city: v("city"), li: v("li"), hook: v("hook"), url: v("url"), note };
+    const co = { co: v("co"), web: v("web"), city: v("city"), hook: v("hook"), url: v("url"), note };
+    return Array.from({ length: n }, (_, k) => {
+      const name = n === 1 ? v("name") || [v("first"), v("last")].filter(Boolean).join(" ") : names[k] || [firsts[k], lasts[k]].filter(Boolean).join(" ");
+      /* "Herr Dr. Max Muster" in one cell: the title goes to the salutation */
+      const [, title, p] = name.match(/^((?:(?:Herr|Frau|Prof\.|Dr\.)\s+)*)(.*)$/)!;
+      const [sal, role, email, phone, li] = (["sal", "role", "email", "phone", "li"] as Field[]).map(f => pick(f, k));
+      return { ...co, sal: sal || title.trim(), p: p.trim(), role, email, phone, li };
+    }).filter((r, k) => !k || r.p || r.email);
   }).filter(r => r.co);
 }

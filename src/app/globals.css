@@ -608,6 +608,9 @@ tr.click:focus-visible td{background:var(--hover)}
 .dlg .map .mf{width:170px}
 .dlg .map .mf select{width:100%}
 .dlg .map .off .mh{color:var(--fg-3); font-weight:400}
+/* ignored columns read as switched off: they do not go into the CRM */
+.dlg .map tr.off td{color:var(--fg-3)}
+.dlg .map select.off{background-color:var(--hover); color:var(--fg-3); border-color:var(--line)}
 .dlg .more{margin-top:6px; color:var(--fg-2)}
 
 /* Contact record: person | activity | company. Fields read as text and only look editable on hover and focus */

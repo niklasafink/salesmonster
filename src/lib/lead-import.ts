@@ -8,7 +8,7 @@ import { pool } from "@/lib/outreach";
 import { clean } from "@/lib/lead-columns";
 
 /* One imported contact as the parser, the import dialog and MCP hand it over; several rows with the same co are contacts of one company */
-export type LeadRow = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; li?: string; hook?: string; url?: string; note?: string };
+export type LeadRow = { co: string; sal?: string; p: string; role: string; email: string; phone?: string; web: string; city: string; li?: string; hook?: string; url?: string; note?: string };
 export type CheckedRow = LeadRow & { sal: string; dup: string; extra: string };
 
 const HUB_DOWN = "HubSpot nicht erreichbar";
@@ -24,7 +24,7 @@ async function hubKnown(token: string, r: LeadRow): Promise<Known | null> {
    Only rows that add nothing new (same address, or a known company without an address) are dropped. */
 export async function checkLeads(tenantId: number, input: LeadRow[]): Promise<CheckedRow[]> {
   /* AI and pasted text bring quotes and Markdown along; links keep their target */
-  const rows = input.map(r => ({ ...r, co: clean(r.co), sal: clean(r.sal || ""), p: clean(r.p), role: clean(r.role), city: clean(r.city), hook: clean(r.hook || ""), note: clean(r.note || "").slice(0, 500) })).filter(r => r.co);
+  const rows = input.map(r => ({ ...r, co: clean(r.co), sal: clean(r.sal || ""), p: clean(r.p), role: clean(r.role), phone: clean(r.phone || "").slice(0, 120), city: clean(r.city), hook: clean(r.hook || ""), note: clean(r.note || "").slice(0, 500) })).filter(r => r.co);
   const prev = await db.select({ c: leads.company, e: leads.email, s: leads.status }).from(leads).where(eq(leads.tenantId, tenantId));
   const companies = new Set(prev.map(r => norm(r.c))), emails = new Set(prev.map(r => r.e.toLowerCase()).filter(Boolean));
   /* trashed leads stay in the list, so they are recognised when they turn up again */
@@ -58,7 +58,7 @@ export async function insertLeads(tenantId: number, rows: LeadRow[], source: str
     const [first, ...rest] = (r.p || "").trim().split(/\s+/);
     const email = validEmail((r.email || "").trim()) ? (r.email || "").trim() : "";
     return { tenantId, company: r.co.trim(), first: r.p ? first : "", last: r.p ? rest.join(" ") : "", role: r.role || "",
-      email, emailType: emailTypeOf(email, !!r.p?.trim()), website: httpUrl(r.web || ""),
+      email, emailType: emailTypeOf(email, !!r.p?.trim()), phone: (r.phone || "").trim().slice(0, 120), website: httpUrl(r.web || ""),
       city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: httpUrl(r.li || ""), hook: r.hook || "", note: r.note || "", sourceUrl: httpUrl(r.url || ""), source: source || "Import", status: "neu" };
   });
   const ids = (await db.insert(leads).values(vals).returning({ id: leads.id })).map(r => r.id);

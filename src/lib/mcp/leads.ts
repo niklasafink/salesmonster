@@ -22,6 +22,7 @@ const newLead = z.object({
   person: s("Vor- und Nachname des Ansprechpartners ohne Anrede und Titel, z. B. „Ida Muster“; leer lassen, wenn nur eine Firmenadresse bekannt ist"),
   role: s("Funktion des Ansprechpartners, z. B. Geschäftsführer"),
   email: s("E-Mail-Adresse; info@/kontakt@ usw. gelten als Firmenadresse"),
+  phone: s("Telefon- oder Mobilnummer"),
   website: s("Website, mit oder ohne https://"),
   city: s("Ort"),
   linkedin: s("LinkedIn-Profil-URL"),
@@ -83,7 +84,7 @@ export function leadTools(server: McpServer) {
     }),
   }, async ({ tenant: slug, rows, source, run: runId }, user) => {
     const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_add");
-    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl })), source || wr?.workflow || "Claude");
+    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", phone: r.phone || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl })), source || wr?.workflow || "Claude");
     await wr?.count({ added: out.added.length, skipped: out.skipped.length });
     return out;
   });

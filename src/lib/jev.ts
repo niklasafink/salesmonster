@@ -117,13 +117,14 @@ const COLS = {
   name: "Full name of the contact person",
   role: "Job title or role of the contact person",
   email: "Email address",
+  phone: "Phone, mobile or direct dial number of the contact person, also several numbers in one cell",
   web: "Company website or domain",
   city: "City or location of the company",
   li: "LinkedIn profile URL",
   hook: "Note on why to contact the company now (project, tender, news, expansion)",
   url: "Link to the source the lead was found in",
   note: "Short side fact about the person worth knowing before writing: department, area of responsibility, topic, committee",
-  skip: "Anything else: phone, street, zip, IDs, dates, numbers, status, revenue, category, rating, short codes like A, B or R1, internal notes, empty. When in doubt, skip",
+  skip: "Anything else: fax, street, zip, IDs, dates, numbers, status, revenue, category, rating, short codes like A, B or R1, internal notes, empty. When in doubt, skip",
 } as const;
 
 /* Which CRM field each table column holds, judged from header and sample values, 25 columns per call.

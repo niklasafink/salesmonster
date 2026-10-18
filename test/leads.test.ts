@@ -80,7 +80,7 @@ describe("Spalten prüfen vor dem Import", () => {
   const text = "Firmenname\tTelefon\tKontakt\tMail\nPrüf Holz GmbH\t0221 1\tFrau Pia Prüf\tpia@pruefholz.de";
   it("schlägt eine Zuordnung vor, Freitext bekommt keine", async () => {
     const { json } = await call(COLUMNS, { as: me, body: { t: slug, text } });
-    expect(json.cols.map((c: { field: string }) => c.field)).toEqual(["co", "", "name", "email"]);
+    expect(json.cols.map((c: { field: string }) => c.field)).toEqual(["co", "phone", "name", "email"]);
     expect((await call(COLUMNS, { as: me, body: { t: slug, text: "Muster GmbH, GF Ida Muster" } })).json).toEqual({ cols: null });
   });
   it("übernimmt die geprüfte Zuordnung, ignorierte Spalten bleiben draußen", async () => {

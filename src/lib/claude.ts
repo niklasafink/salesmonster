@@ -82,7 +82,7 @@ ${JSON.stringify(lead)}`,
   return json(text, z.object({ leads: z.array(LeadOut) })).leads[0] ?? null;
 }
 
-const ImportRow = z.object({ co: z.string().min(2), sal: s(), p: s(), role: s(), email: s(), web: s(), city: s(), li: s(), hook: s(), note: s() });
+const ImportRow = z.object({ co: z.string().min(2), sal: s(), p: s(), role: s(), email: s(), phone: s(), web: s(), city: s(), li: s(), hook: s(), note: s() });
 /* Most text one parse call reads; the caller splits tables and refuses longer free text rather than cutting it */
 export const IMPORT_CHARS = 40000;
 export async function parseImport(key: Ai, raw: string) {
@@ -90,8 +90,8 @@ export async function parseImport(key: Ai, raw: string) {
   const text = await ask({
     key, effort: "low",
     system: "Du liest unstrukturierte Listen (Bieterlisten, Tabellen, Freitext) und gibst Firmen als JSON zurück.",
-    prompt: `Erkenne alle Ansprechpartner und Firmen in diesem Text. Mehrere Personen derselben Firma sind je eine eigene Zeile mit gleichem Firmennamen.
-Je Zeile: co (Firmenname mit Rechtsform), sal (Anrede mit Titel, nur "Herr", "Frau", "Herr Dr.", "Frau Dr.", "Herr Prof. Dr." oder "Frau Prof. Dr."; nur wenn Anrede, Titel oder Geschlecht im Text stehen, sonst ""), p (Vor- und Nachname ohne Anrede und Titel), role (Rolle wie Geschäftsführung, Inhaber), email, web (Website), city (Ort), li (LinkedIn-URL), hook (Anlass für die Ansprache als Substantivgruppe im Nominativ, z. B. die neue Niederlassung in Halle, nur wenn der Text einen nennt), note (sonstige kurze Infos zur Person wie Bereich, Zuständigkeit oder Gremium, höchstens 200 Zeichen, sonst ""). Kürzel wie A, B oder R1 und interne Kennungen nicht übernehmen. Werte ohne umschließende Anführungszeichen und ohne Markdown.
+    prompt: `Erkenne alle Ansprechpartner und Firmen in diesem Text. Mehrere Personen derselben Firma sind je eine eigene Zeile mit gleichem Firmennamen; stehen mehrere Personen in einer Zeile und eine Zelle hat je Person einen Wert (z. B. "+49 69 … / +49 152 …"), bekommt jede Person ihren Wert in derselben Reihenfolge.
+Je Zeile: co (Firmenname mit Rechtsform), sal (Anrede mit Titel, nur "Herr", "Frau", "Herr Dr.", "Frau Dr.", "Herr Prof. Dr." oder "Frau Prof. Dr."; nur wenn Anrede, Titel oder Geschlecht im Text stehen, sonst ""), p (Vor- und Nachname ohne Anrede und Titel), role (Rolle wie Geschäftsführung, Inhaber), email, phone (Telefon- oder Mobilnummer der Person), web (Website), city (Ort), li (LinkedIn-URL), hook (Anlass für die Ansprache als Substantivgruppe im Nominativ, z. B. die neue Niederlassung in Halle, nur wenn der Text einen nennt), note (sonstige kurze Infos zur Person wie Bereich, Zuständigkeit oder Gremium, höchstens 200 Zeichen, sonst ""). Kürzel wie A, B oder R1 und interne Kennungen nicht übernehmen. Werte ohne umschließende Anführungszeichen und ohne Markdown.
 Hat der Text eine Kopfzeile (z. B. Tabulator-getrennte Spalten aus Excel), ordne die Felder anhand der Spaltennamen zu und lies jede weitere Zeile als einen Kontakt; Vor- und Nachname aus getrennten Spalten zusammensetzen.
 Nichts erfinden. Antworte nur mit \`\`\`json {"rows":[…]}\`\`\`.
 
