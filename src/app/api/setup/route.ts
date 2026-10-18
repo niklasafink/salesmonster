@@ -7,7 +7,7 @@ export const maxDuration = 300;
 export const GET = route(async (req, _c, me) => {
   const t = await tenantBySlug(qp(req, "t"), me);
   const su = await loadSetup(t.id);
-  return { setup: su, prompt: buildPrompt(t, su), ai: !!(await aiFor(t.id)) };
+  return { setup: su, prompt: buildPrompt(t, su), ai: !!(await aiFor(t.id, me.id)) };
 });
 
 export const POST = route(async (req, _c, me) => {
@@ -16,6 +16,6 @@ export const POST = route(async (req, _c, me) => {
   const su = await loadSetup(t.id);
   if (b.action === "apply") return { applied: await applySetup(t, su, b) };
   if (!["start", "message", "auto", "next", "skip", "goto", "votes"].includes(b.action)) throw new HttpError(400, "Unbekannte Aktion");
-  const next = await act(t, await aiFor(t.id), su, b);
+  const next = await act(t, await aiFor(t.id, me.id), su, b);
   return { setup: next, prompt: buildPrompt(t, next) };
 });

@@ -24,7 +24,7 @@ export const POST = route(async (req, _c, me) => {
   const { t: slug, text } = await req.json();
   const t = await tenantBySlug(slug, me);
   if (!String(text || "").trim()) throw new HttpError(400, "Keine Daten");
-  const key = await aiFor(t.id);
+  const key = await aiFor(t.id, me.id);
   const rows = key ? await parseImport(key, text) : regexParse(text);
   /* One person per company gets the mail; further people at that company are kept as contacts.
      Only rows that add nothing new (same address, or a known company without an address) are dropped. */

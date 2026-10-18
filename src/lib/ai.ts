@@ -6,11 +6,11 @@ export { OPENROUTER_MODELS };
 /* Which model answers for a tenant. A plain string is an Anthropic API key (older callers). */
 export type Ai = string | { provider: "anthropic" | "openrouter"; key: string; model?: string };
 
-/* Anthropic key wins when both are connected; it supports server-side fallback and pause_turn */
-export async function aiFor(tenantId: number): Promise<Ai | null> {
-  const c = await getInteg(tenantId, "claude");
+/* Anthropic key wins when both are connected; it supports server-side fallback and pause_turn. Keys belong to the account, userId picks whose. */
+export async function aiFor(tenantId: number, userId?: number): Promise<Ai | null> {
+  const c = await getInteg(tenantId, "claude", userId);
   if (c?.key) return { provider: "anthropic", key: c.key };
-  const o = await getInteg(tenantId, "openrouter");
+  const o = await getInteg(tenantId, "openrouter", userId);
   if (o?.key) return { provider: "openrouter", key: o.key, model: o.model || OPENROUTER_MODELS[0][0] };
   return null;
 }

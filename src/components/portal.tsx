@@ -64,7 +64,7 @@ export default function Portal() {
   const switchTenant = useCallback((s: string) => { setSlug(s); ls.set("sp-tenant", s); setPop(null); load(s).catch(e => toast(e.message)); }, [load, toast]);
 
   const hasInvoice = !!st?.tenant?.invoice;
-  const navKeys = Object.keys(VIEWS).filter(v => (v !== "rechnungen" || hasInvoice) && (v !== "einrichtung" || !st?.setup.done));
+  const navKeys = Object.keys(VIEWS).filter(v => (v !== "rechnungen" || hasInvoice));
   const curView = view === "rechnungen" && st && !hasInvoice ? "freigabe" : view;
 
   const ctx: Ctx | null = st ? { st, reload, toast, setView, openSidebar: () => setSbo(true) } : null;

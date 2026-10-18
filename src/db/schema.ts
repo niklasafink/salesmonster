@@ -52,10 +52,10 @@ export const members = pgTable("members", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
 }, t => [uniqueIndex("members_key").on(t.tenantId, t.userId)]);
 
-/* One row per tenant + kind (+ user for mailboxes). Secrets in config are encrypted. */
+/* One row per tenant + kind (+ user for mailboxes); account-wide keys have no tenant. Secrets in config are encrypted. */
 export const integrations = pgTable("integrations", {
   id: serial("id").primaryKey(),
-  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
   userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
   kind: text("kind").notNull(),
   config: text("config").notNull(),

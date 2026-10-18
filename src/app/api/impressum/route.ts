@@ -8,7 +8,7 @@ export const GET = route(async (req, _c, me) => {
   const t = await tenantBySlug(qp(req, "t"), me);
   const domain = (qp(req, "domain") || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
   if (!/^[\w.-]+\.[a-z]{2,}$/i.test(domain)) throw new HttpError(400, "Domain fehlt");
-  const key = await aiFor(t.id);
+  const key = await aiFor(t.id, me.id);
   if (!key) throw new HttpError(400, "Keine KI verbunden");
   return impressum(key, domain);
 });
