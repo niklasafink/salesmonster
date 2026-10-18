@@ -169,7 +169,7 @@ function PromptDialog({ step, text, label, busy, onClose, onGo, onSave }: {
   const setKeys = (k: string) => setV(re!.test(v) ? v.replace(re!, () => `${label}: ${k}`) : `${label}: ${k}\n${v}`);
   return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg">
     <div className="dlg-h">{NAME[step]}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
-    {label && <label className="fld"><span>{label}</span><input className="inp" value={keys} onChange={e => setKeys(e.target.value)} /></label>}
+    {label && <label className="fld"><span>{label}</span><textarea className="inp ta keys" rows={2} value={keys} onChange={e => setKeys(e.target.value.replace(/\s*\n\s*/g, " "))} /></label>}
     <label className="fld"><span>Prompt</span><textarea className="prompt" value={v} onChange={e => setV(e.target.value)} /></label>
     <div className="dlg-f">
       {step !== "fertig" && <button className="btn sec" onClick={onGo} disabled={busy}>Zu diesem Schritt</button>}
