@@ -59,7 +59,7 @@ describe("leads_add", () => {
   });
 });
 
-type Lead = { id: number; companyId: number; company: string; salutation: string; sourceUrl: string; first: string; last: string; email: string; status: string; note: string; hook: string; linkedin: string; website: string; city: string; role: string; source: string };
+type Lead = { id: number; companyId: number; company: string; salutation: string; sourceUrl: string; first: string; last: string; email: string; emailType: string; status: string; note: string; hook: string; linkedin: string; website: string; city: string; role: string; source: string };
 type List = { total: number; rows: Lead[] };
 
 describe("leads_list", () => {
@@ -116,7 +116,26 @@ describe("leads_update", () => {
     expect(l).toMatchObject({ company: "My GmbH", companyId: a.companyId, salutation: "Herr Prof. Dr.", sourceUrl: "https://my.de" });
   });
 
+  it("emailType folgt Adresse und Name, auch wenn nur Vor- oder Nachname kommt; Website mit https://", async () => {
+    const u = await fx.tenant(me);
+    const { added: [a] } = await c.tool<Added>("leads_add", { tenant: u.slug, rows: [{ company: "Kappa GmbH", email: "anna@kappa.de", website: "httpkappa.de" }] });
+    const get = async () => (await c.tool<List>("leads_list", { tenant: u.slug })).rows.find(x => x.id === a.id)!;
+    expect(await get()).toMatchObject({ emailType: "info", website: "https://httpkappa.de" });
+    await c.tool("leads_update", { tenant: u.slug, updates: [{ id: a.id, last: "Kappa" }] });
+    expect((await get()).emailType).toBe("person");
+    await c.tool("leads_update", { tenant: u.slug, updates: [{ id: a.id, email: "info@kappa.de", website: "kappa.de" }] });
+    expect(await get()).toMatchObject({ emailType: "info", website: "https://kappa.de" });
+    await c.tool("leads_update", { tenant: u.slug, updates: [{ id: a.id, email: "anna@kappa.de", website: "http://kappa.de" }] });
+    expect(await get()).toMatchObject({ emailType: "person", website: "http://kappa.de" });
+  });
+
   it("fremder Mandant → Mandant nicht gefunden", async () => {
     await expect(c.tool("leads_update", { tenant: theirs.slug, updates: [{ id: 1, note: "x" }] })).rejects.toThrow("Mandant nicht gefunden");
+  });
+});
+
+describe("Fehler", () => {
+  it("Datenbank- und Laufzeitfehler kommen als „Interner Fehler“ an, ohne SQL", async () => {
+    await expect(c.tool("leads_list", { tenant: t.slug, companyId: 99999999999 })).rejects.toThrow(/^Interner Fehler$/);
   });
 });

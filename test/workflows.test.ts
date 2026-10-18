@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as list from "@/app/api/workflows/route";
 import * as one from "@/app/api/workflows/[id]/route";
+import * as runs from "@/app/api/workflows/[id]/runs/route";
+import * as grants from "@/app/api/oauth/grants/route";
 import { call, fixtures } from "./helpers";
 
 const fx = fixtures();
@@ -41,5 +43,15 @@ describe("Workflows im Portal", () => {
     expect((await call(one.DELETE, { as: me, method: "DELETE", ctx: ctx(id) })).status).toBe(200);
     rows = (await call(list.GET, { as: me, path: `/api/workflows?t=${t.slug}` })).json.rows;
     expect(rows.some(w => w.id === id)).toBe(false);
+  });
+});
+
+describe("IDs", () => {
+  it("keine Zahl → 404 statt 500", async () => {
+    const bad = { params: Promise.resolve({ id: "abc" }) };
+    expect((await call(one.PUT, { as: me, method: "PUT", body: { name: "x" }, ctx: bad })).status).toBe(404);
+    expect((await call(one.DELETE, { as: me, method: "DELETE", ctx: bad })).status).toBe(404);
+    expect((await call(runs.GET, { as: me, ctx: bad })).status).toBe(404);
+    expect((await call(grants.DELETE, { as: me, method: "DELETE", path: "/api/oauth/grants?id=abc" })).status).toBe(404);
   });
 });

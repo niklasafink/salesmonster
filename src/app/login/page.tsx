@@ -2,16 +2,14 @@
 import { useState } from "react";
 import { Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
 import { LoginArt } from "@/components/login-art";
-
-/* Only same-site paths, so ?next= can't send people elsewhere */
-const next = () => { const n = new URLSearchParams(location.search).get("next") || ""; return /^\/(?![/\\])/.test(n) ? n : "/"; };
+import { safeNext } from "@/lib/safe-next";
 
 export default function Login() {
   const [email, setEmail] = useState(""), [pw, setPw] = useState(""), [show, setShow] = useState(false), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr("");
     const r = await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password: pw }) });
-    if (r.ok) location.href = next();
+    if (r.ok) location.href = safeNext(location.search, location.origin);
     else { setErr((await r.json()).error || "Anmeldung fehlgeschlagen"); setBusy(false); }
   }
   return (

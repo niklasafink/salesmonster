@@ -20,10 +20,18 @@ export function lint(subject: string, body: string, required: string[]) {
   if (w > 110) out.push(`${w} Wörter`);
   if (subject.replace(/{{firma}}/g, "Firma GmbH").length > 45) out.push("Betreff zu lang");
   for (const p of required) if (!body.includes(p) && !subject.includes(p)) out.push(`${p} fehlt`);
-  const unknown = [...`${subject} ${body}`.matchAll(/{{([a-z]+)}}/g)].map(m => m[0]).filter(p => !required.includes(p) && !ALLOWED.includes(p));
+  const unknown = unknownPlaceholders(`${subject} ${body}`, [...required, ...ALLOWED]);
   if (unknown.length) out.push(`unbekannt: ${unknown.join(", ")}`);
   if (/https?:\/\//.test(body)) out.push("Link im Erstkontakt");
   return out;
 }
+
+/* Every {{…}} not in allowed, each once; spaces or capitals inside the braces count as unknown, fill() would leave them in the mail */
+export const unknownPlaceholders = (text: string, allowed: string[]) =>
+  [...new Set([...text.matchAll(/{{[^}]*}}/g)].map(m => m[0]))].filter(p => !allowed.includes(p));
+
+/* Template keys A…Z, then AA…ZZ: the first one not taken */
+export const nextKey = (taken: Set<string>) =>
+  Array.from({ length: 26 * 27 }, (_, i) => i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + i % 26)).find(k => !taken.has(k))!;
 
 const ALLOWED = ["{{anrede}}", "{{firma}}", "{{vorname}}", "{{nachname}}", "{{ausschreibungen}}", "{{aufhaenger}}", "{{absender}}"];

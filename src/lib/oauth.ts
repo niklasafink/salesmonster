@@ -53,6 +53,10 @@ export const redirects = () => ["https://claude.ai/api/mcp/auth_callback", "http
 export type Client = { ru: string[]; n: string };
 export const signClient = (c: Client) => sign("client", c);
 
+/* The authorize parameters we pass on; anything else in the query (e.g. a smuggled allow=1) is dropped */
+const AUTH_PARAMS = ["client_id", "redirect_uri", "response_type", "code_challenge", "code_challenge_method", "state", "scope", "resource"];
+export const authParams = (p: URLSearchParams) => new URLSearchParams([...p].filter(([k]) => AUTH_PARAMS.includes(k)));
+
 /* Authorize parameters. fatal: client or redirect unknown, never redirect there; err: report to the client's redirect */
 export async function authRequest(p: URLSearchParams) {
   const cid = p.get("client_id") || "", client = await verify<Client>("client", cid);

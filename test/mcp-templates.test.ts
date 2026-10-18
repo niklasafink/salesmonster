@@ -43,13 +43,19 @@ describe("templates_save", () => {
       active: false, origin: "Claude", score: null });
   });
 
-  it("bestehender key → überschrieben, Aktiv-Status und Herkunft bleiben, Jev-Wertung zurückgesetzt", async () => {
+  it("aktive Vorlage bleibt unberührt: inaktive Kopie unter dem nächsten freien key", async () => {
+    const before = await listed("A");
     const s = await c.tool<Saved>("templates_save", { tenant: t.slug, key: "A", name: "Anlass neu", tone: "du", subject: "Neu", body: "{{anrede}}\nNeu A\n{{absender}}" });
-    expect(s).toMatchObject({ key: "A", created: false, active: true });
-    expect(await listed("A")).toEqual({ key: "A", name: "Anlass neu", tone: "du", subject: "Neu", body: "{{anrede}}\nNeu A\n{{absender}}", active: true, origin: "Einrichtung", score: null });
-    await c.tool("templates_save", { tenant: t.slug, key: "B", name: "Frage zuerst", tone: "du", subject: "Kurze Frage", body: "{{anrede}}\nText B neu" });
-    expect(await listed("B")).toMatchObject({ active: false, origin: "" });
+    expect(s).toEqual({ key: "C", created: true, active: false, copyOf: "A", hints: ["{{aufhaenger}} fehlt"] });
+    expect(await listed("A")).toEqual(before);
+    expect(await listed("C")).toEqual({ key: "C", name: "Anlass neu", tone: "du", subject: "Neu", body: "{{anrede}}\nNeu A\n{{absender}}", active: false, origin: "Claude", score: null });
     await expect(c.tool("templates_save", { tenant: theirs.slug, key: "A", name: "x", tone: "sie", subject: "x", body: "{{anrede}}" })).rejects.toThrow("Mandant nicht gefunden");
+  });
+
+  it("inaktive Vorlage wird überarbeitet, bleibt inaktiv, Herkunft bleibt", async () => {
+    const s = await c.tool<Saved>("templates_save", { tenant: t.slug, key: "B", name: "Frage zuerst", tone: "du", subject: "Kurze Frage", body: "{{anrede}}\nText B neu" });
+    expect(s).toMatchObject({ key: "B", created: false, active: false });
+    expect(await listed("B")).toMatchObject({ body: "{{anrede}}\nText B neu", active: false, origin: "", score: null });
   });
 
   it("unbekannte oder unpassende Platzhalter → abgelehnt, nichts gespeichert; Prüfhinweise wie im Portal", async () => {
@@ -60,6 +66,7 @@ describe("templates_save", () => {
     expect(await listed("X", u.slug)).toBeUndefined();
     const s = await c.tool<Saved>("templates_save", { tenant: u.slug, key: "X", name: "x", tone: "sie", subject: "x", body: "{{anrede}} Mehr unter https://x.de" });
     expect(s.hints).toEqual(["{{absender}} fehlt", "{{aufhaenger}} fehlt", "Link im Erstkontakt"]);
+    await expect(c.tool("templates_save", { tenant: u.slug, key: "X", name: "x", tone: "sie", subject: "x", body: "{{anrede}} {{ Firma }}" })).rejects.toThrow("{{ Firma }}");
   });
 
   it("mit run: nur wenn der Workflow Vorlagen schreiben darf, zählt je gespeicherter Vorlage", async () => {

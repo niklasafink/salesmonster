@@ -1,9 +1,12 @@
 import { HttpError, route, tenantBySlug } from "@/lib/api";
-import { parseImport } from "@/lib/claude";
+import { IMPORT_CHARS, parseImport } from "@/lib/claude";
 import { aiFor } from "@/lib/ai";
 import { checkLeads } from "@/lib/lead-import";
+import { pool } from "@/lib/outreach";
+import { MAX_ROWS, tsvChunks } from "@/lib/sheet";
 
-export const maxDuration = 120;
+/* A 1,000-row sheet is 9 AI calls, 3 at a time */
+export const maxDuration = 300;
 
 /* Fallback when Claude is not connected: the pattern parser from the wireframe */
 function regexParse(txt: string) {
@@ -22,6 +25,11 @@ export const POST = route(async (req, _c, me) => {
   const t = await tenantBySlug(slug, me);
   if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Keine Daten");
   const key = await aiFor(t.id, me.id);
-  const rows = key ? await parseImport(key, text) : regexParse(text);
+  if (!key) return { rows: await checkLeads(t.id, regexParse(text)) };
+  const parts = tsvChunks(text, 120), table = parts.length > 1;
+  if (table && parts.reduce((n, p) => n + p.split("\n").length - 1, 0) > MAX_ROWS) throw new HttpError(400, "Mehr als 1.000 Datenzeilen");
+  if (parts.some(p => p.length > IMPORT_CHARS))
+    throw new HttpError(400, table ? "Zeilen zu lang: höchstens 40.000 Zeichen je 120 Zeilen" : "Text zu lang: höchstens 40.000 Zeichen, bitte in Teilen importieren");
+  const rows = (await pool(parts, 3, p => parseImport(key, p))).flat();
   return { rows: await checkLeads(t.id, rows) };
 });

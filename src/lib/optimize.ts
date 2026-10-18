@@ -6,7 +6,7 @@ import { proposeTemplates } from "./claude";
 import { aiFor } from "./ai";
 import { fill } from "./fill";
 import { scoreMail } from "./jev";
-import { lint, PLAYBOOK } from "./playbook";
+import { lint, nextKey, PLAYBOOK } from "./playbook";
 
 type Tenant = typeof tenants.$inferSelect;
 type Tpl = typeof templates.$inferSelect;
@@ -105,7 +105,7 @@ Ausgangsvorlage ist [${parent.key}]. Behebe vor allem ihre häufigste Schwäche 
   }
 
   const taken = new Set((await db.select({ k: templates.key }).from(templates).where(eq(templates.tenantId, t.id))).map(r => r.k));
-  const key = Array.from({ length: 26 * 27 }, (_, i) => i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + i % 26)).find(k => !taken.has(k))!;
+  const key = nextKey(taken);
   await db.insert(templates).values({ tenantId: t.id, key, name: best.c.name || `Variante ${key}`, tone: parent.tone, subject: best.c.subject, body: best.c.body,
     active: true, origin: `aus ${parent.key}, Jev ${base} → ${best.score.reply}`, score: best.score });
 

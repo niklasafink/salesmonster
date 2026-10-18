@@ -55,21 +55,28 @@ export async function body(req: Request): Promise<Record<string, unknown>> {
   return b;
 }
 
-/* Numeric route id; anything else cannot exist */
-export async function idOf(params: Promise<{ id: string }>, what = "Eintrag") {
-  const id = Number((await params).id);
-  if (!Number.isSafeInteger(id) || id < 1) throw new HttpError(404, `${what} nicht gefunden`);
+/* Numeric id from a path or query; anything else cannot exist */
+export function numId(raw: string | null | undefined, what = "Eintrag") {
+  const id = Number(raw);
+  if (!raw || !Number.isSafeInteger(id) || id < 1 || id > 2147483647) throw new HttpError(404, `${what} nicht gefunden`);
   return id;
 }
+export const idOf = async (params: Promise<{ id: string }>, what = "Eintrag") => numId((await params).id, what);
 
-export function fail(e: unknown) {
-  if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status });
-  if (e instanceof SyntaxError) return Response.json({ error: "Ungültige Anfrage" }, { status: 400 });
-  if (e instanceof AiMissing) return Response.json({ error: e.message }, { status: 400 });
+/* What a caller (portal or MCP client) gets to see of an error; everything unexpected is logged */
+export function publicError(e: unknown): { status: number; message: string } {
+  if (e instanceof HttpError) return { status: e.status, message: e.message };
+  if (e instanceof SyntaxError) return { status: 400, message: "Ungültige Anfrage" };
+  if (e instanceof AiMissing) return { status: 400, message: e.message };
   console.error(e);
   /* Our own messages are meant for the user; runtime and database errors would leak SQL and parameters */
   const own = e instanceof Error && e.constructor === Error && !e.cause && !/^Failed query/.test(e.message);
-  return Response.json({ error: own ? (e as Error).message : "Interner Fehler" }, { status: 500 });
+  return { status: 500, message: own ? (e as Error).message : "Interner Fehler" };
+}
+
+export function fail(e: unknown) {
+  const { status, message } = publicError(e);
+  return Response.json({ error: message }, { status });
 }
 
 export const qp = (req: Request, k: string) => new URL(req.url).searchParams.get(k);

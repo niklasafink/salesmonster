@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCsv, toTsv } from "@/lib/sheet";
+import { parseCsv, toTsv, tsvChunks } from "@/lib/sheet";
 
 describe("parseCsv", () => {
   it("liest Komma-CSV mit Anführungszeichen", () => {
@@ -26,5 +26,18 @@ describe("toTsv", () => {
     const head = [["Firma"]], rows = (n: number) => Array.from({ length: n }, (_, i) => [`F${i}`]);
     expect(toTsv([...head, ...rows(1000)]).split("\n")).toHaveLength(1001);
     expect(() => toTsv([...head, ...rows(1001)])).toThrow("Mehr als 1.000 Datenzeilen");
+  });
+});
+
+describe("tsvChunks", () => {
+  it("teilt Tabellen in Stücke mit wiederholter Kopfzeile, nichts geht verloren", () => {
+    const rows = Array.from({ length: 250 }, (_, i) => `Firma ${i} GmbH\tOrt ${i}`), text = ["Firma\tOrt", ...rows].join("\n");
+    const parts = tsvChunks(text, 120);
+    expect(parts).toHaveLength(3);
+    for (const p of parts) expect(p.split("\n")[0]).toBe("Firma\tOrt");
+    expect(parts.flatMap(p => p.split("\n").slice(1))).toEqual(rows);
+  });
+  it("Freitext bleibt ein Stück", () => {
+    expect(tsvChunks("Muster GmbH - GF: Ida Muster\nBau AG", 120)).toEqual(["Muster GmbH - GF: Ida Muster\nBau AG"]);
   });
 });

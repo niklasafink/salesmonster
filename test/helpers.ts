@@ -43,7 +43,7 @@ export async function call<C = unknown>(handler: Handler<C>, opts: { as?: { id: 
 }
 
 /* Raw call for OAuth/MCP routes: keeps the Response (redirects, headers), sends form or JSON bodies */
-export async function http<C = unknown>(handler: Handler<C>, opts: { as?: { id: number }; method?: string; path?: string; form?: Record<string, string>; json?: unknown;
+export async function http<C = unknown>(handler: Handler<C>, opts: { as?: { id: number }; method?: string; path?: string; form?: Record<string, string> | [string, string][]; json?: unknown;
   headers?: Record<string, string>; ctx?: C } = {}) {
   const headers = new Headers(opts.headers);
   if (opts.as) headers.set("cookie", `${COOKIE}=${await signSession(opts.as.id)}`);

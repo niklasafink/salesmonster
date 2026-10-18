@@ -43,3 +43,13 @@ export function toTsv(rows: unknown[][]): string {
   if (lines.length - 1 > MAX_ROWS) throw new Error("Mehr als 1.000 Datenzeilen");
   return lines.map(r => r.join("\t")).join("\n");
 }
+
+/* Tab-separated table with header: pieces of `size` data rows, header repeated, so each AI parse stays well inside its
+   input and output limits. Anything else (pasted free text) stays one piece. */
+export function tsvChunks(text: string, size = 120): string[] {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2 || !lines.every(l => l.includes("\t"))) return [text];
+  const [head, ...rows] = lines, out: string[] = [];
+  for (let i = 0; i < rows.length; i += size) out.push([head, ...rows.slice(i, i + size)].join("\n"));
+  return out;
+}

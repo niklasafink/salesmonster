@@ -25,7 +25,8 @@ async function log(tenantId: number, kind: string, ok: boolean, info: string) {
   await db.insert(runs).values({ tenantId, kind, ok, info: info.slice(0, 500) });
 }
 
-async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+/* Runs fn over items with at most `size` at a time, results in input order */
+export async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = []; let i = 0;
   await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k]); } }));
   return out;

@@ -18,7 +18,7 @@ export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?
 export function Leads({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [rows, setRows] = useState<Lead[]>([]), [cos, setCos] = useState<Company[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
-  const [imp, setImp] = useState<null | { text: string; src: string; rows: Parsed[] | null; busy: boolean }>(null);
+  const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null);
   const [edit, setEdit] = useState<EditLead | null>(null);
   const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message)), [t.slug, ctx]);
@@ -46,27 +46,31 @@ export function Leads({ ctx }: { ctx: Ctx }) {
   /* Files become tab-separated text with header row, then run through the normal parse */
   async function pick(f?: File) {
     if (!f || !imp) return;
-    const ext = f.name.split(".").pop()?.toLowerCase(), src = imp.src || f.name.replace(/\.\w+$/, "");
+    const ext = f.name.split(".").pop()?.toLowerCase(), name = f.name.replace(/\.\w+$/, "");
+    /* reads imp at the time the file is done: a Quelle typed meanwhile stays, one taken from an earlier file name is replaced */
+    const put = (text: string) => setImp(cur => cur && { ...cur, text, ...(!cur.src || cur.auto ? { src: name, auto: true } : {}) });
     try {
       if (ext === "csv") {
         const buf = await f.arrayBuffer();
         let txt; try { txt = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { txt = new TextDecoder("windows-1252").decode(buf); }
-        setImp({ ...imp, src, text: toTsv(parseCsv(txt)) }); setSheets(null);
+        put(toTsv(parseCsv(txt))); setSheets(null);
       } else if (ext === "xlsx") {
         const { default: read } = await import("read-excel-file/browser");
         const list = await read(f).catch(() => { throw new Error("Datei nicht lesbar"); });
-        setImp({ ...imp, src, text: toTsv(list[0].data) }); setSheets(list.length > 1 ? { list, i: 0 } : null);
+        put(toTsv(list[0].data)); setSheets(list.length > 1 ? { list, i: 0 } : null);
       } else throw new Error("Nur .xlsx und .csv");
     } catch (e) { ctx.toast((e as Error).message); }
   }
   function pickSheet(i: number) {
     if (!imp || !sheets) return; setSheets({ ...sheets, i });
-    try { setImp({ ...imp, text: toTsv(sheets.list[i].data) }); } catch (e) { ctx.toast((e as Error).message); setImp({ ...imp, text: "" }); }
+    let text = "";
+    try { text = toTsv(sheets.list[i].data); } catch (e) { ctx.toast((e as Error).message); }
+    setImp(cur => cur && { ...cur, text });
   }
   async function parse() {
     if (!imp) return; setImp({ ...imp, busy: true });
-    try { const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text: imp.text } }); setImp({ ...imp, rows: r.rows, busy: false }); }
-    catch (e) { ctx.toast((e as Error).message); setImp({ ...imp, busy: false }); }
+    try { const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text: imp.text } }); setImp(cur => cur && { ...cur, rows: r.rows, busy: false }); }
+    catch (e) { ctx.toast((e as Error).message); setImp(cur => cur && { ...cur, busy: false }); }
   }
   async function save() {
     if (!imp?.rows) return;
@@ -134,7 +138,7 @@ export function Leads({ ctx }: { ctx: Ctx }) {
           {sheets && <select className="inp" style={{ width: "auto" }} aria-label="Blatt" value={sheets.i} onChange={e => pickSheet(Number(e.target.value))}>{sheets.list.map((s, i) => <option key={i} value={i}>{s.sheet}</option>)}</select>}
         </div>
         <label className="fld"><span>Daten</span><textarea className="prompt" style={{ minHeight: 220 }} placeholder="Liste, Tabelle oder Text einfügen" value={imp.text} onChange={e => setImp({ ...imp, text: e.target.value })} autoFocus /></label>
-        <label className="fld"><span>Quelle</span><input className="inp" value={imp.src} placeholder="z. B. DTVP Oktober" onChange={e => setImp({ ...imp, src: e.target.value })} /></label>
+        <label className="fld"><span>Quelle</span><input className="inp" value={imp.src} placeholder="z. B. DTVP Oktober" onChange={e => setImp({ ...imp, src: e.target.value, auto: false })} /></label>
         <button className="btn pri wide" onClick={parse} disabled={imp.busy || !imp.text.trim()}>{imp.busy && <Icon n="loader" />}Daten erkennen</button>
       </> : <>
         <div className="dlg-h">{imp.rows.length} Kontakte erkannt<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>

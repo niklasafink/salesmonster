@@ -23,6 +23,7 @@ export async function ask({ key, system, prompt, web, maxSearches = 20, effort =
       fallbacks: "default",
     } as Anthropic.Beta.Messages.MessageCreateParamsStreaming).finalMessage();
     if (msg.stop_reason === "refusal") throw new Error("Claude hat die Anfrage abgelehnt");
+    if (msg.stop_reason === "max_tokens") throw new Error("Antwort von Claude zu lang, bitte in kleineren Teilen versuchen");
     if (msg.stop_reason === "pause_turn") { messages.push({ role: "assistant", content: msg.content as Anthropic.Beta.Messages.BetaContentBlockParam[] }); continue; }
     return msg.content.filter(b => b.type === "text").map(b => (b as { text: string }).text).join("\n");
   }
@@ -75,7 +76,10 @@ ${JSON.stringify(lead)}`,
 }
 
 const ImportRow = z.object({ co: z.string().min(2), sal: s(), p: s(), role: s(), email: s(), web: s(), city: s(), li: s(), hook: s() });
+/* Most text one parse call reads; the caller splits tables and refuses longer free text rather than cutting it */
+export const IMPORT_CHARS = 40000;
 export async function parseImport(key: Ai, raw: string) {
+  if (raw.length > IMPORT_CHARS) throw new Error("Text zu lang");
   const text = await ask({
     key, effort: "low",
     system: "Du liest unstrukturierte Listen (Bieterlisten, Tabellen, Freitext) und gibst Firmen als JSON zurück.",
@@ -84,7 +88,7 @@ Je Zeile: co (Firmenname mit Rechtsform), sal (Anrede mit Titel, nur "Herr", "Fr
 Hat der Text eine Kopfzeile (z. B. Tabulator-getrennte Spalten aus Excel), ordne die Felder anhand der Spaltennamen zu und lies jede weitere Zeile als einen Kontakt; Vor- und Nachname aus getrennten Spalten zusammensetzen.
 Nichts erfinden. Antworte nur mit \`\`\`json {"rows":[…]}\`\`\`.
 
-${raw.slice(0, 40000)}`,
+${raw}`,
   });
   return json(text, z.object({ rows: z.array(ImportRow) })).rows;
 }

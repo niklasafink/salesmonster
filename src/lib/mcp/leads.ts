@@ -3,9 +3,9 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db, leads } from "@/db";
 import { attachCompanies } from "@/lib/companies";
-import { cleanLead } from "@/lib/lead-fields";
+import { cleanLead, emailTypeOf, websiteOf } from "@/lib/lead-fields";
 import { tenantBySlug } from "@/lib/api";
-import { INFO_MAIL, addLeads } from "@/lib/lead-import";
+import { addLeads } from "@/lib/lead-import";
 import { setLeadStatus } from "@/lib/outreach";
 import { checkRun } from "@/lib/workflows";
 import { tool } from "./tool";
@@ -73,7 +73,7 @@ export function leadTools(server: McpServer) {
       + "Kontakte mit gleichem Firmennamen (ohne Rechtsform verglichen) kommen zur selben Firma, auch zu einer schon vorhandenen. "
       + "Höchstens 200 Zeilen je Aufruf; größere Dateien in Teilen nacheinander schreiben und am Ende die Summe melden. "
       + "Duplikate werden wie beim Import im Portal übersprungen und mit Grund gemeldet: gleiche E-Mail („Schon in der Liste“), Kontakt schon in HubSpot, "
-      + "oder bekannte Firma ohne E-Mail („Firma bekannt“). Ein weiterer Ansprechpartner mit eigener E-Mail bei einer bekannten Firma wird angelegt. "
+      + "oder bekannte Firma ohne E-Mail („Firma bekannt“); ist HubSpot gerade nicht erreichbar, wird die Zeile mit „HubSpot nicht erreichbar“ übersprungen und kann später erneut kommen. Ein weiterer Ansprechpartner mit eigener E-Mail bei einer bekannten Firma wird angelegt. "
       + "Rückgabe: added [{id, company, companyId}], skipped [{company, why}].",
     input: z.object({
       tenant,
@@ -94,7 +94,7 @@ export function leadTools(server: McpServer) {
     input: z.object({ tenant, updates: z.array(edit).min(1).max(200).describe("Je Lead die id und die neuen Werte"), run }),
   }, async ({ tenant: slug, updates, run: runId }, user) => {
     const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_update");
-    const found = new Map((await db.select({ id: leads.id, company: leads.company, first: leads.first, last: leads.last }).from(leads)
+    const found = new Map((await db.select({ id: leads.id, company: leads.company, first: leads.first, last: leads.last, email: leads.email }).from(leads)
       .where(and(eq(leads.tenantId, t.id), inArray(leads.id, updates.map(u => u.id))))).map(l => [l.id, l]));
     const updated: number[] = [], notFound: number[] = [];
     let moved = false;
@@ -102,8 +102,8 @@ export function leadTools(server: McpServer) {
       const l = found.get(id);
       if (!l) { notFound.push(id); continue; }
       const set: Partial<typeof leads.$inferInsert> = Object.fromEntries(Object.entries(cleanLead(f)).filter(([, v]) => v));
-      if (set.website && !set.website.startsWith("http")) set.website = `https://${set.website}`;
-      if (set.email) set.emailType = INFO_MAIL.test(set.email) || !(set.first ?? l.first) && !(set.last ?? l.last) ? "info" : "person";
+      if (set.website) set.website = websiteOf(set.website);
+      if (set.email || set.first || set.last) set.emailType = emailTypeOf(set.email ?? l.email, !!((set.first ?? l.first) || (set.last ?? l.last)));
       if (set.company && set.company !== l.company) { set.companyId = null; moved = true; }
       if (Object.keys(set).length) await db.update(leads).set(set).where(eq(leads.id, id));
       if (status) await setLeadStatus(t.id, id, status);

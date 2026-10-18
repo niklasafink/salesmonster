@@ -96,6 +96,11 @@ describe("Authorize", () => {
     expect(Object.fromEntries(loc.searchParams)).toEqual(params());
   });
 
+  it("unbekannte Parameter wie ein eingeschmuggeltes allow=1 kommen nicht auf die Freigabeseite", async () => {
+    const r = await http(AUTHORIZE, { as: me, path: `/api/oauth/authorize?${q({ ...params(), allow: "1", x: "y" })}` });
+    expect(Object.fromEntries(new URL(r.headers.get("location")!).searchParams)).toEqual(params());
+  });
+
   it("unbekannter Client oder fremde Redirect-URI → 400 ohne Weiterleitung", async () => {
     for (const p of [{ ...params(), client_id: "x" }, { ...params(), redirect_uri: "https://claude.com/api/mcp/auth_callback" }]) {
       const r = await http(AUTHORIZE, { as: me, path: `/api/oauth/authorize?${q(p)}` });
@@ -127,6 +132,14 @@ describe("Authorize", () => {
     const loc = new URL((await http(AUTHORIZE_POST, { as: me, form: params() })).headers.get("location")!);
     expect(loc.searchParams.get("error")).toBe("access_denied");
     expect(loc.searchParams.get("code")).toBeNull();
+  });
+
+  it("eingeschmuggeltes allow=1 plus Abbrechen → access_denied", async () => {
+    for (const form of [[...Object.entries(params()), ["allow", "1"], ["allow", "0"]], [["allow", "1"], ...Object.entries(params()), ["allow", "1"]]] as [string, string][][]) {
+      const loc = new URL((await http(AUTHORIZE_POST, { as: me, form })).headers.get("location")!);
+      expect(loc.searchParams.get("error")).toBe("access_denied");
+      expect(loc.searchParams.get("code")).toBeNull();
+    }
   });
 
   it("Erlauben ohne Session → Login", async () => {
