@@ -87,11 +87,7 @@ export function leadTools(server: McpServer) {
     }),
   }, async ({ tenant: slug, rows, source, run: runId }, user) => {
     const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_add");
-<<<<<<< Updated upstream
-    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", phone: r.phone || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl })), source || wr?.workflow || "Claude");
-=======
-    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl, note: r.note, research: r.research })), source || wr?.workflow || "Claude");
->>>>>>> Stashed changes
+    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", phone: r.phone || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl, note: r.note, research: r.research })), source || wr?.workflow || "Claude");
     await wr?.count({ added: out.added.length, skipped: out.skipped.length });
     if (out.added.length) await later(() => refreshRatings(t.id, out.added.map(a => a.id)));
     return out;

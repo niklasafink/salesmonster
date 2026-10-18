@@ -8,11 +8,7 @@ import { pool } from "@/lib/outreach";
 import { clean } from "@/lib/lead-columns";
 
 /* One imported contact as the parser, the import dialog and MCP hand it over; several rows with the same co are contacts of one company */
-<<<<<<< Updated upstream
-export type LeadRow = { co: string; sal?: string; p: string; role: string; email: string; phone?: string; web: string; city: string; li?: string; hook?: string; url?: string; note?: string };
-=======
-export type LeadRow = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; li?: string; hook?: string; url?: string; note?: string; research?: string };
->>>>>>> Stashed changes
+export type LeadRow = { co: string; sal?: string; p: string; role: string; email: string; phone?: string; web: string; city: string; li?: string; hook?: string; url?: string; note?: string; research?: string };
 export type CheckedRow = LeadRow & { sal: string; dup: string; extra: string };
 
 const HUB_DOWN = "HubSpot nicht erreichbar";
@@ -62,13 +58,8 @@ export async function insertLeads(tenantId: number, rows: LeadRow[], source: str
     const [first, ...rest] = (r.p || "").trim().split(/\s+/);
     const email = validEmail((r.email || "").trim()) ? (r.email || "").trim() : "";
     return { tenantId, company: r.co.trim(), first: r.p ? first : "", last: r.p ? rest.join(" ") : "", role: r.role || "",
-<<<<<<< Updated upstream
       email, emailType: emailTypeOf(email, !!r.p?.trim()), phone: (r.phone || "").trim().slice(0, 120), website: httpUrl(r.web || ""),
-      city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: httpUrl(r.li || ""), hook: r.hook || "", note: r.note || "", sourceUrl: httpUrl(r.url || ""), source: source || "Import", status: "neu" };
-=======
-      email, emailType: emailTypeOf(email, !!r.p?.trim()), website: httpUrl(r.web || ""),
       city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: httpUrl(r.li || ""), hook: r.hook || "", note: (r.note || "").slice(0, 4000), research: (r.research || "").slice(0, 4000), sourceUrl: httpUrl(r.url || ""), source: source || "Import", status: "neu" };
->>>>>>> Stashed changes
   });
   const ids = (await db.insert(leads).values(vals).returning({ id: leads.id })).map(r => r.id);
   await attachCompanies(tenantId);
