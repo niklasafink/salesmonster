@@ -7,12 +7,15 @@ const meta = (k: IntegKind) => INTEG.find(i => i.k === k);
 const perUser = (k: IntegKind) => !!meta(k)?.perUser;
 const account = (k: IntegKind) => !!meta(k)?.account;
 
-/* Account keys: the given user's own first, otherwise the first member who connected one (cron jobs run without a user) */
+/* Account keys are never shared: a user gets only their own; cron jobs (no user) use the tenant owner's, the first member */
 async function accountRow(tenantId: number, kind: IntegKind, userId?: number | null) {
-  const rows = await db.select({ config: integrations.config, userId: integrations.userId }).from(integrations)
+  const [owner] = userId ? [{ userId }] : await db.select({ userId: members.userId }).from(members)
+    .where(eq(members.tenantId, tenantId)).orderBy(asc(members.id)).limit(1);
+  if (!owner) return undefined;
+  const [row] = await db.select({ config: integrations.config }).from(integrations)
     .innerJoin(members, and(eq(members.userId, integrations.userId), eq(members.tenantId, tenantId)))
-    .where(and(isNull(integrations.tenantId), eq(integrations.kind, kind))).orderBy(asc(members.id));
-  return rows.find(r => r.userId === userId) ?? rows[0];
+    .where(and(isNull(integrations.tenantId), eq(integrations.kind, kind), eq(integrations.userId, owner.userId)));
+  return row;
 }
 
 export async function getInteg<T = Record<string, string>>(tenantId: number, kind: IntegKind, userId?: number | null): Promise<T | null> {

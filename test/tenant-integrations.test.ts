@@ -1,4 +1,6 @@
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { db, members } from "@/db";
 import { PATCH } from "@/app/api/tenants/[slug]/route";
 import { aiFor } from "@/lib/ai";
 import { setInteg } from "@/lib/integrations";
@@ -36,6 +38,14 @@ describe("Integrationen je Mandant", () => {
     expect(await aiFor(chetti.id, me.id)).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5-5" });
     expect((await patch(chetti.slug, "claude:claude-gibt-es-nicht")).status).toBe(400);
     await patch(chetti.slug, null);
+  });
+
+  it("KI-Schlüssel werden nie mit anderen Mitgliedern geteilt", async () => {
+    const other = await fx.user();
+    await db.insert(members).values({ tenantId: vh.id, userId: other.id });
+    expect(await aiFor(vh.id, other.id)).toBeNull();
+    expect(await aiFor(vh.id)).toMatchObject({ key: "sk-ant-test" });
+    await db.delete(members).where(and(eq(members.tenantId, vh.id), eq(members.userId, other.id)));
   });
 
   it("unbekannte KI wird abgelehnt", async () => {
