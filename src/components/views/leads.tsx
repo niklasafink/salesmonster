@@ -2,7 +2,8 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { Tender } from "@/db/schema";
 import { addrsOf, modeOf } from "@/lib/company-mode";
-import { Icon, Top, api } from "../ui";
+import { Icon, Top, api, useEscape } from "../ui";
+import { httpUrl } from "@/lib/lead-fields";
 import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import type { Ctx } from "../types";
 
@@ -13,17 +14,25 @@ const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unz
 
 export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?.[1] || "n"}`} title={STATUS[s]?.[0] || s} />;
 
-export function Leads({ ctx }: { ctx: Ctx }) {
+/* accent-insensitive search: "zoe" finds Zoë, "mueller" and "muller" find Müller */
+const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const umlaut = (s: string) => fold(s.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss"));
+export const matches = (hay: string, q: string) => { const f = fold(q.trim()); return !f || fold(hay).includes(f) || umlaut(hay).includes(f); };
+
+export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | null; onFocused?: () => void }) {
   const t = ctx.st.tenant!;
   const [rows, setRows] = useState<Lead[]>([]), [cos, setCos] = useState<Company[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
   const [imp, setImp] = useState<null | { text: string; src: string; rows: Parsed[] | null; busy: boolean }>(null);
   const [edit, setEdit] = useState<EditLead | null>(null);
-  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message)), [t.slug, ctx]);
+  useEscape(() => { if (imp) setImp(null); });
+  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
+  /* opened from the command palette */
+  useEffect(() => { const r = focus != null && rows.find(x => x.id === focus); if (r) { setEdit(r); onFocused?.(); } }, [focus, rows, onFocused]);
 
-  const srcs = [...new Set(rows.map(r => r.source))], ql = q.toLowerCase();
+  const srcs = [...new Set(rows.map(r => r.source))];
   const cnt = (s: string) => rows.filter(r => s === "alle" || r.status === s).length;
-  const vis = rows.filter(r => (filter === "alle" || r.status === filter) && (src === "alle" || r.source === src) && (!ql || `${r.company} ${r.first} ${r.last} ${r.email}`.toLowerCase().includes(ql)));
+  const vis = rows.filter(r => (filter === "alle" || r.status === filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q));
 
   /* contacts grouped by company, in list order */
   const byCo = new Map<string, Lead[]>();
@@ -38,31 +47,32 @@ export function Leads({ ctx }: { ctx: Ctx }) {
   async function setMode(c: Company, v: string) {
     const [mode, email = ""] = v.split(":");
     setCos(cs => cs.map(x => x.id === c.id ? { ...x, mode, email: mode === "eine" ? email : x.email } : x));
-    try { await api(`/api/companies/${c.id}`, { method: "PATCH", body: { mode, email } }); } catch (e) { ctx.toast((e as Error).message); load(); }
+    try { await api(`/api/companies/${c.id}`, { method: "PATCH", body: { mode, email } }); } catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
   }
   async function parse() {
     if (!imp) return; setImp({ ...imp, busy: true });
     try { const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text: imp.text } }); setImp({ ...imp, rows: r.rows, busy: false }); }
-    catch (e) { ctx.toast((e as Error).message); setImp({ ...imp, busy: false }); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); setImp({ ...imp, busy: false }); }
   }
   async function save() {
     if (!imp?.rows) return;
     const add = imp.rows.filter(r => !r.dup);
     try { await api("/api/leads", { body: { t: t.slug, rows: add, source: imp.src || "Import" } }); ctx.toast(`${add.length} Leads übernommen`); setImp(null); setFilter("neu"); load(); }
-    catch (e) { ctx.toast((e as Error).message); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
 
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : "";
   const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
   /* shared: the company has an address this contact is reached through */
-  const row = (r: Lead, showCo: boolean, shared = false) => <tr key={r.id} className="click" onClick={() => setEdit(r)}>
+  const row = (r: Lead, showCo: boolean, shared = false) => <tr key={r.id} className="click" tabIndex={0} onClick={() => setEdit(r)}
+    onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } }}>
     <td className="dotc"><Dot s={r.status} /></td>
     <td className="co" style={{ fontWeight: 500 }} title={showCo ? r.company : undefined}>{showCo ? r.company : ""}</td>
-    <td>{person(r) || <span className="f3">–</span>}</td>
+    <td className="pn" title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
     <td className="hide-m hide-l f2 clip" title={r.role}>{r.role || <span className="f3">–</span>}</td>
     <td className="mono em" style={{ fontSize: 12.5 }} title={r.email || undefined}>{r.email || <span className="f3">{shared ? "–" : "fehlt"}</span>}</td>
     <td className="hide-m f2 clip" title={t.tenders ? undefined : r.hook}>{hookCell(r)}</td>
-    <td className="f2 src">{r.sourceUrl ? <a className="srcl" href={r.sourceUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{r.source}<Icon n="external-link" /></a> : r.source}</td>
+    <td className="hide-m f2 src">{r.sourceUrl ? <a className="srcl" href={httpUrl(r.sourceUrl) || undefined} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{r.source}<Icon n="external-link" /></a> : r.source}</td>
   </tr>;
 
   const ok = imp?.rows?.filter(r => !r.dup).length || 0;
@@ -79,7 +89,7 @@ export function Leads({ ctx }: { ctx: Ctx }) {
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads"><thead><tr><th className="dotc"></th><th>Firma</th><th>Ansprechpartner</th><th className="hide-m hide-l">Rolle</th><th>E-Mail</th><th className="hide-m">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th>Quelle</th></tr></thead><tbody>
+      <div className="tbl"><table className="leads"><thead><tr><th className="dotc"></th><th>Firma</th><th>Ansprechpartner</th><th className="hide-m hide-l">Rolle</th><th>E-Mail</th><th className="hide-m">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="hide-m">Quelle</th></tr></thead><tbody>
         {groups.length ? groups.map(g => {
           if (g.all.length < 2) return row(g.shown[0], true);
           const c = cos.find(x => `c${x.id}` === g.key);
@@ -103,7 +113,7 @@ export function Leads({ ctx }: { ctx: Ctx }) {
       onDeleted={() => { setEdit(null); ctx.toast("Gelöscht"); load(); }}
       onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }} />}
 
-    {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg">
+    {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg" role="dialog" aria-modal="true" aria-label="Importieren">
       {!imp.rows ? <>
         <div className="dlg-h">Leads importieren<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         <label className="fld"><span>Daten</span><textarea className="prompt" style={{ minHeight: 220 }} placeholder="Liste, Tabelle oder Text einfügen" value={imp.text} onChange={e => setImp({ ...imp, text: e.target.value })} autoFocus /></label>

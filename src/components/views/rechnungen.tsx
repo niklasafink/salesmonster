@@ -17,7 +17,7 @@ export function Rechnungen({ ctx }: { ctx: Ctx }) {
   const { st } = ctx, t = st.tenant!, cfg = t.invoice!;
   const [tab, setTab] = useState("neu");
   const [hist, setHist] = useState<Inv[]>([]);
-  const loadHist = () => api<{ rows: Inv[] }>(`/api/invoices?t=${t.slug}`).then(r => setHist(r.rows)).catch(e => ctx.toast(e.message));
+  const loadHist = () => api<{ rows: Inv[] }>(`/api/invoices?t=${t.slug}`).then(r => setHist(r.rows)).catch(e => ctx.toast(e.message, { error: true }));
   useEffect(() => { loadHist(); }, [t.slug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div className="inv">
@@ -61,7 +61,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
       try {
         const r = await api<{ street: string; zip: string; city: string; gf: string; vat: string }>(`/api/impressum?t=${t.slug}&domain=${encodeURIComponent(h.domain)}`);
         setF(cur => ({ ...cur, street: cur.street || r.street, zip: cur.zip || r.zip, city: cur.city || r.city, salut: cur.salut || r.gf, vat: cur.vat || r.vat }));
-      } catch (e) { ctx.toast((e as Error).message); }
+      } catch (e) { ctx.toast((e as Error).message, { error: true }); }
       setImp(false);
     }
   }
@@ -93,7 +93,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
       if (sendIt) { const r = await api<{ to: string }>(`/api/invoices/${inv.id}/send`, { method: "POST", body: {} }); ctx.toast(`Rechnung ${inv.number} an ${r.to} gesendet`); }
       else ctx.toast(`Rechnung ${inv.number} erstellt`, { label: fmt === "zugferd" ? "PDF" : "XML", href: `/api/invoices/${inv.id}/file` });
       setCust(null); setF(EMPTY); setLeitweg("");
-    } catch (e) { ctx.toast((e as Error).message); }
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); }
     setBusy(null);
   }
 
@@ -160,7 +160,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
 
 function History({ ctx, rows, reload }: { ctx: Ctx; rows: Inv[]; reload: () => void }) {
   async function setStatus(r: Inv, status: string) {
-    try { await api(`/api/invoices/${r.id}`, { method: "PATCH", body: { status } }); reload(); } catch (e) { ctx.toast((e as Error).message); }
+    try { await api(`/api/invoices/${r.id}`, { method: "PATCH", body: { status } }); reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   return <div className="scroll"><div className="wrap"><div className="tbl"><table className="t">
     <thead><tr><th>Nr.</th><th>Kunde</th><th>Leistung</th><th>Datum</th><th>Fällig</th><th>Format</th><th>Status</th><th className="ra">Betrag</th><th></th></tr></thead>

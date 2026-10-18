@@ -10,7 +10,7 @@ const SAMPLE: FillLead = { company: "Muster Bau GmbH", first: "Katrin", last: "A
 export function Vorlagen({ ctx }: { ctx: Ctx }) {
   const { st } = ctx, t = st.tenant!;
   const [list, setList] = useState<Tpl[]>(st.templates), [k, setK] = useState(st.templates[0]?.key || "A"), [mode, setMode] = useState<"edit" | "preview">("edit");
-  const ta = useRef<HTMLTextAreaElement>(null), fit = useAutosize();
+  const ta = useRef<HTMLTextAreaElement>(null), sj = useRef<HTMLInputElement>(null), last = useRef<"subject" | "body">("body"), fit = useAutosize();
   useEffect(() => { setList(st.templates); }, [st.templates]);
   useEffect(() => { fit(ta.current); });
   const cur = list.find(x => x.key === k) || list[0];
@@ -20,16 +20,17 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
 
   async function saveTpl() {
     try { await api(`/api/templates/${cur.id}`, { method: "PUT", body: { subject: cur.subject, body: cur.body, name: cur.name, tone: cur.tone } }); ctx.toast(`Vorlage ${cur.key} gespeichert`); ctx.reload(); }
-    catch (e) { ctx.toast((e as Error).message); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   async function toggle() {
     const active = !cur.active;
-    try { await api(`/api/templates/${cur.id}`, { method: "PUT", body: { active } }); set({ active }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message); }
+    try { await api(`/api/templates/${cur.id}`, { method: "PUT", body: { active } }); set({ active }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
+  /* into the field that had focus last, at its cursor */
   function insert(p: string) {
-    const el = ta.current; if (!el) return;
+    const f = last.current, el = f === "subject" ? sj.current : ta.current; if (!el) return;
     const s = el.selectionStart ?? el.value.length, v = el.value.slice(0, s) + p + el.value.slice(el.selectionEnd ?? s);
-    set({ body: v }); requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = s + p.length; });
+    set({ [f]: v }); requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = s + p.length; });
   }
 
   return <>
@@ -52,8 +53,8 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
           </div>
         </div>
         {mode === "edit" ? <>
-          <input className="subj" value={cur.subject} onChange={e => set({ subject: e.target.value })} aria-label="Betreff" />
-          <textarea ref={ta} className="body" value={cur.body} onChange={e => { set({ body: e.target.value }); fit(e.target); }} aria-label="Text" />
+          <input ref={sj} className="subj" value={cur.subject} onFocus={() => { last.current = "subject"; }} onChange={e => set({ subject: e.target.value })} aria-label="Betreff" />
+          <textarea ref={ta} className="body" value={cur.body} onFocus={() => { last.current = "body"; }} onChange={e => { set({ body: e.target.value }); fit(e.target); }} aria-label="Text" />
           <div className="phs"><span className="f3" style={{ fontSize: 12 }}>Einfügen</span>{PLACEHOLDERS(t.tenders).map(p => <button key={p} className="ph" onClick={() => insert(p)}>{p}</button>)}</div>
         </> : <>
           <div className="subj">{fill(cur.subject, sample, cur, st.me.name)}</div>

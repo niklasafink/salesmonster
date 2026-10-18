@@ -11,10 +11,11 @@ const fmtD = (d: Date, o: Intl.DateTimeFormatOptions) => d.toLocaleDateString("d
 const sum = (a: Day[], k: "sent" | "rep" | "bounce" | "hub") => a.reduce((x, p) => x + p[k], 0);
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-function series(rows: Row[]): Day[] {
+/* one point per day; n days back from today, or since the first sent mail */
+function series(rows: Row[], n?: number): Day[] {
   const today = new Date(); today.setHours(12, 0, 0, 0);
-  const first = rows.length ? new Date(`${rows[0].d}T12:00:00`) : new Date(today.getTime() - 29 * DAY);
-  const start = new Date(Math.min(first.getTime(), today.getTime() - 6 * DAY));
+  const first = rows.length ? new Date(`${rows[0].d}T12:00:00`) : today;
+  const start = n ? new Date(today.getTime() - (n - 1) * DAY) : new Date(Math.min(first.getTime(), today.getTime() - 6 * DAY));
   const map: Record<string, Day> = {};
   for (let d = new Date(start); d <= today; d = new Date(d.getTime() + DAY)) map[isoDay(d)] = { d, sent: 0, rep: 0, bounce: 0, hub: 0, by: {} };
   for (const r of rows) {
@@ -50,12 +51,13 @@ function Chart({ b }: { b: { sent: number; rep: number; lbl: string; tip: string
 export function Uebersicht({ ctx }: { ctx: Ctx }) {
   const { st } = ctx, t = st.tenant!;
   const [rows, setRows] = useState<Row[] | null>(null), [tab, setTab] = useState("ueberblick"), [period, setPeriod] = useState("30");
-  useEffect(() => { api<{ rows: Row[] }>(`/api/stats?t=${t.slug}`).then(r => setRows(r.rows)).catch(e => ctx.toast(e.message)); }, [t.slug, ctx]);
+  useEffect(() => { api<{ rows: Row[] }>(`/api/stats?t=${t.slug}`).then(r => setRows(r.rows)).catch(e => ctx.toast(e.message, { error: true })); }, [t.slug, ctx]);
   const all = useMemo(() => series(rows || []), [rows]);
+  const days = useMemo(() => period === "all" ? all : series(rows || [], +period), [rows, all, period]);
   const hub = !!st.integ.hubspot?.on;
 
   function csv() {
-    const lines = [["Datum", "Gesendet", "Antworten", "Unzustellbar", "Neu in HubSpot"].join(";"), ...all.map(p => [isoDay(p.d), p.sent, p.rep, p.bounce, p.hub].join(";"))];
+    const lines = [["Datum", "Gesendet", "Antworten", "Unzustellbar", "Neu in HubSpot"].join(";"), ...(tab === "ueberblick" ? days : all).map(p => [isoDay(p.d), p.sent, p.rep, p.bounce, p.hub].join(";"))];
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })); a.download = `outreach-${t.slug}.csv`; a.click();
   }
 
@@ -66,7 +68,7 @@ export function Uebersicht({ ctx }: { ctx: Ctx }) {
     </Top>
     <div className="scroll"><div className="wrap">
       <div className="tabs"><button className={tab === "ueberblick" ? "on" : ""} onClick={() => setTab("ueberblick")}>Überblick</button><button className={tab === "monate" ? "on" : ""} onClick={() => setTab("monate")}>Nach Monat</button></div>
-      {rows && (tab === "ueberblick" ? <Overview days={period === "all" ? all : all.slice(-+period)} hub={hub} ctx={ctx} /> : <Months all={all} hub={hub} ctx={ctx} />)}
+      {rows && (tab === "ueberblick" ? <Overview days={days} hub={hub} ctx={ctx} /> : <Months all={all} hub={hub} ctx={ctx} />)}
     </div></div>
   </>;
 }
@@ -79,17 +81,17 @@ function Overview({ days, hub, ctx }: { days: Day[]; hub: boolean; ctx: Ctx }) {
     <div className="kpis">
       <div className="kpi"><span className="l">Gesendet</span><span className="v">{sent.toLocaleString("de-DE")}</span></div>
       <div className="kpi"><span className="l">Antworten</span><span className="v">{rep.toLocaleString("de-DE")}</span></div>
-      <div className="kpi"><span className="l">Antwortquote</span><span className="v">{pct(sent ? rep / sent * 100 : 0)}</span></div>
+      <div className="kpi"><span className="l">Antwortquote</span><span className="v">{sent ? pct(rep / sent * 100) : "–"}</span></div>
       <div className="kpi"><span className="l">{hub ? "Neu in HubSpot" : "Unzustellbar"}</span><span className="v">{(hub ? sum(days, "hub") : sum(days, "bounce")).toLocaleString("de-DE")}</span></div>
     </div>
     <div className="blk chart"><h3><span>Versand und Antworten</span><span className="legend"><span><i style={{ background: "var(--bar)" }} />Gesendet</span><span><i style={{ background: "var(--accent)" }} />Antworten</span></span></h3><Chart b={buckets(days)} /></div>
-    <div className="split" style={{ gridTemplateColumns: "repeat(2,minmax(0,1fr))" }}>
+    <div className="split two">
       <div className="blk"><h3>A/B-Test<button className="btn gh" onClick={() => ctx.setView("vorlagen")}>Vorlagen<Icon n="arrow-right" /></button></h3>
         {t.map(x => <div key={x.key} className={`abrow ${x.key === best && x.sent ? "best" : ""}`}><span className="vc">{x.key}</span><span>{x.name}{!x.active && <> <span className="pill">Pausiert</span></>}</span>
           <span className="mono num">{pct(rate(x))}</span><span className="track"><i style={{ width: `${rate(x) / maxR * 100}%` }} /></span></div>)}</div>
       <div className="blk"><h3>Nach Person</h3>
-        <table><thead><tr><th></th><th>Gesendet</th><th>Antworten</th><th>Quote</th></tr></thead><tbody>
-          {people.map(([n, s, r]) => <tr key={n}><td><span className="cell">{n}</span></td><td className="num">{s}</td><td className="num">{r}</td><td className="num">{pct(s ? r / s * 100 : 0)}</td></tr>)}
+        <table><thead><tr><th>Person</th><th>Gesendet</th><th>Antworten</th><th>Quote</th></tr></thead><tbody>
+          {people.map(([n, s, r]) => <tr key={n}><td><span className="cell">{n}</span></td><td className="num">{s}</td><td className="num">{r}</td><td className="num">{s ? pct(r / s * 100) : "–"}</td></tr>)}
         </tbody></table></div>
     </div>
   </>;
@@ -103,7 +105,7 @@ function Months({ all, hub, ctx }: { all: Day[]; hub: boolean; ctx: Ctx }) {
   const rows = Object.values(m).reverse();
   const tot = rows.reduce((a, r) => { a.sent += r.sent; a.rep += r.rep; a.bounce += r.bounce; a.hub += r.hub; for (const [u, v] of Object.entries(r.by)) a.by[+u] = (a.by[+u] || 0) + v; return a; }, { d: new Date(), sent: 0, rep: 0, bounce: 0, hub: 0, by: {} as Record<number, number> });
   const tr = (r: typeof tot, label: React.ReactNode, bold?: boolean, k?: string) => <tr key={k} style={bold ? { fontWeight: 600 } : undefined}><td>{label}</td><td className="num">{r.sent}</td><td className="num">{r.rep}</td>
-    <td className="num">{pct(r.sent ? r.rep / r.sent * 100 : 0)}</td>{users.map(u => <td key={u.id} className="num f2">{r.by[u.id] || 0}</td>)}<td className="num f2">{hub ? r.hub : r.bounce}</td></tr>;
+    <td className="num">{r.sent ? pct(r.rep / r.sent * 100) : "–"}</td>{users.map(u => <td key={u.id} className="num f2">{r.by[u.id] || 0}</td>)}<td className="num f2">{hub ? r.hub : r.bounce}</td></tr>;
   return <div className="tbl"><table><thead><tr><th>Monat</th><th>Gesendet</th><th>Antworten</th><th>Quote</th>{users.map(u => <th key={u.id}>{u.short}</th>)}<th>{hub ? "Neu in HubSpot" : "Unzustellbar"}</th></tr></thead><tbody>
     {rows.map((r, i) => tr(r, <>{fmtD(r.d, { month: "long", year: "numeric" })}</>, false, String(i)))}
     {tr(tot, "Gesamt", true, "tot")}

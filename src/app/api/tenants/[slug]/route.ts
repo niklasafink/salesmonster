@@ -12,7 +12,7 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
   if (obj(b.settings)) {
     const s = { ...t.settings, ...b.settings };
     if (typeof s.prompt !== "string") throw new HttpError(400, "Ungültige Eingabe");
-    s.leadsPerDay = Math.max(1, Math.min(30, Number(s.leadsPerDay) || 10));
+    s.leadsPerDay = Math.max(1, Math.min(30, Math.round(Number(s.leadsPerDay)) || 10));
     set.settings = s as typeof t.settings;
   }
   if (obj(b.invoice)) {

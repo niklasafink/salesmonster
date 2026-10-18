@@ -1,12 +1,13 @@
 "use client";
+import { useEffect, useRef } from "react";
 import {
-  ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Check, CheckCheck, ChevronDown, ChevronUp, ChevronsUpDown, Copy, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe,
+  ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Check, CheckCheck, CircleAlert, ChevronDown, ChevronUp, ChevronsUpDown, Copy, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe,
   Inbox, KeyRound, Landmark, LayoutDashboard, LoaderCircle, LogOut, Mail, Menu, Plus, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, SunMoon,
   Target, ThumbsDown, ThumbsUp, TriangleAlert, Upload, User, Users, X, type LucideIcon,
 } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
-  "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-up": ArrowUp, bell: Bell, "building-2": Building2, check: Check, "check-check": CheckCheck, "chevron-down": ChevronDown,
+  "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-up": ArrowUp, bell: Bell, "building-2": Building2, check: Check, "check-check": CheckCheck, "circle-alert": CircleAlert, "chevron-down": ChevronDown,
   "chevron-up": ChevronUp, "chevrons-up-down": ChevronsUpDown, copy: Copy, database: Database, dot: Dot, download: Download, "external-link": ExternalLink, "file-check-2": FileCheck2, "file-text": FileText,
   globe: Globe, inbox: Inbox, "key-round": KeyRound, landmark: Landmark, "layout-dashboard": LayoutDashboard, loader: LoaderCircle, "log-out": LogOut, mail: Mail,
   menu: Menu, plus: Plus, "receipt-text": ReceiptText, search: Search, send: Send, server: Server, "settings-2": Settings2, sparkles: Sparkles, square: Square, "sun-moon": SunMoon,
@@ -30,6 +31,16 @@ export async function api<T = unknown>(url: string, init?: { method?: string; bo
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `Fehler ${r.status}`);
   return j as T;
+}
+
+/* Escape closes a dialog */
+export function useEscape(close: () => void) {
+  const c = useRef(close);
+  useEffect(() => { c.current = close; });
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") c.current(); };
+    addEventListener("keydown", k); return () => removeEventListener("keydown", k);
+  }, []);
 }
 
 export const pct = (n: number) => (isFinite(n) ? n : 0).toFixed(1).replace(".", ",") + " %";

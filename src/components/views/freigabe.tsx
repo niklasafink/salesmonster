@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fill } from "@/lib/fill";
+import { httpUrl } from "@/lib/lead-fields";
 import { Icon, Top, api, useAutosize } from "../ui";
 import type { Ctx, Draft, State, Tpl } from "../types";
 import { LeadDialog, emptyLead, type EditLead } from "../lead-dialog";
@@ -49,7 +50,7 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
   const patch = (id: number, p: Partial<Draft>) => setL(ls => ls.map(d => d.id === id ? { ...d, ...p } : d));
   const save = (id: number, body: object, delay = 0) => {
     clearTimeout(timers.current[id]);
-    timers.current[id] = setTimeout(() => api(`/api/messages/${id}`, { method: "PATCH", body }).catch(e => toast(e.message)), delay);
+    timers.current[id] = setTimeout(() => api(`/api/messages/${id}`, { method: "PATCH", body }).catch(e => toast(e.message, { error: true })), delay);
   };
   const nextOpen = useCallback((from: number, list: Draft[]) => { for (let j = 1; j <= list.length; j++) { const k = (from + j) % list.length; if (list[k].status === "entwurf") return k; } return -1; }, []);
 
@@ -60,7 +61,7 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
     setL(next);
     const n = nextOpen(i, next); if (n >= 0) setSel(n); else setDone(true);
     toast(`${d.lead.company} freigegeben`);
-    try { await api(`/api/messages/${d.id}`, { method: "PATCH", body: { action: "approve", finalSubject: m.subject, finalBody: m.body } }); } catch (e) { toast((e as Error).message); }
+    try { await api(`/api/messages/${d.id}`, { method: "PATCH", body: { action: "approve", finalSubject: m.subject, finalBody: m.body } }); } catch (e) { toast((e as Error).message, { error: true }); }
   }, [L, tpls, sender, toast, nextOpen]);
 
   const skip = useCallback(async (i: number) => {
@@ -70,18 +71,18 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
     setL(next);
     if (!back) { const n = nextOpen(i, next); if (n >= 0) setSel(n); else setDone(true); }
     toast(`${d.lead.company} ${back ? "wieder aufgenommen" : "übersprungen"}`);
-    try { await api(`/api/messages/${d.id}`, { method: "PATCH", body: { action: "skip" } }); } catch (e) { toast((e as Error).message); }
+    try { await api(`/api/messages/${d.id}`, { method: "PATCH", body: { action: "skip" } }); } catch (e) { toast((e as Error).message, { error: true }); }
   }, [L, toast, nextOpen]);
 
   async function approveAll() {
     try { const n = await approveAllDrafts({ ...st, drafts: L }); setL(ls => ls.map(d => d.status === "entwurf" ? { ...d, status: "freigegeben" } : d)); setDone(true); toast(n ? `${n} Nachrichten freigegeben` : "Alles ist schon freigegeben"); reload(); }
-    catch (e) { toast((e as Error).message); }
+    catch (e) { toast((e as Error).message, { error: true }); }
   }
 
   async function research() {
     setBusy(true);
     try { const r = await api<{ created: number }>("/api/run", { body: { t: t.slug, job: "research" } }); await reload(); toast(r.created ? `${r.created} Entwürfe erstellt` : "Keine neuen Leads gefunden"); }
-    catch (e) { toast((e as Error).message); }
+    catch (e) { toast((e as Error).message, { error: true }); }
     setBusy(false);
   }
 
@@ -168,9 +169,9 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
             <div className="prop"><div className="l">{d.people.length > 1 ? "Kontakte" : "Kontakt"}</div><div className="v">{d.people.length > 1 ? d.people.filter(p => p.last).map((p, k) => <div key={k}>{`${p.first} ${p.last}${p.role ? `, ${p.role}` : ""}`}</div>)
               : <button className="lnk" onClick={openLead}>{d.lead.last ? `${[d.lead.salutation, d.lead.first, d.lead.last].filter(Boolean).join(" ")}${d.lead.role ? `, ${d.lead.role}` : ""}` : "Kein Name gefunden"}</button>}</div></div>
             {d.lead.city && <div className="prop"><div className="l">Ort</div><div className="v">{d.lead.city}</div></div>}
-            <div className="prop"><div className="l">Quelle</div><div className="v">{d.lead.sourceUrl ? <a href={d.lead.sourceUrl} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{d.lead.source}</a> : d.lead.source}</div></div>
+            <div className="prop"><div className="l">Quelle</div><div className="v">{httpUrl(d.lead.sourceUrl) ? <a href={httpUrl(d.lead.sourceUrl)} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{d.lead.source}</a> : d.lead.source}</div></div>
             <div className="prop"><div className="l">E-Mail</div><div className="v"><span className="mono" style={{ overflowWrap: "anywhere" }}>{d.to || "–"}</span>{d.lead.emailType === "info" && <span className="pill a">Sammeladresse</span>}</div></div>
-            {d.lead.website && <div className="prop"><div className="l">Website</div><div className="v"><a className="mono" style={{ overflowWrap: "anywhere", color: "inherit" }} href={d.lead.website} target="_blank" rel="noreferrer">{d.lead.website.replace(/^https?:\/\/(www\.)?/, "")}</a></div></div>}
+            {httpUrl(d.lead.website) && <div className="prop"><div className="l">Website</div><div className="v"><a className="mono" style={{ overflowWrap: "anywhere", color: "inherit" }} href={httpUrl(d.lead.website)} target="_blank" rel="noreferrer">{d.lead.website.replace(/^https?:\/\/(www\.)?/, "")}</a></div></div>}
             {t.tenders ? <div className="prop"><div className="l">Ausschreibungen</div><div className="v">{d.lead.tenders.length ? d.lead.tenders.map((x, k) => <div className="tender" key={k}><span><span className="t">{x.t}</span> <span className="s">({x.s}{x.f ? `, Frist ${x.f}` : ""})</span></span></div>) : "Keine gefunden"}</div></div>
               : <div className="prop"><div className="l">Anlass</div><div className="v">{d.lead.hook || "–"}</div></div>}
           </div>

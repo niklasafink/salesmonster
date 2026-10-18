@@ -1,8 +1,8 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { companies, db, leads } from "@/db";
-import { HttpError, qp, route, tenantBySlug } from "@/lib/api";
+import { HttpError, checkEmail, qp, route, tenantBySlug } from "@/lib/api";
 import { attachCompanies } from "@/lib/companies";
-import { LEAD_FIELDS, cleanLead, salutationOf } from "@/lib/lead-fields";
+import { LEAD_FIELDS, cleanLead, httpUrl, salutationOf } from "@/lib/lead-fields";
 
 export const GET = route(async (req, _c, me) => {
   const t = await tenantBySlug(qp(req, "t"), me);
@@ -21,6 +21,7 @@ export const POST = route(async (req, _c, me) => {
   if (lead) {
     const v = cleanLead(lead);
     if (!v.company) throw new HttpError(400, "Firma fehlt");
+    await checkEmail(t.id, v.email);
     const [r] = await db.insert(leads).values({ ...v, tenantId: t.id, company: v.company, source: "Manuell", status: "neu" }).returning();
     await attachCompanies(t.id);
     return { id: r.id };
@@ -31,8 +32,8 @@ export const POST = route(async (req, _c, me) => {
     const [first, ...rest] = (r.p || "").trim().split(/\s+/);
     const info = /^(info|kontakt|office|mail|post|service|vertrieb|hallo)@/i.test(r.email || "");
     return { tenantId: t.id, company: r.co.trim(), first: r.p ? first : "", last: r.p ? rest.join(" ") : "", role: r.role || "",
-      email: (r.email || "").trim(), emailType: info || !r.p ? "info" : "person", website: r.web ? (r.web.startsWith("http") ? r.web : `https://${r.web}`) : "",
-      city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: r.li || "", hook: r.hook || "", source: source || "Import", status: "neu" };
+      email: (r.email || "").trim(), emailType: info || !r.p ? "info" : "person", website: httpUrl(r.web || ""),
+      city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: httpUrl(r.li || ""), hook: r.hook || "", source: source || "Import", status: "neu" };
   });
   await db.insert(leads).values(vals);
   await attachCompanies(t.id);

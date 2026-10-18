@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, api } from "./ui";
-import type { Ctx, State } from "./types";
+import type { Ctx, State, ToastOpt } from "./types";
 import { Freigabe, approveAllDrafts } from "./views/freigabe";
 import { Uebersicht } from "./views/uebersicht";
-import { Leads } from "./views/leads";
+import { Leads, matches } from "./views/leads";
 import { Vorlagen } from "./views/vorlagen";
 import { Einstellungen } from "./views/einstellungen";
 import { Rechnungen } from "./views/rechnungen";
@@ -23,7 +23,7 @@ export function toggleTheme() {
   r.dataset.theme = dark ? "light" : "dark"; ls.set("oc-theme", r.dataset.theme);
 }
 
-type Toast = { m: string; action?: { label: string; href: string } } | null;
+type Toast = { m: string; action?: { label: string; href: string }; error?: boolean } | null;
 
 export default function Portal() {
   const [st, setSt] = useState<State | null>(null);
@@ -34,11 +34,13 @@ export default function Portal() {
   const [pal, setPal] = useState(false), [palQ, setPalQ] = useState(""), [palI, setPalI] = useState(0);
   const [toastS, setToast] = useState<Toast>(null);
   const [dlg, setDlg] = useState<null | "ws" | "tenant" | "pw">(null);
-  const [focusLead, setFocusLead] = useState<number | null>(null);
+  const [focusLead, setFocusLead] = useState<number | null>(null), [leadFocus, setLeadFocus] = useState<number | null>(null);
+  const [palLeads, setPalLeads] = useState<{ id: number; company: string; first: string; last: string; email: string }[]>([]);
   const tt = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const toast = useCallback((m: string, action?: { label: string; href: string }) => {
-    setToast({ m, action }); clearTimeout(tt.current); tt.current = setTimeout(() => setToast(null), action ? 5200 : 2600);
+  const toast = useCallback((m: string, opt?: ToastOpt) => {
+    const action = opt && "href" in opt ? opt : undefined, error = !!opt && "error" in opt;
+    setToast({ m, action, error }); clearTimeout(tt.current); tt.current = setTimeout(() => setToast(null), action || error ? 5200 : 2600);
   }, []);
 
   const load = useCallback(async (s: string | null) => {
@@ -55,13 +57,18 @@ export default function Portal() {
     const h = location.hash.slice(1); if (VIEWS[h]) setViewS(h);
     const msg = new URLSearchParams(location.search).get("msg");
     if (msg) { toast(msg); history.replaceState(null, "", location.pathname + location.hash); }
-    load(s).catch(e => toast(e.message));
-    const onHash = () => { const v = location.hash.slice(1); if (VIEWS[v]) setViewS(v); };
-    addEventListener("hashchange", onHash); return () => removeEventListener("hashchange", onHash);
+    load(s).catch(e => toast(e.message, { error: true }));
+    /* Back/Forward between views; Back to the bare URL is the default view */
+    const onHash = () => { const v = location.hash.slice(1); if (VIEWS[v]) setViewS(v); else if (!v) setViewS("freigabe"); };
+    /* restored from bfcache (e.g. Back after logout): reload so the session is checked again */
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) location.reload(); };
+    addEventListener("hashchange", onHash); addEventListener("popstate", onHash); addEventListener("pageshow", onShow);
+    return () => { removeEventListener("hashchange", onHash); removeEventListener("popstate", onHash); removeEventListener("pageshow", onShow); };
   }, [load, toast]);
 
-  const setView = useCallback((v: string) => { setViewS(v); setSbo(false); try { history.replaceState(null, "", "#" + v); } catch { /* ignore */ } }, []);
-  const switchTenant = useCallback((s: string) => { setSlug(s); ls.set("sp-tenant", s); setPop(null); setDlg(null); load(s).catch(e => toast(e.message)); }, [load, toast]);
+  const setView = useCallback((v: string) => { setViewS(v); setSbo(false); try { if (location.hash !== "#" + v) history.pushState(null, "", "#" + v); } catch { /* ignore */ } }, []);
+  const clearLeadFocus = useCallback(() => setLeadFocus(null), []);
+  const switchTenant = useCallback((s: string) => { setSlug(s); ls.set("sp-tenant", s); setPop(null); setDlg(null); load(s).catch(e => toast(e.message, { error: true })); }, [load, toast]);
 
   const hasInvoice = !!st?.tenant?.invoice;
   const navKeys = Object.keys(VIEWS).filter(v => (v !== "rechnungen" || hasInvoice));
@@ -75,14 +82,27 @@ export default function Portal() {
     const c: { g: string; ic: string; n: string; run: () => void }[] = [
       ...navKeys.map(v => ({ g: "Gehe zu", ic: VIEWS[v][1], n: VIEWS[v][0], run: () => setView(v) })),
       ...st.tenants.filter(t => t.slug !== st.tenant?.slug).map(t => ({ g: "Mandant", ic: "building-2", n: `Wechseln zu ${t.name}`, run: () => switchTenant(t.slug) })),
-      { g: "Aktion", ic: "check-check", n: "Alle freigeben", run: async () => { setView("freigabe"); try { const n = await approveAllDrafts(st); await reload(); toast(n ? `${n} Nachrichten freigegeben` : "Alles ist schon freigegeben"); } catch (e) { toast((e as Error).message); } } },
+      { g: "Aktion", ic: "check-check", n: "Alle freigeben", run: async () => { setView("freigabe"); try { const n = await approveAllDrafts(st); await reload(); toast(n ? `${n} Nachrichten freigegeben` : "Alles ist schon freigegeben"); } catch (e) { toast((e as Error).message, { error: true }); } } },
       { g: "Aktion", ic: "target", n: "Zielgruppe bearbeiten", run: () => setView("einstellungen") },
       { g: "Aktion", ic: "sparkles", n: "Mit KI einrichten", run: () => setView("einrichtung") },
       { g: "Aktion", ic: "sun-moon", n: "Hell / Dunkel umschalten", run: () => toggleTheme() },
       ...st.drafts.map(d => ({ g: "Leads heute", ic: "user", n: d.lead.company, run: () => { setView("freigabe"); setFocusLead(d.id); } })),
     ];
-    const q = palQ.toLowerCase(); return c.filter(x => !q || x.n.toLowerCase().includes(q));
-  }, [st, palQ, navKeys, setView, switchTenant, reload, toast]);
+    const hit = c.filter(x => matches(x.n, palQ));
+    /* leads are searched by company, person and email, but only once something is typed */
+    const leads = palQ.trim() ? palLeads.filter(l => matches(`${l.company} ${l.first} ${l.last} ${l.email}`, palQ)).slice(0, 20)
+      .map(l => ({ g: "Leads", ic: "user", n: [l.company, [l.first, l.last].filter(Boolean).join(" ")].filter(Boolean).join(" · "), run: () => { setView("leads"); setLeadFocus(l.id); } })) : [];
+    return [...hit, ...leads];
+  }, [st, palQ, palLeads, navKeys, setView, switchTenant, reload, toast]);
+
+  /* lead list for the palette, fetched when it opens */
+  const tslug = st?.tenant?.slug;
+  useEffect(() => {
+    if (!pal || !tslug) return;
+    let on = true;
+    api<{ rows: typeof palLeads }>(`/api/leads?t=${encodeURIComponent(tslug)}`).then(r => on && setPalLeads(r.rows)).catch(() => {});
+    return () => { on = false; };
+  }, [pal, tslug]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -133,7 +153,7 @@ export default function Portal() {
           {!t ? <div className="empty"><div><div className="h2">Noch kein Mandant</div><button className="btn pri" onClick={() => setDlg("tenant")}><Icon n="plus" />Mandant hinzufügen</button></div></div>
             : curView === "freigabe" ? <Freigabe key={t.slug} ctx={ctx} focus={focusLead} onFocused={() => setFocusLead(null)} />
             : curView === "statistik" ? <Uebersicht key={t.slug} ctx={ctx} />
-            : curView === "leads" ? <Leads key={t.slug} ctx={ctx} />
+            : curView === "leads" ? <Leads key={t.slug} ctx={ctx} focus={leadFocus} onFocused={clearLeadFocus} />
             : curView === "vorlagen" ? <Vorlagen key={t.slug} ctx={ctx} />
             : curView === "rechnungen" ? <Rechnungen key={t.slug} ctx={ctx} />
             : curView === "einrichtung" ? <Einrichtung key={t.slug} ctx={ctx} />
@@ -160,7 +180,7 @@ export default function Portal() {
       {dlg === "tenant" && <TenantDialog onClose={() => setDlg(null)} onDone={s => { setDlg(null); switchTenant(s); setView("einrichtung"); }} />}
       {dlg === "pw" && <PwDialog onClose={() => setDlg(null)} onDone={() => { setDlg(null); toast("Passwort geändert"); }} />}
 
-      {toastS && <div className="toast"><Icon n="check" /><span>{toastS.m}</span>{toastS.action && <a className="btn" href={toastS.action.href}><Icon n="download" />{toastS.action.label}</a>}</div>}
+      {toastS && <div className={`toast${toastS.error ? " err" : ""}`} role={toastS.error ? "alert" : "status"}><Icon n={toastS.error ? "circle-alert" : "check"} /><span>{toastS.m}</span>{toastS.action && <a className="btn" href={toastS.action.href}><Icon n="download" />{toastS.action.label}</a>}</div>}
     </>
   );
 }
