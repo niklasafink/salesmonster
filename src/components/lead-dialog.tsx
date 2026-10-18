@@ -116,12 +116,12 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], rating, onV
       <section className="props">
         {rating?.ratingInfo && rating.rating !== null && <div className="rating">
           <h3>Bewertung</h3>
-          <div className="gr"><RatingBar value={rating.rating} /><span className="num f3">{rating.rating} von 100</span></div>
-          <ul>{rating.ratingInfo.reasons.map((r, i) => <li key={i}><span className="p">{r.pts > 0 ? `+${r.pts}` : `−${Math.abs(r.pts)}`}</span><span>{r.text}{r.learned && <span className="f3"> gelernt</span>}</span></li>)}</ul>
-          {onVote && <div className="votes">
-            <button className={`btn gh${rating.vote > 0 ? " on" : ""}`} aria-pressed={rating.vote > 0} onClick={() => onVote(1)}><Icon n="thumbs-up" />Guter Lead</button>
-            <button className={`btn gh${rating.vote < 0 ? " on" : ""}`} aria-pressed={rating.vote < 0} onClick={() => onVote(-1)}><Icon n="thumbs-down" />Schlechter Lead</button>
-          </div>}
+          <div className="gr"><RatingBar value={rating.rating} /><span className="num f3">{rating.rating} von 100</span>
+            {onVote && <span className="votes">
+              <button className={`btn gh ic${rating.vote > 0 ? " on" : ""}`} aria-pressed={rating.vote > 0} onClick={() => onVote(1)} aria-label="Guter Lead" title="Guter Lead"><Icon n="thumbs-up" /></button>
+              <button className={`btn gh ic${rating.vote < 0 ? " on" : ""}`} aria-pressed={rating.vote < 0} onClick={() => onVote(-1)} aria-label="Schlechter Lead" title="Schlechter Lead"><Icon n="thumbs-down" /></button>
+            </span>}
+          </div>
         </div>}
         <h3 className={rating?.ratingInfo ? "h2" : undefined}>Unternehmen</h3>
         <Prop l="Firma"><input className="pv" value={f.company} placeholder="–" onChange={set("company")} /></Prop>

@@ -611,45 +611,45 @@ tr.click:focus-visible td{background:var(--hover)}
 .dlg.lg2{width:min(760px,100%)}
 .rec{display:grid; grid-template-columns:minmax(0,300px) minmax(0,1fr) minmax(0,280px); gap:0; flex:1; min-height:0; margin:0 -18px; border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
 .dlg.lg2 .rec{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
-.rec > section{min-width:0; overflow:auto; padding:14px 18px}
+.rec > section{min-width:0; overflow:auto; padding:10px 14px}
 .rec > section + section{border-left:1px solid var(--line)}
-.rec h3{font-size:12.5px; font-weight:600; color:var(--fg-2); margin:0 0 6px}
-.rec h3.h2{margin-top:18px}
+.rec h3{font-size:12px; font-weight:600; color:var(--fg-2); margin:0 0 2px}
+.rec h3.h2{margin-top:12px}
 .prop{display:flex; align-items:flex-start; gap:4px; position:relative}
 .prop label{display:flex; align-items:flex-start; gap:8px; flex:1; min-width:0}
-.prop .pk{flex:none; width:92px; padding:5px 0; color:var(--fg-3); font-size:13px; line-height:20px}
-.pv{flex:1; min-width:0; border:0; background:none; border-radius:6px; padding:5px 7px; margin:0 -7px 0 -7px; font-size:13px; line-height:20px; outline:none; appearance:none; text-overflow:ellipsis}
-textarea.pv{resize:none; field-sizing:content; min-height:30px; max-height:220px; font:inherit; font-size:13px; line-height:20px; white-space:pre-wrap}
+.prop .pk{flex:none; width:80px; padding:2px 0; color:var(--fg-3); font-size:12.5px; line-height:18px}
+.pv{flex:1; min-width:0; border:0; background:none; border-radius:6px; padding:2px 6px; margin:0 -6px; font-size:12.5px; line-height:18px; outline:none; appearance:none; text-overflow:ellipsis}
+textarea.pv{resize:none; field-sizing:content; min-height:22px; max-height:220px; font:inherit; font-size:12.5px; line-height:18px; white-space:pre-wrap}
 .pv::placeholder{color:var(--fg-3)}
 .pv:hover:not(:disabled){background:var(--hover)}
 .pv:focus{background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2)}
 select.pv{cursor:pointer}
 select.pv:disabled{cursor:default; opacity:1}
-.pv.mono{font-size:12.5px}
-.prop .pa{flex:none; display:inline-grid; place-items:center; width:24px; height:30px; color:var(--fg-3); opacity:0; transition:opacity .12s}
+.pv.mono{font-size:12px}
+.prop .pa{flex:none; display:inline-grid; place-items:center; width:22px; height:22px; color:var(--fg-3); opacity:0; transition:opacity .12s}
 .prop:hover .pa,.prop .pa:focus-visible{opacity:1}
 .prop .pa .lucide{width:13px; height:13px}
 @media (hover:none){.prop .pa{opacity:1}}
-.mates{list-style:none; margin:0 -7px; padding:0}
-.mates button{display:flex; align-items:center; gap:8px; width:100%; border:0; background:none; border-radius:6px; padding:5px 7px; text-align:left; font-size:13px; line-height:20px; cursor:pointer}
+.mates{list-style:none; margin:0 -6px; padding:0}
+.mates button{display:flex; align-items:center; gap:8px; width:100%; border:0; background:none; border-radius:6px; padding:2px 6px; text-align:left; font-size:12.5px; line-height:18px; cursor:pointer}
 .mates button:hover:not(:disabled){background:var(--hover)}
 .mates button:disabled{cursor:default}
 .mates .nm{font-weight:500; flex:none; max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .mates .f3{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .mates .lucide{width:14px; height:14px}
 .acts{list-style:none; margin:0; padding:0; position:relative}
-.acts li{display:flex; gap:10px; position:relative; padding-bottom:14px}
-.acts li:not(:last-child)::before{content:""; position:absolute; left:11px; top:26px; bottom:2px; width:1px; background:var(--line)}
-.acts .ai{flex:none; width:23px; height:23px; border-radius:50%; display:grid; place-items:center; background:var(--n-bg); color:var(--n)}
+.acts li{display:flex; gap:8px; position:relative; padding-bottom:8px}
+.acts li:not(:last-child)::before{content:""; position:absolute; left:9.5px; top:22px; bottom:2px; width:1px; background:var(--line)}
+.acts .ai{flex:none; width:20px; height:20px; border-radius:50%; display:grid; place-items:center; background:var(--n-bg); color:var(--n)}
 .acts .ai .lucide{width:12px; height:12px}
 .acts .k-reply .ai{background:var(--g-bg); color:var(--g)}
 .acts .k-sent .ai,.acts .k-linkedin .ai{background:var(--b-bg); color:var(--b)}
 .acts .k-bounce .ai{background:var(--r-bg); color:var(--r)}
-.acts .ab{flex:1; min-width:0; font-size:13px; line-height:20px; padding-top:1px}
+.acts .ab{flex:1; min-width:0; font-size:12.5px; line-height:18px; padding-top:1px}
 .acts .at{display:flex; gap:10px; align-items:baseline}
 .acts .tt{font-weight:500; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .acts time{flex:none; font-size:12px}
-.acts .ax{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:4px; width:100%; border:0; background:none; padding:0; text-align:left; color:var(--fg-2); white-space:pre-wrap; cursor:pointer; font-size:13px; line-height:20px}
+.acts .ax{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:2px; width:100%; border:0; background:none; padding:0; text-align:left; color:var(--fg-2); white-space:pre-wrap; cursor:pointer; font-size:12.5px; line-height:18px}
 .acts .ax.on{display:block}
 @media (max-width:860px){
   .dlg.xl{height:auto; margin-top:6vh}
@@ -663,11 +663,10 @@ select.pv:disabled{cursor:default; opacity:1}
 .score.hi{color:var(--g)} .score.mid{color:var(--a)} .score.lo{color:var(--r)}
 
 /* rating block in the contact dialog: grade and score, then the reasons with their points */
-.rating .gr{display:flex; align-items:center; gap:10px}
-.rating .gr .num{font-size:13px}
-.rating ul{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:4px; font-size:13px}
-.rating li{display:flex; gap:8px} .rating li .p{width:28px; flex:none; text-align:right; font-variant-numeric:tabular-nums; color:var(--fg-3)}
-.rating .votes{display:flex; gap:6px; margin-top:12px}
+.rating .gr{display:flex; align-items:center; gap:8px}
+.rating .gr .num{font-size:12.5px}
+.rating .votes{display:flex; gap:2px; margin-left:auto}
+.rating .votes .btn{width:24px; height:24px}
 .rating .votes .btn.on{background:var(--n-bg); color:var(--fg)}
 table.angles td.n,table.angles th.n{text-align:right; font-variant-numeric:tabular-nums; width:84px}
 table.angles td.sw-c{width:52px; text-align:right}
