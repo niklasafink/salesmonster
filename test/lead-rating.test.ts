@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitOf } from "@/lib/lead-fit";
+import { fitOf, realKo } from "@/lib/lead-fit";
 import { learnModel, rateLead, type RateLead } from "@/lib/lead-rating";
 
 const NOW = new Date("2026-10-18T12:00:00Z");
@@ -49,6 +49,13 @@ describe("Lead-Bewertung", () => {
     expect(r.rating).toBe(0);
     expect(r.grade).toBe("D");
     expect(r.reasons[0].text).toBe("Testeintrag, keine echte Firma");
+  });
+
+  it("K.O. ohne echten Grund zählt als schwache Firma, ohne K.O. bleibt alles, wie es ist", () => {
+    expect(realKo({ ko: "", company: 4 })).toEqual({ ko: "", company: 4 });
+    expect(realKo({ ko: "ko", company: 3 })).toEqual({ ko: "", company: 1 });
+    expect(realKo({ ko: "der Lead fällt unter ein \"nicht\"", company: 3 })).toEqual({ ko: "", company: 1 });
+    expect(realKo({ ko: "Big Four", company: 0 })).toEqual({ ko: "Big Four", company: 0 });
   });
 
   it("noch nicht von der KI bewertet: keine Zahl", () => {

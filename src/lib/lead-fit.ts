@@ -9,7 +9,7 @@ import { jevKey } from "./jev";
    About 1 ct per 100 leads with DeepSeek V4.1 Flash (thinking off, cheapest provider). A lead is judged again only when its inputs or the ideal customer change (hash). */
 export const FIT_MODEL = "deepseek/deepseek-v4.1-flash";
 const FALLBACK = "google/gemini-2.5-flash-lite";
-const VERSION = 2, BATCH = 10, PARALLEL = 6, MAX = 400;
+const VERSION = 3, BATCH = 10, PARALLEL = 6, MAX = 400;
 const RATED = ["neu", "freigabe", "angeschrieben", "beantwortet"];
 
 /* only what the judge reads */
@@ -77,6 +77,10 @@ const SCHEMA = { type: "object", additionalProperties: false, required: ["leads"
   properties: { id: { type: "integer" }, segment: { type: "string" }, ko: { type: "string" }, company: { type: "number" }, person: { type: "number" }, need: { type: "number" }, evidence: { type: "number" }, why: { type: "string" } } } } } };
 
 type Judged = Part & { id: number; segment: string; ko: string; why: string };
+
+/* a knockout without a real reason is the model echoing the instructions: it counts as a poor fit, not as excluded */
+export const realKo = <T extends { ko: string; company: number }>(x: T): T =>
+  x.ko && (x.ko.length < 3 || /^(ko|ja|yes|true|x)$|fällt unter ein|der lead/i.test(x.ko)) ? { ...x, ko: "", company: Math.min(x.company, 1) } : x;
 const clamp = (x: unknown) => Math.max(0, Math.min(4, Number(x) || 0));
 
 async function judge(key: string, icp: string, batch: Lead[]): Promise<{ got: Judged[]; model: string }> {
@@ -95,8 +99,7 @@ async function judge(key: string, icp: string, batch: Lead[]): Promise<{ got: Ju
   const raw = (JSON.parse(text) as { leads?: Judged[] }).leads || [];
   return { model: j.model || FIT_MODEL, got: raw.map(x => ({ id: Number(x.id), segment: String(x.segment || ""), ko: String(x.ko || "").trim(), why: String(x.why || "").slice(0, 200),
     company: clamp(x.company), person: clamp(x.person), need: clamp(x.need), evidence: clamp(x.evidence) }))
-    /* a knockout without a real reason is the model echoing the instructions: it counts as a poor fit, not as excluded */
-    .map(x => /^(ko|ja|yes|true|x)$|fällt unter ein|der lead/i.test(x.ko) || x.ko.length < 3 ? { ...x, ko: "", company: Math.min(x.company, 1) } : x) };
+    .map(realKo) };
 }
 
 export type FitRun = { judged: number; failed: number; error?: string };
