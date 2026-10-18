@@ -6,6 +6,8 @@ import { norm } from "@/lib/outreach";
 /* One imported row as the parser, the import dialog and MCP hand it over */
 export type LeadRow = { co: string; p: string; role: string; email: string; web: string; city: string };
 export type CheckedRow = LeadRow & { dup: string; extra: string };
+/* Company mailboxes rather than a person's address */
+export const INFO_MAIL = /^(info|kontakt|office|mail|post|service|vertrieb|hallo)@/i;
 
 /* One person per company gets the mail; further people at that company are kept as contacts.
    Only rows that add nothing new (same address, or a known company without an address) are dropped. */
@@ -28,7 +30,7 @@ export async function insertLeads(tenantId: number, rows: LeadRow[], source: str
   if (!rows.length) return [];
   const vals = rows.map(r => {
     const [first, ...rest] = (r.p || "").trim().split(/\s+/);
-    const info = /^(info|kontakt|office|mail|post|service|vertrieb|hallo)@/i.test(r.email || "");
+    const info = INFO_MAIL.test(r.email || "");
     return { tenantId, company: r.co.trim(), first: r.p ? first : "", last: r.p ? rest.join(" ") : "", role: r.role || "",
       email: (r.email || "").trim(), emailType: info || !r.p ? "info" : "person", website: r.web ? (r.web.startsWith("http") ? r.web : `https://${r.web}`) : "",
       city: r.city || "", source: source || "Import", status: "neu" };
