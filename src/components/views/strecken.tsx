@@ -50,8 +50,8 @@ export function Strecken({ ctx }: { ctx: Ctx }) {
       </div>
       {s.active && <button className="btn" disabled={!!busy} onClick={() => act("run", async () => { const r = await api<{ info: string }>(`/api/sequences/${s.id}`, { body: { action: "run" } }); ctx.toast(r.info); })}>
         {busy === "run" ? <Icon n="loader" /> : <Icon n="send" />}Jetzt ausführen</button>}
-      <span className="f3">Aktiv</span><button className={`sw ${s.active ? "on" : ""}`} aria-label="Strecke aktiv" disabled={!!busy}
-        onClick={() => act("active", () => put({ active: !s.active }), s.active ? "Strecke pausiert" : "Strecke läuft")} />
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}><span className="f3">Aktiv</span><button className={`sw ${s.active ? "on" : ""}`} aria-label="Strecke aktiv" disabled={!!busy}
+        onClick={() => act("active", () => put({ active: !s.active }), s.active ? "Strecke pausiert" : "Strecke läuft")} /></span>
     </Top>
     <div className="scroll"><div className="wrap">
       {s.waiting.length > 0 && <Waiting s={s} busy={!!busy} act={act} />}
@@ -124,6 +124,7 @@ function Mails({ s, ctx, act, busy }: { s: S; ctx: Ctx; act: Act; busy: string }
       <button className="btn gh" disabled={!!busy || steps.length >= 12} onClick={addStep}><Icon n="plus" />Mail hinzufügen</button>
     </div>
     <div className="doc">
+      <div style={{ padding: "14px 16px 4px" }}>
       <div className="row3" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <label className="fld" style={{ width: 90 }}><span>Tag</span><input className="inp num" inputMode="numeric" value={steps[step].day} onChange={e => setStep({ day: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></label>
         <label className="fld" style={{ flex: 1, minWidth: 160 }}><span>Name</span><input className="inp" value={steps[step].name} onChange={e => setStep({ name: e.target.value })} /></label>
@@ -132,6 +133,7 @@ function Mails({ s, ctx, act, busy }: { s: S; ctx: Ctx; act: Act; busy: string }
         {vs.map(x => <button key={x.id} className={x.id === cur?.id ? "on" : ""} onClick={() => setK(x.key)}>{x.key}{!x.active && " (pausiert)"}</button>)}
         <button onClick={() => add("variant")} disabled={!!busy} aria-label="Leere Variante"><Icon n="plus" /></button>
         <button onClick={() => add("propose")} disabled={!!busy} aria-label="Variante von der KI">{busy === "propose" ? <Icon n="loader" /> : <Icon n="sparkles" />}</button>
+      </div>
       </div>
       {cur && <>
         <div className="vstats">
@@ -153,7 +155,7 @@ function Mails({ s, ctx, act, busy }: { s: S; ctx: Ctx; act: Act; busy: string }
           <div className="subj">{fill(cur.subject, sample, cur, sender)}</div>
           <div className="pv">{fill(cur.body, sample, cur, sender)}{"\n\n--\nKeine weiteren Mails: …"}</div>
         </>}
-        <div className="row3" style={{ gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        <div className="row3" style={{ gap: 8, padding: "12px 16px 16px", flexWrap: "wrap" }}>
           <button className="btn pri" disabled={!!busy} onClick={save}>Speichern</button>
           <div className="seg"><button className={mode === "edit" ? "on" : ""} onClick={() => setMode("edit")}>Bearbeiten</button><button className={mode === "preview" ? "on" : ""} onClick={() => setMode("preview")}>Vorschau</button></div>
           <button className="btn" disabled={!!busy} onClick={() => act("score", () => api(`/api/sequences/${s.id}`, { body: { action: "score", templateId: cur.id } }))}>
@@ -180,7 +182,7 @@ function People({ s }: { s: S }) {
 
 function Settings({ s, ctx, act }: { s: S; ctx: Ctx; act: Act }) {
   const [c, setC] = useState(s.config), [name, setName] = useState(s.name);
-  const m = (k: "enter" | "bought" | "stop", label: string) => <div className="row2">
+  const m = (k: "enter" | "bought" | "stop", label: string) => <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
     <label className="fld"><span>{label}: HubSpot-Eigenschaft</span><input className="inp" value={c[k].property} placeholder="interner Name" onChange={e => setC({ ...c, [k]: { ...c[k], property: e.target.value } })} /></label>
     <label className="fld"><span>Wert</span><input className="inp" value={c[k].value} placeholder="leer = beliebiger Wert" onChange={e => setC({ ...c, [k]: { ...c[k], value: e.target.value } })} /></label>
   </div>;
@@ -190,7 +192,7 @@ function Settings({ s, ctx, act }: { s: S; ctx: Ctx; act: Act }) {
     {m("enter", "Registriert")}
     {m("bought", "Pro gekauft")}
     {m("stop", "Keine Strecke")}
-    <div className="row2">
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
       <label className="fld"><span>Absender</span><select className="inp" value={c.senderId ?? ""} onChange={e => setC({ ...c, senderId: Number(e.target.value) })}>
         {ctx.st.users.map(u => <option key={u.id} value={u.id}>{u.name}{ctx.st.mailbox[u.id] ? ` (${ctx.st.mailbox[u.id]})` : ""}</option>)}</select></label>
       <label className="fld"><span>Testphase in Tagen</span><input className="inp num" inputMode="numeric" value={c.trialDays} onChange={e => setC({ ...c, trialDays: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></label>
