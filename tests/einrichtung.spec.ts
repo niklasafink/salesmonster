@@ -54,7 +54,7 @@ test("Schritt-Prompt speichern, nach Reload da, danach zurück", async ({ page, 
     await page.goto("/#einrichtung");
     await page.locator(".cl-rail .cl-sh", { hasText: "Zielgruppe" }).click();
     const dlg = page.locator(".dlg");
-    await dlg.getByLabel("Branchen", { exact: true }).fill(tag);
+    await dlg.locator("textarea.keys").fill(tag);
     await expect(dlg.locator("textarea.prompt")).toHaveValue(new RegExp(`^Branchen: ${tag}$`, "m"));
     await dlg.getByRole("button", { name: "Speichern" }).click();
     await expect(dlg).toHaveCount(0);
