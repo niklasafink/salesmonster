@@ -10,7 +10,7 @@ import { jevKey } from "./jev";
 export const FIT_MODEL = "deepseek/deepseek-v4.1-flash";
 const FALLBACK = "google/gemini-2.5-flash-lite";
 const VERSION = 3, BATCH = 10, PARALLEL = 6, MAX = 400;
-const RATED = ["neu", "freigabe", "angeschrieben", "beantwortet"];
+const RATED = ["neu", "freigabe", "angeschrieben", "beantwortet", "kontakt", "unzustellbar"];
 
 /* only what the judge reads */
 const COLS = { id: leads.id, company: leads.company, city: leads.city, website: leads.website, first: leads.first, last: leads.last, role: leads.role, email: leads.email,

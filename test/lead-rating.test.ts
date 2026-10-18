@@ -58,8 +58,11 @@ describe("Lead-Bewertung", () => {
     expect(realKo({ ko: "Big Four", company: 0 })).toEqual({ ko: "Big Four", company: 0 });
   });
 
-  it("noch nicht von der KI bewertet: keine Zahl", () => {
-    expect(rate({ fit: null }).rating).toBeNull();
+  it("noch nicht von der KI bewertet: vorläufige Zahl, die Rolle zählt", () => {
+    const gf = rate({ fit: null }), staff = rate({ fit: null, role: "Sachbearbeiterin" });
+    expect(gf.rating).not.toBeNull();
+    expect(gf.reasons[0].text).toBe("Vorläufig, KI-Prüfung steht noch aus");
+    expect(gf.rating!).toBeGreaterThan(staff.rating!);
   });
 
   it("Daumen hoch hebt, Daumen runter halbiert, Überspringen senkt leicht", () => {
@@ -79,8 +82,8 @@ describe("Lead-Bewertung", () => {
     expect(seen.size).toBeGreaterThanOrEqual(45);
   });
 
-  it("unzustellbar, Papierkorb, Dublette und Postfach-Kontakte bekommen keine Bewertung", () => {
-    for (const status of ["unzustellbar", "papierkorb", "dublette", "kontakt"]) expect(rate({ status }).rating).toBeNull();
+  it("jeder Status bekommt eine Bewertung, auch Postfach-Kontakte", () => {
+    for (const status of ["unzustellbar", "papierkorb", "dublette", "kontakt"]) expect(rate({ status }).rating).not.toBeNull();
   });
 });
 

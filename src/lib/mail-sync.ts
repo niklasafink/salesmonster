@@ -5,6 +5,7 @@ import { attachCompanies } from "./companies";
 import { domainOf } from "./hubspot";
 import { INFO_MAIL, emailTypeOf, salutationOf } from "./lead-fields";
 import { openSource, type Head, type Source } from "./mail-source";
+import { rerate } from "./ratings";
 import { readSignature, readSignatures, signatureOf } from "./signature";
 
 /* Attio-style: everyone a mailbox exchanged mail with becomes a contact of the tenant, with what their signature says.
@@ -154,6 +155,7 @@ async function file(tenantId: number, userId: number) {
     await db.update(mailContacts).set({ state: "fertig", leadId }).where(eq(mailContacts.id, c.id));
   }
   await attachCompanies(tenantId);
+  await rerate(tenantId);
   return n;
 }
 

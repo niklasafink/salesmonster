@@ -32,6 +32,8 @@ export const POST = route(async (req, _c, me) => {
     await checkEmail(t.id, v.email);
     const [r] = await db.insert(leads).values({ ...v, tenantId: t.id, company: v.company, source: "Manuell", status: "neu" }).returning();
     await attachCompanies(t.id);
+    /* a provisional rating right away, the AI's after the answer */
+    await rerate(t.id);
     await later(() => refreshRatings(t.id, [r.id]));
     return { id: r.id };
   }
@@ -41,6 +43,7 @@ export const POST = route(async (req, _c, me) => {
   const fill = rows.filter((r): r is LeadRow & { id: number } => Number.isInteger((r as { id?: unknown }).id));
   const added = await insertLeads(t.id, rows.filter(r => !fill.includes(r as LeadRow & { id: number })), source || "Import");
   const filled = await fillLeads(t.id, fill);
+  await rerate(t.id);
   await later(() => refreshRatings(t.id, [...added.map(a => a.id), ...filled]));
   return { n: added.length, filled: filled.length };
 });

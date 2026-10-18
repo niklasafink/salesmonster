@@ -73,8 +73,9 @@ describe("Versand-Warteschlange", () => {
   it("Drag and Drop legt die Reihenfolge fest, der Rest folgt nach Bewertung", async () => {
     expect((await call(QUEUE, { as: me, method: "PUT", body: { t: t.slug, ids: [ids.Dora, ids.Anna] } })).status).toBe(200);
     expect(await queue()).toEqual([ids.Dora, ids.Anna, ids.Bert, ids.Gina, ids.Gus]);
+    /* reading the list rates every lead; without the AI's fit, Gina's personal address beats Bert's front desk inbox */
     const { json } = await call(LIST, { as: me, path: `/api/leads?t=${t.slug}` });
-    expect(json.order).toEqual([ids.Dora, ids.Anna, ids.Bert, ids.Gina, ids.Gus]);
+    expect(json.order).toEqual([ids.Dora, ids.Anna, ids.Gina, ids.Bert, ids.Gus]);
     expect(json.next.slice(0, 2)).toEqual([ids.Dora, ids.Anna]);
     expect(json.rows.find((r: { id: number }) => r.id === ids.Bert).channelRec.ch).toBe("linkedin");
   });

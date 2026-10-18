@@ -6,6 +6,7 @@ import { AiMissing, type Ai } from "./ai";
 import { getInteg } from "./integrations";
 import { jevKey, scoreMail } from "./jev";
 import { lint } from "./playbook";
+import { rerate } from "./ratings";
 import { skillFor, WEB } from "./skills";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -346,6 +347,7 @@ export async function applySetup(t: Tenant, su: Setup, opts: { prompt?: string; 
         email: l.email, linkedin: l.linkedin, hook: l.why, source: "Einrichtung", status: "neu" });
       out.leads++;
     }
+    if (out.leads) await rerate(t.id);
   }
   await db.update(setups).set({ step: "fertig", doneAt: new Date(), sources: { ...su.sources, fertig: "nutzer" }, updatedAt: new Date() }).where(and(eq(setups.id, su.id)));
   return out;

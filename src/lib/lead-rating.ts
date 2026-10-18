@@ -18,7 +18,6 @@ const PRIOR = 0.04, K = 30, DAMP = 0.7, MIN_N = 30, MIN_R = 3;
 const logit = (p: number) => Math.log(p / (1 - p));
 const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
 
-const UNRATED = new Set(["unzustellbar", "papierkorb", "dublette", "kontakt"]);
 export const FREEMAIL = /@(gmail|googlemail|gmx|web|t-online|outlook|hotmail|live|yahoo|icloud|me|posteo|aol|mail|freenet|online)\.[a-z.]+$/i;
 /* role inboxes that reach a front desk, not a person (cf. reacherhq/check-if-email-exists roles list) */
 const ROLE_BOX = /^(info|kontakt|contact|office|mail|post|service|vertrieb|sales|verkauf|buero|büro|zentrale|empfang|hello|hallo|team|anfrage|anfragen|support|marketing|presse|bewerbung|jobs|karriere|verwaltung|einkauf|auftrag|angebot|angebote|rechnung|buchhaltung|kanzlei|praxis|willkommen|noreply|no-reply)@/i;
@@ -112,12 +111,12 @@ function weight(m: Model, key: string, lnOr: number) {
 const days = (a: Date, b: Date) => Math.max(0, Math.floor((b.getTime() - a.getTime()) / 864e5));
 
 /* The score 0–100 is the AI's fit (lib/lead-fit.ts) times how reachable the person is, times trigger, thumbs and what replies taught us.
-   `expected` stays the reply probability from the log-odds model above, for angles and strategy. Without a fit the lead is not rated yet. */
+   `expected` stays the reply probability from the log-odds model above, for angles and strategy. Every lead is rated: until the AI has judged it,
+   the fit counts as "teilweise" and the role stands in for the AI's view of the person. */
 const REACH: Record<Adr, number> = { person: 1, freemail: 0.85, role: 0.6, linkedin: 0.55, none: 0.3 };
 
 export function rateLead(l: RateLead, m: Model, now = new Date()): Rating {
   const parts: Record<Part, number> = { fit: 0, reach: 0, role: 0, timing: 0, feedback: 0 };
-  if (UNRATED.has(l.status)) return { rating: null, grade: null, expected: 0, parts, reasons: [] };
   const adr = address(l), rg = roleGroup(l.role), age = days(l.createdAt, now);
   const tenders = l.tenders.filter(t => open(t, now));
 
@@ -135,13 +134,13 @@ export function rateLead(l: RateLead, m: Model, now = new Date()): Rating {
   if (l.skips) odds(l.skips * Math.log(0.85), false);
   const bounced = !!l.email && m.bounced.includes(domain(l.email));
   const expected = Math.round(ADR[adr].deliver * (bounced ? 0.5 : 1) * sigmoid(m.b0 + lo) * 1000) / 1000;
-  if (l.fit === null) return { rating: null, grade: null, expected, parts, reasons: [] };
 
   const reasons: Reason[] = [];
-  const info = l.fitInfo;
-  let score = 100 * Math.max(0, Math.min(4, l.fit)) / 4;
+  const info = l.fit === null ? null : l.fitInfo;
+  let score = 100 * Math.max(0, Math.min(4, l.fit ?? 2)) / 4;
   parts.fit = Math.round(score);
-  if (info?.ko) reasons.push({ pts: -100, text: info.ko });
+  if (l.fit === null) reasons.push({ pts: parts.fit, text: "Vorläufig, KI-Prüfung steht noch aus" });
+  else if (info?.ko) reasons.push({ pts: -100, text: info.ko });
   else reasons.push({ pts: parts.fit, text: info?.why || fitText(l.fit) });
   /* each factor moves the score by a share of what it is at that point */
   const factor = (part: Part, k: number, text: string, learned = false) => {
@@ -151,6 +150,7 @@ export function rateLead(l: RateLead, m: Model, now = new Date()): Rating {
   };
   /* how far replies moved a feature from its prior, trusted by the number of mails behind it */
   const lift = (w: { w: number; n: number }, prior: number) => Math.max(0.5, Math.min(2, Math.exp((w.w - prior) * w.n / (w.n + MIN_N))));
+  if (l.fit === null) factor("role", ROLE[rg].or, ROLE[rg].text);
   if (REACH[adr] !== 1) factor("reach", REACH[adr], ADR[adr].text);
   factor("reach", lift(wa, Math.log(ADR[adr].or)), wa.w >= Math.log(ADR[adr].or) ? `${ADR[adr].text} antwortet gut` : `${ADR[adr].text} antwortet schlecht`, wa.learned);
   if (l.email && !l.last) factor("reach", 0.85, "Kein Name");

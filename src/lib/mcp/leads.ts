@@ -7,7 +7,7 @@ import { cleanLead, emailTypeOf } from "@/lib/lead-fields";
 import { HttpError, checkEmail, tenantBySlug } from "@/lib/api";
 import { addLeads } from "@/lib/lead-import";
 import { setLeadStatus } from "@/lib/outreach";
-import { later, refreshRatings } from "@/lib/ratings";
+import { later, refreshRatings, rerate } from "@/lib/ratings";
 import { checkRun } from "@/lib/workflows";
 import { tool } from "./tool";
 
@@ -89,7 +89,7 @@ export function leadTools(server: McpServer) {
     const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_add");
     const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", phone: r.phone || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl, note: r.note, research: r.research })), source || wr?.workflow || "Claude");
     await wr?.count({ added: out.added.length, skipped: out.skipped.length });
-    if (out.added.length) await later(() => refreshRatings(t.id, out.added.map(a => a.id)));
+    if (out.added.length) { await rerate(t.id); await later(() => refreshRatings(t.id, out.added.map(a => a.id))); }
     return out;
   });
 
