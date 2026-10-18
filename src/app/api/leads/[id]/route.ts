@@ -65,6 +65,10 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
     const tenders = (b.tenders as { t?: unknown; s?: unknown; f?: unknown }[]).map(x => ({ t: String(x.t ?? "").slice(0, 300), s: String(x.s ?? "").slice(0, 200), f: String(x.f ?? "").slice(0, 20) })).filter(x => x.t).slice(0, 10);
     await db.update(leads).set({ tenders }).where(eq(leads.id, id));
   }
+  if (b.vote !== undefined) {
+    if (![-1, 0, 1].includes(b.vote as number)) throw new HttpError(400, "Ungültige Bewertung");
+    await db.update(leads).set({ vote: b.vote as number }).where(eq(leads.id, id));
+  }
   if (b.status !== undefined && b.status !== l.status) {
     if (typeof b.status !== "string" || !OK.includes(b.status)) throw new HttpError(400, "Unbekannter Status");
     await setLeadStatus(l.tenantId, id, b.status);

@@ -2,13 +2,18 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-or
 import { claims, companies, db, leads, members, messages, runs, templates, tenants, users } from "@/db";
 import { attachCompanies, norm, plan, type Unit } from "./companies";
 import { salutationOf } from "./lead-fields";
-import { berlinDate } from "./dates";
+import { berlinDate, berlinWeekday } from "./dates";
 import { getInteg } from "./integrations";
-import { enrichLead, researchLeads, type LeadOut } from "./claude";
+import { enrichLead } from "./claude";
 import { AiMissing, aiFor } from "./ai";
 import { HubSpotError, domainOf, hubspotAddContact, hubspotCreateContact, hubspotKnown, hubspotPortal, hubspotReserve, hubspotToken, type Known } from "./hubspot";
 import { hasReply, sendAs, sendSystem } from "./mail";
-import { JevLimit, guessSalutations, jevKey, scoreMail } from "./jev";
+import { JevLimit, guessSalutations, jevKey } from "./jev";
+import { judge, scoreDrafts, templateStats } from "./drafts";
+import { refreshRatings, rerate } from "./ratings";
+import { researchRound } from "./strategy";
+import { beta } from "./angles";
+import { FREEMAIL } from "./lead-rating";
 
 type Tenant = typeof tenants.$inferSelect;
 type Lead = typeof leads.$inferSelect;
@@ -32,39 +37,16 @@ export async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise
   return out;
 }
 
-function focusGroups(prompt: string, k: number) {
-  const m = prompt.match(/^Branchen:[ \t]*(.*)$/m);
-  const list = (m?.[1] || "").split(/,|;/).map(s => s.trim()).filter(Boolean);
-  if (list.length < 2) return [""];
-  const groups: string[][] = Array.from({ length: Math.min(k, list.length) }, () => []);
-  list.forEach((b, i) => groups[i % groups.length].push(b));
-  return groups.map(g => g.join(", "));
-}
-
-/* Marsaglia–Tsang; enough for Beta draws with integer counts */
-function gamma(k: number): number {
-  const d = k - 1 / 3, c = 1 / Math.sqrt(9 * d);
-  for (;;) {
-    let x: number, v: number;
-    do { const u1 = Math.random(), u2 = Math.random(); x = Math.sqrt(-2 * Math.log(u1 || 1e-12)) * Math.cos(2 * Math.PI * u2); v = 1 + c * x; } while (v <= 0);
-    v = v ** 3; const u = Math.random();
-    if (Math.log(u) < 0.5 * x * x + d - d * v + d * Math.log(v)) return d * v;
-  }
-}
-const beta = (a: number, b: number) => { const x = gamma(a); return x / (x + gamma(b)); };
-
 /* Thompson sampling: each draft goes to the template whose sampled reply rate is highest.
-   New templates get tried, templates with more replies get more of the batch. */
+   The prior (worth 20 sends) comes from the template's score, so a well-scored new template gets tried more; replies take over. */
 async function pickVariant(tenantId: number) {
   const act = await db.select().from(templates).where(and(eq(templates.tenantId, tenantId), eq(templates.active, true))).orderBy(asc(templates.key));
   if (!act.length) throw new Error("Keine aktive Vorlage");
-  const rows = await db.select({ v: messages.variant, sent: sql<number>`count(${messages.sentAt}) - count(${messages.bouncedAt})`.mapWith(Number), replies: sql<number>`count(${messages.repliedAt})`.mapWith(Number) })
-    .from(messages).where(eq(messages.tenantId, tenantId)).groupBy(messages.variant);
-  const st = Object.fromEntries(act.map(t => { const r = rows.find(x => x.v === t.key); return [t.key, { s: r?.sent ?? 0, r: r?.replies ?? 0 }]; }));
-  return () => Object.entries(st).map(([k, x]) => [k, beta(1 + x.r, 1 + Math.max(0, x.s - x.r))] as const).sort((a, b) => b[1] - a[1])[0][0];
+  const all = await templateStats(tenantId);
+  const st = act.map(t => [t.key, all[t.key]] as const);
+  return () => st.map(([k, x]) => [k, beta(1 + x.replies + 20 * x.prior, 1 + Math.max(0, x.sent - x.replies) + 20 * (1 - x.prior))] as const).sort((a, b) => b[1] - a[1])[0][0];
 }
 
-const FREEMAIL = /@(gmail|googlemail|gmx|web|t-online|outlook|hotmail|live|yahoo|icloud|me|posteo|aol|mail|freenet|online)\.[a-z.]+$/i;
 
 function claimKeys(l: Lead) {
   const domain = l.website ? domainOf(l.website) : l.email && !FREEMAIL.test(l.email) ? l.email.split("@")[1].toLowerCase() : "";
@@ -125,8 +107,6 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
   const nextVariant = await pickVariant(t.id);
   const jev = await jevKey(t.id);
   await attachCompanies(t.id);
-  const known = await db.select({ company: leads.company }).from(leads).where(eq(leads.tenantId, t.id)).orderBy(desc(leads.createdAt)).limit(2000);
-  const seen = new Set(known.map(k => norm(k.company)));
   const units: Unit[] = [];
   const done = new Set<number>();
 
@@ -180,42 +160,34 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
     units.push(...plan(c, rows, all.filter(l => l.status !== "papierkorb").map(l => l.email)));
   };
 
-  /* 1. imported leads first, company by company in list order */
-  const queue = await db.select({ companyId: leads.companyId }).from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"))).orderBy(asc(leads.createdAt), asc(leads.id));
+  /* 1. open leads first, the best rated company first */
+  await refreshRatings(t.id).catch(e => log(t.id, "rating", false, (e as Error).message));
+  /* replies come most often on Tuesday and Wednesday (6,337 cold mails); with holdTop grade-A leads wait for those days
+     and only fill the batch on other days when nothing else is left */
+  const tomorrow = berlinWeekday(new Date(Date.now() + 864e5)), hold = !!t.settings.holdTop && !["Tue", "Wed"].includes(tomorrow);
+  const best = hold ? sql`(coalesce(${leads.ratingInfo}->>'grade', '') = 'A') asc, ${leads.rating} desc nulls last` : sql`${leads.rating} desc nulls last`;
+  const queue = await db.select({ companyId: leads.companyId }).from(leads)
+    .where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), hold ? sql`coalesce(${leads.ratingInfo}->>'grade', '') <> 'A'` : undefined)).orderBy(best, asc(leads.createdAt), asc(leads.id));
   for (const q of queue) { if (units.length >= n) break; if (q.companyId) await admit(q.companyId); }
 
-  /* 2. new research for the rest; asks for a few extra so duplicates can be replaced,
-     and whatever is left over waits in the list for the next evening */
+  /* 2. new research for the rest along the strategy's directions; asks for a few extra so duplicates can be replaced,
+     and whatever is left over waits in the list, rated, for the next evening */
   const rest = n - units.length;
   if (rest > 0) {
-    const want = rest + Math.ceil(rest / 2);
-    const groups = focusGroups(t.settings.prompt, want >= 6 ? 3 : want >= 3 ? 2 : 1);
-    const per = Math.ceil(want / groups.length);
-    const results = await Promise.allSettled(groups.map(g => researchLeads(key, t.settings.prompt, per, known.map(k => k.company), g, t.tenders)));
-    const found: LeadOut[] = [];
-    for (const r of results) {
-      if (r.status === "fulfilled") found.push(...r.value);
-      else await log(t.id, "research", false, r.reason?.message || String(r.reason));
-    }
-    /* several people of one company arrive as several entries with the same company name */
-    const fresh = new Set<string>();
-    for (const f of found) {
-      const k = norm(f.company);
-      if (!k || (seen.has(k) && !fresh.has(k))) continue;
-      seen.add(k); fresh.add(k);
-      await db.insert(leads).values({ tenantId: t.id, ...f, salutation: salutationOf(f.salutation), source: "Claude-Recherche", status: "neu" });
-    }
-    await attachCompanies(t.id);
-    const added = await db.select({ companyId: leads.companyId }).from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"))).orderBy(asc(leads.createdAt), asc(leads.id));
+    await researchRound(t, rest + Math.ceil(rest / 2), key);
+    const added = await db.select({ companyId: leads.companyId }).from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"))).orderBy(best, asc(leads.createdAt), asc(leads.id));
     for (const q of added) { if (units.length >= n) break; if (q.companyId) await admit(q.companyId); }
   }
 
-  /* 3. drafts */
+  /* 3. drafts, each scored before anyone reads it */
+  const made: number[] = [];
   for (const u of units) {
     const ids = u.leads.map(l => l.id);
-    await db.insert(messages).values({ tenantId: t.id, leadId: ids[0], leadIds: ids, to: u.to.join(", "), batchDate: today, variant: nextVariant(), channel: u.to.length ? "mail" : "linkedin" });
+    const [m] = await db.insert(messages).values({ tenantId: t.id, leadId: ids[0], leadIds: ids, to: u.to.join(", "), batchDate: today, variant: nextVariant(), channel: u.to.length ? "mail" : "linkedin" }).returning({ id: messages.id });
+    made.push(m.id);
     await db.update(leads).set({ status: "freigabe" }).where(inArray(leads.id, ids));
   }
+  await scoreDrafts(t.id, made).catch(e => log(t.id, "score", false, (e as Error).message));
   await log(t.id, "research", true, `${units.length} Entwürfe`);
   return { created: units.length };
 }
@@ -258,12 +230,12 @@ export async function sendApproved(t: Tenant) {
   }
   await log(t.id, "send", failed === 0, `${sent} gesendet${failed ? `, ${failed} fehlgeschlagen` : ""}`);
 
-  /* Jev's view of what actually went out, to check later whether its scores predict replies */
+  /* the score of what actually went out, to calibrate scores against replies; unchanged text keeps its score */
   const scoreKey = await jevKey(t.id);
   if (scoreKey) {
     for (const { m, l } of rows) {
       try {
-        const score = await scoreMail(scoreKey, { subject: m.finalSubject || "", body: m.finalBody || "", company: l.company, role: l.role }, { wait: false });
+        const score = await judge(scoreKey, { subject: m.finalSubject || "", body: m.finalBody || "" }, l, m.score, null, false);
         await db.update(messages).set({ score }).where(and(eq(messages.id, m.id), eq(messages.status, "gesendet")));
       } catch (e) { if (e instanceof JevLimit) break; }
     }
@@ -285,6 +257,7 @@ export async function checkReplies(t: Tenant) {
       found++;
     }
   }
+  if (found) await rerate(t.id).catch(e => console.error("rating", t.slug, e));
   return found;
 }
 

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, date, integer, jsonb, numeric, pgTable, serial, text, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { boolean, date, integer, jsonb, numeric, pgTable, real, serial, text, timestamp, uniqueIndex, index, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export type Tender = { t: string; s: string; f: string };
 
@@ -11,13 +11,20 @@ export type TenantSettings = {
   leadsPerDay: number;
   cooldownDays: number;
   ai?: AiChoice;
+  /* research rounds per day besides the evening run (0 = off), and whether grade-A leads wait for Tuesday/Wednesday */
+  roundsPerDay?: number;
+  holdTop?: boolean;
   /* notes from reading the tenant's website once in the setup; read again only when the domain changes */
   site?: { domain: string; notes: string; at: string };
 };
 
 /* Jev's judgement of one rendered mail; see lib/jev.ts */
-export type MailScore = { reply: number; specific: number; easyAsk: number; weakness: string; words: number; subjectLen: number };
+export type MailScore = { reply: number; specific: number; easyAsk: number; weakness: string; words: number; subjectLen: number;
+  /* draft score 0–100 with what lowers it (lib/draft-score.ts), the text it belongs to, and the calibrated reply rate once there is data */
+  total?: number; issues?: string[]; hash?: string; expected?: number };
 export type TemplateScore = MailScore & { hash: string; n: number; weaknesses: Record<string, number> };
+
+export type RatingInfo = { grade: "A" | "B" | "C" | "D"; expected: number; parts: Record<"fit" | "reach" | "role" | "timing" | "feedback", number>; reasons: { pts: number; text: string; learned?: boolean }[] };
 
 export type Plan = { key: string; n: string; m: number; label: string; noFree?: boolean };
 
@@ -131,8 +138,27 @@ export const leads = pgTable("leads", {
   phone: text("phone").notNull().default(""),
   /* last mail in either direction, for contacts that came from a mailbox */
   lastContactAt: timestamp("last_contact_at", { withTimezone: true }),
+  /* lib/lead-rating.ts: score 0–100 (null = not rated), with grade, parts and reasons; fit is Jev's 0–4 match with the ideal customer */
+  rating: integer("rating"),
+  ratingInfo: jsonb("rating_info").$type<RatingInfo | null>(),
+  fit: real("fit"),
+  vote: integer("vote").notNull().default(0),
+  angleId: integer("angle_id").references((): AnyPgColumn => angles.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, t => [index("leads_tenant").on(t.tenantId, t.status)]);
+}, t => [index("leads_tenant").on(t.tenantId, t.status), index("leads_rating").on(t.tenantId, t.rating)]);
+
+/* A search direction of the research (e.g. an industry plus a trigger). Thompson sampling picks one per round by how its leads did;
+   the AI adds new ones and pauses weak ones it made, the user's own ones only the user pauses. origin: start | ki | nutzer */
+export const angles = pgTable("angles", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  query: text("query").notNull().default(""),
+  origin: text("origin").notNull().default("ki"),
+  active: boolean("active").notNull().default(true),
+  rounds: integer("rounds").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [index("angles_tenant").on(t.tenantId)]);
 
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
@@ -155,6 +181,8 @@ export const messages = pgTable("messages", {
   bouncedAt: timestamp("bounced_at", { withTimezone: true }),
   hubspot: boolean("hubspot").notNull().default(false),
   score: jsonb("score").$type<MailScore>(),
+  /* text rewritten by "Verbessern"; compared against untouched drafts in the stats */
+  improved: boolean("improved").notNull().default(false),
   error: text("error").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("messages_tenant").on(t.tenantId, t.status), index("messages_sent").on(t.tenantId, t.sentAt)]);

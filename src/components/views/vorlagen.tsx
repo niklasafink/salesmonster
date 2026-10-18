@@ -47,6 +47,10 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
           <div><span className="l">Antworten</span><span className="v">{cur.replies}</span></div>
           <div><span className="l">Quote</span><span className="v">{cur.sent ? pct(rate(cur)) : "–"}</span></div>
           <div><span className="l">Unzustellbar</span><span className="v">{cur.bounced}</span></div>
+          <div><span className="l">Score</span><span className="v">{cur.total ?? "–"}</span></div>
+          <div><span className="l">Erwartet</span><span className="v">{pct(cur.expected * 100)}</span></div>
+          {cur.improved.sent > 0 && <div><span className="l">Verbessert</span><span className="v">{pct(rate(cur.improved))}</span></div>}
+          {cur.improved.sent > 0 && <div><span className="l">Unverändert</span><span className="v">{pct(rate({ sent: cur.sent - cur.bounced - cur.improved.sent, replies: cur.replies - cur.improved.replies }))}</span></div>}
           <div className="act">
             <div className="seg"><button className={cur.tone === "sie" ? "on" : ""} onClick={() => set({ tone: "sie" })}>Sie</button><button className={cur.tone === "du" ? "on" : ""} onClick={() => set({ tone: "du" })}>Du</button></div>
             <span className="f3">Aktiv</span><button className={`sw ${cur.active ? "on" : ""}`} onClick={toggle} role="switch" aria-checked={cur.active} aria-label="Variante aktiv" />

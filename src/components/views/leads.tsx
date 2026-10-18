@@ -1,14 +1,15 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import type { Tender } from "@/db/schema";
+import type { RatingInfo, Tender } from "@/db/schema";
 import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
-import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
+import { LeadDialog, STATUS, emptyLead, gradeTone, type EditLead } from "../lead-dialog";
+import { AnglesDialog } from "../angles-dialog";
 import type { Ctx } from "../types";
 import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
 
-type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null };
+type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number };
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
 type Parsed = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; note?: string; dup: string; extra: string };
@@ -16,6 +17,18 @@ const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unz
 
 /* we already had contact: a mail went out, an answer came in, or the mailbox knows them */
 const warm = (r: Lead) => !!r.lastContactAt || r.source === "Postfach" || ["angeschrieben", "beantwortet", "kontakt"].includes(r.status);
+
+/* best leads first by default; the choice stays per browser */
+const SORTS: [string, string][] = [["bewertung", "Bewertung"], ["neu", "Neueste"], ["firma", "Firma A–Z"], ["status", "Status"]];
+const ORDER = Object.keys(STATUS);
+const sorters: Record<string, (a: Lead, b: Lead) => number> = {
+  bewertung: (a, b) => (b.rating ?? -1) - (a.rating ?? -1) || b.createdAt.localeCompare(a.createdAt),
+  neu: (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id,
+  firma: (a, b) => a.company.localeCompare(b.company, "de") || a.id - b.id,
+  status: (a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || (b.rating ?? -1) - (a.rating ?? -1),
+};
+const keep = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
+export const reasonText = (r: { pts: number; text: string; learned?: boolean }) => `${r.pts > 0 ? "+" : "−"}${Math.abs(r.pts)} ${r.text}${r.learned ? " (gelernt)" : ""}`;
 
 export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?.[1] || "n"}`} title={STATUS[s]?.[0] || s} />;
 
@@ -30,6 +43,9 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; cols?: Column[] | null; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null), [drag, setDrag] = useState(false);
   const [edit, setEdit] = useState<EditLead | null>(null), [allCols, setAllCols] = useState(false);
+  const [sort, setSortState] = useState("bewertung"), [angles, setAngles] = useState(false);
+  useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
+  const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
   const impRef = useDialog(() => setImp(null));
   const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
@@ -39,7 +55,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const srcs = [...new Set(rows.map(r => r.source))];
   const inFilter = (r: Lead, s: string) => s === "alle" ? r.status !== "papierkorb" : r.status === s;
   const cnt = (s: string) => rows.filter(r => inFilter(r, s)).length;
-  const vis = rows.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q));
+  const vis = rows.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q)).sort(sorters[sort]);
 
   const coOf = (r: Lead) => r.companyId ? cos.find(c => c.id === r.companyId) : undefined;
   const contactsOf = (r: Lead) => r.companyId ? rows.filter(x => x.companyId === r.companyId) : [r];
@@ -49,6 +65,13 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     const status = back ? (warm({ ...r, status: "" }) ? "kontakt" : "neu") : "papierkorb";
     setRows(rs => rs.map(x => x.id === r.id ? { ...x, status } : x));
     try { await api(`/api/leads/${r.id}`, { method: "PATCH", body: { status } }); ctx.toast(back ? "Wiederhergestellt" : "In den Papierkorb gelegt"); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
+  }
+  /* thumbs teach the rating what the user thinks; the same thumb again takes it back */
+  async function vote(r: Lead, v: number) {
+    const next = r.vote === v ? 0 : v;
+    setRows(rs => rs.map(x => x.id === r.id ? { ...x, vote: next } : x));
+    try { await api(`/api/leads/${r.id}`, { method: "PATCH", body: { vote: next } }); load(); }
     catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
   }
   /* Files become tab-separated text with header row and go straight to the column view */
@@ -117,6 +140,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   };
   const row = (r: Lead) => <tr key={r.id} className="click" tabIndex={0} onClick={() => setEdit(r)}
     onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } }}>
+    <td className="c-rt" title={r.ratingInfo?.reasons.slice(0, 3).map(reasonText).join("\n")}>{r.rating !== null && r.ratingInfo ? <><span className={`score ${gradeTone(r.ratingInfo.grade)}`}>{r.ratingInfo.grade}</span><span className="f3 num">{r.rating}</span></> : <span className="f3">–</span>}</td>
     <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
     <td className="dotc"><Dot s={r.status} /></td>
     <td className="co" title={r.company}>{r.company}</td>
@@ -125,7 +149,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     <td className="c-em mono" title={r.email || undefined}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : "fehlt"}</span>}</td>
     <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
     <td className="c-src f2">{srcCell(r)}</td>
-    <td className="act">{r.status === "papierkorb"
+    <td className="act">{r.status !== "papierkorb" && r.rating !== null && <>
+      <button className={`btn gh ic${r.vote > 0 ? " on" : ""}`} title="Guter Lead" aria-label="Guter Lead" aria-pressed={r.vote > 0} onClick={e => { e.stopPropagation(); vote(r, 1); }}><Icon n="thumbs-up" /></button>
+      <button className={`btn gh ic${r.vote < 0 ? " on" : ""}`} title="Schlechter Lead" aria-label="Schlechter Lead" aria-pressed={r.vote < 0} onClick={e => { e.stopPropagation(); vote(r, -1); }}><Icon n="thumbs-down" /></button>
+    </>}{r.status === "papierkorb"
       ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
       : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td>
   </tr>;
@@ -134,6 +161,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const table = imp?.cols && !imp.rows ? splitTable(imp.text) : null;
   return <>
     <Top title="Leads" onMenu={ctx.openSidebar}>
+      <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
       <button className="btn pri" onClick={() => { setImp({ text: "", src: "", rows: null, busy: false }); setSheets(null); }}><Icon n="upload" />Importieren</button>
     </Top>
@@ -141,22 +169,26 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       <div className="toolbar">
         <div className="filters">{FILTERS.map(k => <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></button>)}</div>
         <div className="row3">
+          <select className="inp sel" value={sort} onChange={e => setSort(e.target.value)} aria-label="Sortieren">{SORTS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>
           <select className="inp sel" value={src} onChange={e => setSrc(e.target.value)} aria-label="Quelle"><option value="alle">Alle Quellen</option>{srcs.map(s => <option key={s}>{s}</option>)}</select>
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads"><thead><tr><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="act"></th></tr></thead><tbody>
-        {vis.length ? vis.map(row) : <tr><td colSpan={9} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+      <div className="tbl"><table className="leads"><thead><tr><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="act"></th></tr></thead><tbody>
+        {vis.length ? vis.map(row) : <tr><td colSpan={10} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
     </div></div>
 
     {edit && <LeadDialog key={edit.id ?? `new-${edit.company}`} lead={edit} slug={t.slug} tenders={t.tenders}
+      rating={"ratingInfo" in edit ? rows.find(x => x.id === edit.id) : undefined} onVote={v => { const r = rows.find(x => x.id === edit.id); if (r) vote(r, v); }}
       co={"companyId" in edit ? coOf(edit as Lead) : undefined} contacts={"companyId" in edit ? contactsOf(edit as Lead) : []} onClose={() => setEdit(null)}
       onSaved={() => { setEdit(null); ctx.toast("Gespeichert"); load(); }}
       onDeleted={() => { setEdit(null); ctx.toast("Gelöscht"); load(); }}
       onTrash={() => { const r = edit as Lead; setEdit(null); trash(r); }}
       onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }}
       onOpen={id => { const r = rows.find(x => x.id === id); if (r) setEdit(r); }} />}
+
+    {angles && <AnglesDialog slug={t.slug} toast={ctx.toast} onClose={() => setAngles(false)} />}
 
     {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg imp" ref={impRef} role="dialog" aria-modal="true" aria-label="Importieren">
       {imp.cols && !imp.rows ? <>

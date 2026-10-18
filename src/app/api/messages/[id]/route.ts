@@ -13,9 +13,9 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
   const set: Partial<typeof messages.$inferInsert> = {};
   if ("subject" in b) set.subject = b.subject;
   if ("body" in b) set.body = b.body;
-  if (b.variant) { set.variant = b.variant; set.subject = null; set.body = null; }
+  if (b.variant) { set.variant = b.variant; set.subject = null; set.body = null; set.improved = false; }
   if (b.channel) set.channel = b.channel;
-  if (b.action === "reset") { set.subject = null; set.body = null; }
+  if (b.action === "reset") { set.subject = null; set.body = null; set.improved = false; }
   if (b.action === "approve") {
     if (!b.finalBody) throw new HttpError(400, "Text fehlt");
     Object.assign(set, { status: "freigegeben", finalSubject: b.finalSubject || "", finalBody: b.finalBody, senderId: me.id, error: "" });

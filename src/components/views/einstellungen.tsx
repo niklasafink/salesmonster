@@ -41,6 +41,9 @@ function Ziel({ ctx }: { ctx: Ctx }) {
 function Ablauf({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [n, setN] = useState(String(t.settings.leadsPerDay)), [busy, setBusy] = useState<string | null>(null);
+  const [rounds, setRounds] = useState(String(t.settings.roundsPerDay ?? 0)), [hold, setHold] = useState(!!t.settings.holdTop);
+  const saveSettings = async (settings: object) => { try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); } };
+  const clampR = (v: string) => v.trim() && Number.isFinite(Number(v)) ? Math.max(0, Math.min(24, Math.round(Number(v)))) : null;
   /* same bounds as the server: whole numbers 1..30 */
   const clampN = (v: string) => v.trim() && Number.isFinite(Number(v)) ? Math.max(1, Math.min(30, Math.round(Number(v)))) : null;
   async function saveN(v: string) {
@@ -59,6 +62,10 @@ function Ablauf({ ctx }: { ctx: Ctx }) {
   return <>
     <div className="list-box">
       <label className="row2"><span>Leads pro Tag</span><input className="inp num" type="number" min={1} max={30} step={1} value={n} onChange={e => saveN(e.target.value)} onBlur={() => setN(String(clampN(n) ?? t.settings.leadsPerDay))} /></label>
+      <label className="row2"><span>Weitere Recherche-Runden pro Tag</span><input className="inp num" type="number" min={0} max={24} step={1} value={rounds}
+        onChange={e => { setRounds(e.target.value); const c = clampR(e.target.value); if (c !== null) saveSettings({ roundsPerDay: c }); }} onBlur={() => setRounds(String(clampR(rounds) ?? t.settings.roundsPerDay ?? 0))} /></label>
+      <div className="row2"><span>Top-Leads für Dienstag und Mittwoch aufheben</span><button className={`sw ${hold ? "on" : ""}`} role="switch" aria-checked={hold} aria-label="Top-Leads für Dienstag und Mittwoch aufheben"
+        onClick={() => { setHold(!hold); saveSettings({ holdTop: !hold }); }} /></div>
       <div className="row2"><span>Recherche und Freigabe-Mail</span><span className="num f2">So–Do 20:00</span></div>
       <div className="row2"><span>Versand</span><span className="num f2">Mo–Fr 08:00</span></div>
     </div>
@@ -67,7 +74,7 @@ function Ablauf({ ctx }: { ctx: Ctx }) {
       <button className="btn sec" onClick={() => run("send")} disabled={!!busy}><Icon n={busy === "send" ? "loader" : "send"} />Freigegebene jetzt senden</button>
     </div>
     {ctx.st.runs.length > 0 && <div className="list-box runs">{ctx.st.runs.map(r => <div key={r.id} className="row2">
-      <span>{({ research: "Recherche", send: "Versand", enrich: "Ergänzung" } as Record<string, string>)[r.kind] || r.kind} <span className="f3 num">{when(r.createdAt)}</span></span>
+      <span>{({ research: "Recherche", send: "Versand", enrich: "Ergänzung", round: "Recherche-Runde", loop: "Laufende Recherche", strategy: "Strategie", rating: "Bewertung", score: "Score" } as Record<string, string>)[r.kind] || r.kind} <span className="f3 num">{when(r.createdAt)}</span></span>
       <span className={r.ok ? "f2" : ""} style={r.ok ? undefined : { color: "var(--r)" }}>{r.info}</span></div>)}</div>}
   </>;
 }

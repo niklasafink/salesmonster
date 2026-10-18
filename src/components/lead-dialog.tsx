@@ -14,6 +14,8 @@ export const STATUS: Record<string, [string, string]> = {
   neu: ["Neu", "n"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", "b"], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", "x"], kontakt: ["Kontakt", "k"], papierkorb: ["Papierkorb", "t"],
 };
 
+export const gradeTone = (g?: string | null) => g === "A" || g === "B" ? "hi" : g === "C" ? "mid" : "lo";
+
 export const emptyLead = (company = ""): EditLead => ({ company, salutation: "", first: "", last: "", role: "", email: "", emailType: "person", phone: "", linkedin: "", website: "",
   city: "", hook: "", note: "", sourceUrl: "", research: "", status: "neu", tenders: [] });
 
@@ -50,8 +52,10 @@ function Activity({ id }: { id: number }) {
 }
 
 /* Edit one contact, or add a new one: person left, what happened in the middle, company right */
-export function LeadDialog({ lead, slug, tenders, co, contacts = [], onClose, onSaved, onDeleted, onTrash, onAdd, onOpen }: {
-  lead: EditLead; slug: string; tenders: boolean; co?: Co; contacts?: Mate[]; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onTrash?: () => void; onAdd?: (company: string) => void; onOpen?: (id: number) => void;
+type Rated = { rating: number | null; vote: number; ratingInfo: { grade: string; reasons: { pts: number; text: string; learned?: boolean }[] } | null };
+
+export function LeadDialog({ lead, slug, tenders, co, contacts = [], rating, onVote, onClose, onSaved, onDeleted, onTrash, onAdd, onOpen }: {
+  lead: EditLead; slug: string; tenders: boolean; co?: Co; contacts?: Mate[]; rating?: Rated; onVote?: (v: number) => void; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onTrash?: () => void; onAdd?: (company: string) => void; onOpen?: (id: number) => void;
 }) {
   const [f, setF] = useState(lead), [tt, setTt] = useState(tendersText(lead.tenders)), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const set = (k: keyof EditLead) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
@@ -104,7 +108,16 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], onClose, on
       </section>
       {f.id && <section className="feed"><h3>Aktivitäten</h3><Activity id={f.id} /></section>}
       <section className="props">
-        <h3>Unternehmen</h3>
+        {rating?.ratingInfo && rating.rating !== null && <div className="rating">
+          <h3>Bewertung</h3>
+          <div className="gr"><span className={`score ${gradeTone(rating.ratingInfo.grade)}`}>{rating.ratingInfo.grade}</span><span className="num f3">{rating.rating} von 100</span></div>
+          <ul>{rating.ratingInfo.reasons.map((r, i) => <li key={i}><span className="p">{r.pts > 0 ? `+${r.pts}` : `−${Math.abs(r.pts)}`}</span><span>{r.text}{r.learned && <span className="f3"> gelernt</span>}</span></li>)}</ul>
+          {onVote && <div className="votes">
+            <button className={`btn gh${rating.vote > 0 ? " on" : ""}`} aria-pressed={rating.vote > 0} onClick={() => onVote(1)}><Icon n="thumbs-up" />Guter Lead</button>
+            <button className={`btn gh${rating.vote < 0 ? " on" : ""}`} aria-pressed={rating.vote < 0} onClick={() => onVote(-1)}><Icon n="thumbs-down" />Schlechter Lead</button>
+          </div>}
+        </div>}
+        <h3 className={rating?.ratingInfo ? "h2" : undefined}>Unternehmen</h3>
         <Prop l="Firma"><input className="pv" value={f.company} placeholder="–" onChange={set("company")} /></Prop>
         <Prop l="Website" link={web || undefined}><input className="pv" value={f.website} placeholder="–" onChange={set("website")} /></Prop>
         <Prop l="Ort"><input className="pv" value={f.city} placeholder="–" onChange={set("city")} /></Prop>

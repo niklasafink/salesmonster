@@ -107,16 +107,3 @@ Antworte nur mit \`\`\`json {…}\`\`\`.`,
   });
   return json(text, Imp);
 }
-
-const TplOut = z.object({ name: s(), subject: z.string().min(3), body: z.string().min(20) });
-/* Rewrites one template into new variants; the caller scores them with Jev */
-export async function proposeTemplates(key: Ai, brief: string, n: number) {
-  const text = await ask({
-    key, effort: "high",
-    system: "Du schreibst kurze deutsche Erstkontakt-Mails für den B2B-Mittelstand. Du verbesserst Vorlagen anhand von Messwerten und Regeln, nicht nach Geschmack.",
-    prompt: `${brief}
-
-Schreibe ${n} neue Varianten, die sich in einem klaren Punkt unterscheiden. Verwende nur die genannten Platzhalter. Antworte nur mit \`\`\`json {"variants":[{"name":"zwei Wörter","subject":"…","body":"…"}]}\`\`\`.`,
-  });
-  return json(text, z.object({ variants: z.array(TplOut) })).variants.slice(0, n);
-}

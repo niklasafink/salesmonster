@@ -545,11 +545,13 @@ table.leads th.warm{width:46px} table.leads td.warm{font-size:12.5px; padding-ri
 table.leads td.co{font-weight:500}
 table.leads th.c-role{width:15%} table.leads th.c-em{width:21%} table.leads th.c-hook{width:15%} table.leads th.c-src{width:150px}
 table.leads td.c-em{font-size:12.5px}
-table.leads td.act,table.leads th.act{width:34px; padding:0; text-align:right}
+table.leads td.act,table.leads th.act{width:90px; padding:0; text-align:right}
+table.leads th.c-rt{width:84px} table.leads td.c-rt .num{margin-left:8px}
+table.leads td.act .btn.on{opacity:1; color:var(--fg)}
 @media (max-width:1500px){ table.leads .c-hook{display:none} }
 @media (max-width:1200px){ table.leads .c-role{display:none} }
 @media (max-width:960px){ table.leads .c-src{display:none} }
-@media (max-width:640px){ table.leads .c-em{display:none} table.leads td,table.leads th{padding-left:6px; padding-right:6px} table.leads th.warm{width:40px} table.leads th.dotc{width:22px} }
+@media (max-width:640px){ table.leads .c-em{display:none} table.leads th.c-rt{width:56px} table.leads td.c-rt .num{display:none} table.leads td.act,table.leads th.act{width:34px} table.leads td.act .btn:not(:last-child){display:none} table.leads td,table.leads th{padding-left:6px; padding-right:6px} table.leads th.warm{width:40px} table.leads th.dotc{width:22px} }
 table.leads td.act .btn{width:26px; height:26px; color:var(--fg-3); opacity:0}
 table.leads tr:hover td.act .btn,table.leads td.act .btn:focus-visible{opacity:1}
 table.leads td.act .btn:hover{color:var(--fg)}
@@ -655,3 +657,18 @@ select.pv:disabled{cursor:default; opacity:1}
   .rec > section + section{border-left:0; border-top:1px solid var(--line)}
   .rec > section{overflow:visible}
 }
+
+/* 0–100 scores of leads and drafts: the number in the colour of its band */
+.score{font-variant-numeric:tabular-nums; font-weight:600}
+.score.hi{color:var(--g)} .score.mid{color:var(--a)} .score.lo{color:var(--r)}
+
+/* rating block in the contact dialog: grade and score, then the reasons with their points */
+.rating .gr{display:flex; align-items:baseline; gap:8px; font-size:20px}
+.rating .gr .num{font-size:13px}
+.rating ul{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:4px; font-size:13px}
+.rating li{display:flex; gap:8px} .rating li .p{width:28px; flex:none; text-align:right; font-variant-numeric:tabular-nums; color:var(--fg-3)}
+.rating .votes{display:flex; gap:6px; margin-top:12px}
+.rating .votes .btn.on{background:var(--n-bg); color:var(--fg)}
+table.angles td.n,table.angles th.n{text-align:right; font-variant-numeric:tabular-nums; width:84px}
+table.angles td.sw-c{width:52px; text-align:right}
+table.angles tr.off td:not(.sw-c){color:var(--fg-3)}

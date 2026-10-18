@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 const Q = "qa-testfirma";
-type Lead = { id: number; company: string; email: string; role: string; city: string };
+type Lead = { id: number; company: string; email: string; role: string; city: string; status: string };
 
 const leadsOf = async (request: APIRequestContext) => (await (await request.get(`/api/leads?t=${Q}`)).json()).rows as Lead[];
 

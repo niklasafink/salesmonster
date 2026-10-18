@@ -145,3 +145,22 @@ export async function guessColumns(key: string, cols: { head: string; samples: s
   }
   return out;
 }
+
+export type FitLead = { company: string; city: string; website: string; role: string; hook: string; tenders: { t: string }[] };
+
+/* How well each lead matches the tenant's ideal customer, 0 (not at all) to 4 (exactly), up to 25 leads per call.
+   The research prompt describes offer and target group. */
+export async function guessFit(key: string, prompt: string, ls: FitLead[], { wait = true } = {}): Promise<number[]> {
+  const out: number[] = [];
+  for (let i = 0; i < ls.length; i += 25) {
+    const chunk = ls.slice(i, i + 25);
+    const questions: Record<string, Question> = Object.fromEntries(chunk.map((l, k) => [`l${k}`, {
+      type: "score" as const,
+      instructions: `Company: ${l.company}${l.city ? `, ${l.city}` : ""}${l.website ? `, ${l.website}` : ""}. Contact role: ${l.role || "unknown"}.${l.hook ? ` Current trigger: ${l.hook}.` : ""}${l.tenders.length ? ` Open tenders: ${l.tenders.map(t => t.t).join("; ")}.` : ""} How well does this company match the ideal customer described above?`,
+      criteria: ["Not a fit at all", "Weak fit", "Possible fit", "Good fit", "Exactly the ideal customer"],
+    }]));
+    const r = await decide(key, `Ideal customer profile of a German B2B seller (offer and target group):\n${prompt.slice(0, 3000)}`, questions, wait);
+    chunk.forEach((_, k) => out.push(Math.round(pick(r[`l${k}`], "score").score * 100) / 100));
+  }
+  return out;
+}

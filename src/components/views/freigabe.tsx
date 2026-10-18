@@ -3,10 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fill } from "@/lib/fill";
 import { httpUrl } from "@/lib/lead-fields";
 import { Icon, Top, api, useAutosize } from "../ui";
-import type { Ctx, Draft, State, Tpl } from "../types";
+import type { Ctx, Draft, DraftScore, State, Tpl } from "../types";
 import { LeadDialog, emptyLead, type EditLead } from "../lead-dialog";
 
 const ST: Record<string, [string, string]> = { entwurf: ["Entwurf", ""], freigegeben: ["Freigegeben", "g"], uebersprungen: ["Übersprungen", ""] };
+
+/* colour band of a 0–100 score */
+export const grade = (n: number) => n >= 70 ? "hi" : n >= 50 ? "mid" : "lo";
 
 export function msgOf(d: Draft, tpls: Tpl[], sender: string) {
   const t = tpls.find(x => x.key === d.variant) || tpls[0];
@@ -37,7 +40,7 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
   const { st, toast, reload } = ctx;
   const [L, setL] = useState<Draft[]>(st.drafts);
   const [edit, setEdit] = useState<EditLead | null>(null);
-  const [sel, setSel] = useState(0), [det, setDet] = useState(false), [done, setDone] = useState(false), [busy, setBusy] = useState(false);
+  const [sel, setSel] = useState(0), [det, setDet] = useState(false), [done, setDone] = useState(false), [busy, setBusy] = useState(false), [better, setBetter] = useState<number | null>(null);
   const fit = useAutosize(), bodyRef = useRef<HTMLTextAreaElement>(null);
   const timers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   useEffect(() => { setL(st.drafts); }, [st.drafts]);
@@ -52,6 +55,13 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
     clearTimeout(timers.current[id]);
     timers.current[id] = setTimeout(() => api(`/api/messages/${id}`, { method: "PATCH", body }).catch(e => toast(e.message, { error: true })), delay);
   };
+  /* score of the text as shown; edits are scored again once typing stops */
+  const scoring = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const rescore = useCallback((id: number, text: { subject: string; body: string } | null, delay = 0) => {
+    clearTimeout(scoring.current[id]);
+    scoring.current[id] = setTimeout(() => api<DraftScore>(`/api/messages/${id}/score`, { body: text || {} })
+      .then(score => setL(ls => ls.map(d => d.id === id ? { ...d, score } : d))).catch(() => {}), delay);
+  }, []);
   const nextOpen = useCallback((from: number, list: Draft[]) => { for (let j = 1; j <= list.length; j++) { const k = (from + j) % list.length; if (list[k].status === "entwurf") return k; } return -1; }, []);
 
   const approve = useCallback(async (i: number) => {
@@ -79,6 +89,21 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
     catch (e) { toast((e as Error).message, { error: true }); }
   }
 
+  /* Grok rewrites, Jev decides; the text only changes when the new one scores clearly higher */
+  async function improve(d: Draft) {
+    const m = msgOf(d, tpls, sender), before = d.score?.total;
+    /* a pending autosave would overwrite the rewrite; when nothing better comes back, the user's text is saved right away instead */
+    const edited = d.subject !== null || d.body !== null;
+    clearTimeout(timers.current[d.id]); clearTimeout(scoring.current[d.id]);
+    setBetter(d.id);
+    try {
+      const r = await api<{ improved: boolean; subject?: string; body?: string; score: DraftScore }>(`/api/messages/${d.id}/improve`, { body: m });
+      if (r.improved) { patch(d.id, { subject: r.subject!, body: r.body!, score: r.score, improved: true }); toast(`Verbessert, Score ${before ?? "–"} → ${r.score.total}`); }
+      else { if (edited) save(d.id, m); patch(d.id, { score: r.score }); toast("Keine bessere Fassung gefunden"); }
+    } catch (e) { toast((e as Error).message, { error: true }); }
+    setBetter(null);
+  }
+
   async function research() {
     setBusy(true);
     try { const r = await api<{ created: number }>("/api/run", { body: { t: t.slug, job: "research" } }); await reload(); toast(r.created ? `${r.created} Entwürfe erstellt` : "Keine neuen Leads gefunden"); }
@@ -100,6 +125,8 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
   }, [L, sel, done, approve, skip]);
 
   useEffect(() => { document.querySelector(".li.on")?.scrollIntoView({ block: "nearest" }); fit(bodyRef.current); });
+  const curId = L[Math.min(sel, L.length - 1)]?.id, jev = !!st.integ.openrouter?.on;
+  useEffect(() => { const d = L.find(x => x.id === curId); if (jev && d && !d.score && d.status === "entwurf") rescore(d.id, null); }, [curId, jev]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!L.length) return <>
     <Top title="Freigabe" onMenu={ctx.openSidebar} />
@@ -146,7 +173,7 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
           <div className="compose">
             <div className="abbar">
               <div className="seg">{tpls.filter(x => x.active || x.key === d.variant).map(x => <button key={x.key} className={d.variant === x.key ? "on" : ""}
-                onClick={() => { patch(d.id, { variant: x.key, subject: null, body: null }); save(d.id, { variant: x.key }); }}>{x.name}</button>)}</div>
+                onClick={() => { patch(d.id, { variant: x.key, subject: null, body: null, improved: false }); save(d.id, { variant: x.key }); if (jev) rescore(d.id, null, 700); }}>{x.name}</button>)}</div>
               <span style={{ flex: 1 }} />
               <div className="seg">
                 <button className={ch === "mail" ? "on" : ""} onClick={() => { patch(d.id, { channel: "mail" }); save(d.id, { channel: "mail" }); }}><Icon n="mail" />E-Mail</button>
@@ -160,11 +187,14 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
             <div className="doc">
               <div className="doc-meta"><span>An</span><span className="mono">{ch === "mail" ? d.to || "Keine Adresse" : d.lead.linkedin || (d.lead.last ? `${d.lead.first} ${d.lead.last} (LinkedIn)` : "Kein LinkedIn-Profil gefunden")}</span>
                 <span>Von</span><span className="mono">{from || "–"}</span></div>
-              {ch === "mail" && <input className="subj" value={m.subject} aria-label="Betreff" onChange={e => { patch(d.id, { subject: e.target.value, body: d.body ?? m.body }); save(d.id, { subject: e.target.value, body: d.body ?? m.body }, 600); }} />}
-              <textarea ref={bodyRef} className="body" value={m.body} aria-label="Nachricht" onChange={e => { fit(e.target); patch(d.id, { body: e.target.value, subject: d.subject ?? m.subject }); save(d.id, { body: e.target.value, subject: d.subject ?? m.subject }, 600); }} />
+              {ch === "mail" && <input className="subj" value={m.subject} aria-label="Betreff" onChange={e => { patch(d.id, { subject: e.target.value, body: d.body ?? m.body }); save(d.id, { subject: e.target.value, body: d.body ?? m.body }, 600); if (jev) rescore(d.id, { subject: e.target.value, body: m.body }, 1500); }} />}
+              <textarea ref={bodyRef} className="body" value={m.body} aria-label="Nachricht" onChange={e => { fit(e.target); patch(d.id, { body: e.target.value, subject: d.subject ?? m.subject }); save(d.id, { body: e.target.value, subject: d.subject ?? m.subject }, 600); if (jev) rescore(d.id, { subject: m.subject, body: e.target.value }, 1500); }} />
             </div>
           </div>
           <div className="props">
+            {d.score && <div className="prop"><div className="l">Score</div><div className="v"><span className={`score ${grade(d.score.total)}`}>{d.score.total}</span></div></div>}
+            {d.score?.expected !== undefined && <div className="prop"><div className="l">Erwartete Antwort</div><div className="v">{Math.round(d.score.expected * 1000) / 10} %</div></div>}
+            {!!d.score?.issues.length && <div className="prop"><div className="l">Schwächen</div><div className="v">{d.score.issues.map(i => <div key={i}>{i}</div>)}</div></div>}
             <div className="prop"><div className="l">Status</div><div className="v"><span className={`pill ${ST[d.status]?.[1] || ""}`}>{ST[d.status]?.[0]}</span></div></div>
             <div className="prop"><div className="l">{d.people.length > 1 ? "Kontakte" : "Kontakt"}</div><div className="v">{d.people.length > 1 ? d.people.filter(p => p.last).map((p, k) => <div key={k}>{`${p.first} ${p.last}${p.role ? `, ${p.role}` : ""}`}</div>)
               : <button className="lnk" onClick={openLead}>{d.lead.last ? `${[d.lead.salutation, d.lead.first, d.lead.last].filter(Boolean).join(" ")}${d.lead.role ? `, ${d.lead.role}` : ""}` : "Kein Name gefunden"}</button>}</div></div>
@@ -177,8 +207,9 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
           </div>
         </div>
         <div className="actions">
-          {edited && <button className="btn gh" onClick={() => { patch(d.id, { subject: null, body: null }); save(d.id, { action: "reset" }); toast("Text auf Vorlage zurückgesetzt"); }}>Änderungen verwerfen</button>}
+          {edited && <button className="btn gh" onClick={() => { patch(d.id, { subject: null, body: null, improved: false }); save(d.id, { action: "reset" }); if (jev) rescore(d.id, null, 700); toast("Text auf Vorlage zurückgesetzt"); }}>Änderungen verwerfen</button>}
           <span className="sp" />
+          {ch === "mail" && jev && <button className="btn sec" onClick={() => improve(d)} disabled={better === d.id}><Icon n={better === d.id ? "loader" : "sparkles"} />Verbessern</button>}
           <button className="btn sec" onClick={() => skip(sel)} title="Taste S">{d.status === "uebersprungen" ? "Wieder aufnehmen" : "Überspringen"}</button>
           <button className="btn pri" onClick={() => approve(sel)} title="Taste A">{d.status === "freigegeben" ? "Freigegeben" : "Freigeben"}</button>
         </div>

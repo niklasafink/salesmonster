@@ -2,8 +2,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, leads, members, messages, runs, templates, tenants, users, type MailScore, type TemplateScore } from "@/db";
 import { getInteg } from "./integrations";
-import { proposeTemplates } from "./claude";
-import { AiMissing, aiFor } from "./ai";
+import { writeMails } from "./writer";
 import { fill } from "./fill";
 import { jevKey, scoreMail } from "./jev";
 import { lint, nextKey, PLAYBOOK } from "./playbook";
@@ -50,9 +49,7 @@ ${t.body}`;
 
 export async function optimizeTemplates(t: Tenant) {
   const jev = await jevKey(t.id);
-  const claude = await aiFor(t.id);
   if (!jev) throw new Error("OpenRouter ist nicht verbunden (für Jev)");
-  if (!claude) throw new AiMissing();
 
   const sample = await db.select().from(leads)
     .where(and(eq(leads.tenantId, t.id), t.tenders ? sql`jsonb_array_length(${leads.tenders}) > 0` : sql`${leads.hook} <> ''`))
@@ -90,7 +87,7 @@ ${active.map(x => describe(x, st[x.key])).join("\n\n")}
 
 Ausgangsvorlage ist [${parent.key}]. Behebe vor allem ihre häufigste Schwäche laut Jev: ${parent.score?.weakness}.`;
 
-  const proposed = (await proposeTemplates(claude, brief, CANDIDATES)).filter(c => !lint(c.subject, c.body, required).length);
+  const proposed = (await writeMails(t.id, brief, CANDIDATES)).filter(c => !lint(c.subject, c.body, required).length);
   let best: { c: (typeof proposed)[number]; score: TemplateScore } | null = null;
   for (const c of proposed) {
     const score = await scoreTemplate(jev, { tone: parent.tone, ...c }, sample, sender);

@@ -1,0 +1,16 @@
+# Vercel Hobby runs crons once a day; the research rounds through the day need a tick every half hour (7–18 h Berlin)
+name: Recherche
+on:
+  schedule:
+    - cron: "23,53 5-17 * * *"
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Recherche-Runden ausführen
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 300 -H "Authorization: Bearer $CRON_SECRET" https://sales-portal-sooty.vercel.app/api/cron/research

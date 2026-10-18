@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { vi } from "vitest";
 import { inArray } from "drizzle-orm";
 import { db, members, tenants, users } from "@/db";
 import { COOKIE, signSession } from "@/lib/session";
@@ -93,3 +94,24 @@ export async function mcp(token: string) {
     },
   });
 }
+
+/* OpenRouter at the network edge: Jev decisions and chat completions answer from the given functions, everything else (Neon) passes through.
+   Returns the requests seen, newest last. Undo with vi.unstubAllGlobals(). */
+export function fakeOpenRouter(opts: { jev?: (state: string, questions: Record<string, unknown>) => Record<string, unknown>; chat?: (body: { model: string; messages: { role: string; content: string }[] }) => string }) {
+  const real = globalThis.fetch, seen: { url: string; body: Record<string, unknown> }[] = [];
+  vi.stubGlobal("fetch", async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (!u.startsWith("https://openrouter.ai/")) return real(url, init);
+    const body = JSON.parse(String(init?.body || "{}"));
+    seen.push({ url: u, body });
+    if (u.endsWith("/alpha/decisions") && opts.jev) return Response.json({ answers: opts.jev(body.state, body.questions) });
+    if (u.endsWith("/chat/completions") && opts.chat) return Response.json({ choices: [{ message: { content: opts.chat(body) } }] });
+    return new Response("{}", { status: 500 });
+  });
+  return seen;
+}
+
+/* Jev's answer shape for the mail questions in lib/jev.ts */
+export const jevMail = (reply: number, specific = 1, easyAsk = 1) => ({
+  reply: { type: "score", score: reply }, specific: { type: "noul", noul: specific }, easyAsk: { type: "noul", noul: easyAsk }, weakness: { type: "choice", choice: "none" },
+});
