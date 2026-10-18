@@ -6,7 +6,7 @@ import { LEAD_FIELDS, cleanLead } from "@/lib/lead-fields";
 import { fillLeads, insertLeads, type LeadRow } from "@/lib/lead-import";
 import { fitPending, later, refreshRatings, rerate } from "@/lib/ratings";
 import { channelOf } from "@/lib/lead-rating";
-import { bouncedDomains, mailQueue, nextUp, sendDates } from "@/lib/queue";
+import { bouncedDomains, liQueue, mailQueue, nextUp, sendDates } from "@/lib/queue";
 
 export const GET = route(async (req, _c, me) => {
   const t = await tenantBySlug(qp(req, "t"), me);
@@ -19,7 +19,7 @@ export const GET = route(async (req, _c, me) => {
   const cos = await db.select({ id: companies.id, name: companies.name, mode: companies.mode, email: companies.email }).from(companies).where(eq(companies.tenantId, t.id));
   const bounced = await bouncedDomains(t.id), queue = await mailQueue(t);
   /* order = the whole mail queue in send order, next = the leads the next evening run drafts, days = when each is written to */
-  return { order: queue.map(q => q.id), next: nextUp(queue, t.settings.leadsPerDay || 10), days: await sendDates(t, queue), rows: rows.map(r => ({ id: r.id, channel: r.channel, channelRec: channelOf({ ...r, channel: "" }, bounced), sendpilotAt: r.sendpilotAt, companyId: r.companyId, status: r.status, source: r.source, tenders: r.tenders, createdAt: r.createdAt, lastContactAt: r.lastContactAt, rating: r.rating, ratingInfo: r.ratingInfo, vote: r.vote, enrichMiss: r.enrichMiss, fit: r.fit, angleId: r.angleId, ...Object.fromEntries(LEAD_FIELDS.map(k => [k, r[k]])) })), companies: cos };
+  return { order: queue.map(q => q.id), next: nextUp(queue, t.settings.leadsPerDay || 10), days: await sendDates(t, queue, await liQueue(t)), rows: rows.map(r => ({ id: r.id, channel: r.channel, channelRec: channelOf({ ...r, channel: "" }, bounced), sendpilotAt: r.sendpilotAt, companyId: r.companyId, status: r.status, source: r.source, tenders: r.tenders, createdAt: r.createdAt, lastContactAt: r.lastContactAt, rating: r.rating, ratingInfo: r.ratingInfo, vote: r.vote, enrichMiss: r.enrichMiss, fit: r.fit, angleId: r.angleId, ...Object.fromEntries(LEAD_FIELDS.map(k => [k, r[k]])) })), companies: cos };
 });
 
 /* Import (rows) or one new contact (lead) */

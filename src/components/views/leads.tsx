@@ -281,11 +281,11 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     <td className="c-day f2">{dayCell(days[r.id])}</td>
     <td className="c-rt">{r.rating !== null && r.ratingInfo ? <RatingBar value={r.rating} title={[`${r.rating} von 100`, ...r.ratingInfo.reasons.slice(0, 3).map(reasonText)].join("\n")} /> : <span className="f3">–</span>}</td>
     <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
+    {chCell(r)}
     <td className="dotc"><Dot s={r.status} /></td>
     <td className="co" title={r.company}>{r.company}</td>
     <td className="pn" title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
     <td className="c-role f2" title={r.role || undefined}>{r.role || <span className="f3">–</span>}</td>
-    {chCell(r)}
     <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td>
     <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
     <td className="c-src f2">{srcCell(r)}</td>
@@ -327,7 +327,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Verschieben"></th><th className="c-day">Versand</th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th>{th("co", "Firma")}{th("pn", "Ansprechpartner")}{th("c-role", "Rolle")}<th className="c-ch" aria-label="Kanal"></th>{th("c-em", "E-Mail")}{th("c-hook", t.tenders ? "Ausschreibungen" : "Anlass")}{th("c-src", "Quelle")}<th className="act"></th></tr></thead><tbody>
+      <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Verschieben"></th><th className="c-day">Versand</th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="c-ch" aria-label="Kanal"></th><th className="dotc"></th>{th("co", "Firma")}{th("pn", "Ansprechpartner")}{th("c-role", "Rolle")}{th("c-em", "E-Mail")}{th("c-hook", t.tenders ? "Ausschreibungen" : "Anlass")}{th("c-src", "Quelle")}<th className="act"></th></tr></thead><tbody>
         {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved}>
           <SortableContext items={canDrag ? vis.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{vis.map(row)}</SortableContext>
         </DndContext> : <tr><td colSpan={14} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}

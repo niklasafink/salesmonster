@@ -4,7 +4,7 @@ import { db, leads, messages, tenants } from "@/db";
 import { attachCompanies } from "@/lib/companies";
 import { channelOf } from "@/lib/lead-rating";
 import { removeInteg, setInteg } from "@/lib/integrations";
-import { mailQueue, nextUp } from "@/lib/queue";
+import { batches, mailQueue, nextUp } from "@/lib/queue";
 import { PUT as QUEUE } from "@/app/api/leads/queue/route";
 import { GET as LIST } from "@/app/api/leads/route";
 import { PATCH as LEAD } from "@/app/api/leads/[id]/route";
@@ -59,9 +59,11 @@ describe("Versand-Warteschlange", () => {
     expect(await queue()).toEqual([ids.Anna, ids.Bert, ids.Gina, ids.Gus, ids.Dora]);
   });
 
-  it("nextUp zählt Firmen, nicht Personen", async () => {
+  it("nextUp zählt Personen; eine Firma, die nicht mehr passt, rückt in den nächsten Lauf", async () => {
     const q = (await mailQueue((await db.select().from(tenants).where(eq(tenants.id, t.id)))[0]));
-    expect(nextUp(q, 3)).toEqual([ids.Anna, ids.Bert, ids.Gina, ids.Gus]);
+    expect(nextUp(q, 3)).toEqual([ids.Anna, ids.Bert]);
+    expect(batches(q, 3)).toEqual([[ids.Anna, ids.Bert], [ids.Gina, ids.Gus, ids.Dora]]);
+    expect(nextUp(q, 4)).toEqual([ids.Anna, ids.Bert, ids.Gina, ids.Gus]);
   });
 
   it("mit SendPilot fallen LinkedIn-Leads aus dem Mail-Lauf", async () => {

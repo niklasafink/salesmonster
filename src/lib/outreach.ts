@@ -14,7 +14,7 @@ import { refreshRatings, rerate } from "./ratings";
 import { researchRound } from "./strategy";
 import { beta } from "./angles";
 import { FREEMAIL, channelOf } from "./lead-rating";
-import { bouncedDomains, linkedinOn, mailQueue } from "./queue";
+import { bouncedDomains, byCompany, linkedinOn, liQueue, mailQueue, type QueueLead } from "./queue";
 import { sendpilotPush } from "./sendpilot";
 import { DAY_NAMES, draftDay, hh, isoWeekday, planOf, sendQuota } from "./schedule";
 import { track } from "./usage";
@@ -177,15 +177,23 @@ async function research(t: Tenant, opts: { force?: boolean }) {
      (6,337 cold mails), so with holdTop grade-A leads wait for those days and only fill the batch on other days when nothing else is left */
   await refreshRatings(t.id).catch(e => log(t.id, "rating", false, (e as Error).message));
   await toLinkedin(t, n);
-  for (const q of await mailQueue(t)) { if (units.length >= n || q.held) break; if (q.companyId) await admit(q.companyId); }
+  /* n people per evening; a company whose contacts no longer fit waits for the next one, as the lead list shows it */
+  const taken = () => units.reduce((s, u) => s + u.leads.length, 0);
+  const fill = async (q: QueueLead[], stopAtHeld: boolean) => {
+    for (const g of byCompany(q)) {
+      if ((stopAtHeld && g.held) || taken() >= n || (taken() > 0 && taken() + g.ids.length > n)) break;
+      if (g.companyId) await admit(g.companyId);
+    }
+  };
+  await fill(await mailQueue(t), true);
 
   /* 2. new research for the rest along the strategy's directions; asks for a few extra so duplicates can be replaced,
      and whatever is left over waits in the list, rated, for the next evening */
-  const rest = n - units.length;
+  const rest = n - taken();
   if (rest > 0) {
     await researchRound(t, rest + Math.ceil(rest / 2), key);
     await refreshRatings(t.id).catch(e => log(t.id, "rating", false, (e as Error).message));
-    for (const q of await mailQueue(t)) { if (units.length >= n) break; if (q.companyId) await admit(q.companyId); }
+    await fill(await mailQueue(t), false);
   }
 
   /* 3. drafts, each scored before anyone reads it */
@@ -203,14 +211,9 @@ async function research(t: Tenant, opts: { force?: boolean }) {
 
 /* LinkedIn leads into the tenant's SendPilot campaign, the best n per evening; without a campaign they wait for the LinkedIn button */
 async function toLinkedin(t: Tenant, n: number) {
-  const campaign = t.settings.sendpilotCampaign;
-  if (!campaign || !await linkedinOn(t.id)) return;
-  const bounced = await bouncedDomains(t.id);
-  const open = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`))
-    .orderBy(sql`${leads.queueRank} asc nulls last`, sql`${leads.rating} desc nulls last`, asc(leads.createdAt), asc(leads.id));
-  const ids = open.filter(l => channelOf(l, bounced).ch === "linkedin").slice(0, n).map(l => l.id);
+  const ids = (await liQueue(t)).slice(0, n);
   if (!ids.length) return;
-  try { const r = await sendpilotPush(t.id, campaign, ids); await log(t.id, "linkedin", true, `${r.added} an SendPilot`); }
+  try { const r = await sendpilotPush(t.id, t.settings.sendpilotCampaign!, ids); await log(t.id, "linkedin", true, `${r.added} an SendPilot`); }
   catch (e) { await log(t.id, "linkedin", false, (e as Error).message); }
 }
 

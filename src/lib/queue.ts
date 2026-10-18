@@ -33,24 +33,46 @@ export async function mailQueue(t: Tenant, now = new Date()): Promise<QueueLead[
   return [...out.filter(r => !r.held), ...out.filter(r => r.held)];
 }
 
-/* The leads of the next n companies: what the next evening run turns into drafts */
-export function nextUp(q: QueueLead[], n: number) {
-  const cos: (number | null)[] = [];
-  return q.filter(r => { if (!cos.includes(r.companyId)) { if (cos.length >= n) return false; cos.push(r.companyId); } return true; }).map(r => r.id);
+/* The queue by company, in order: a company's open contacts are written to on the same evening */
+export function byCompany(q: QueueLead[]) {
+  const out = new Map<number | string, { companyId: number | null; ids: number[]; held: boolean }>();
+  for (const r of q) {
+    const k = r.companyId ?? `l${r.id}`, g = out.get(k);
+    if (g) g.ids.push(r.id); else out.set(k, { companyId: r.companyId, ids: [r.id], held: r.held });
+  }
+  return [...out.values()];
 }
 
-/* The day each lead is written to: drafts go out on the send day after their evening, the queue fills one evening run per send day,
-   leadsPerDay companies each, in queue order */
-export async function sendDates(t: Tenant, q: QueueLead[], now = new Date()) {
+/* The queue cut into evening runs of n people each; a company that no longer fits starts the next run */
+export function batches(q: QueueLead[], n: number) {
+  const out: number[][] = [];
+  for (const g of byCompany(q)) { const last = out.at(-1); if (last && last.length + g.ids.length <= n) last.push(...g.ids); else out.push([...g.ids]); }
+  return out;
+}
+
+/* What the next evening run turns into drafts */
+export const nextUp = (q: QueueLead[], n: number) => batches(q, n)[0] ?? [];
+
+/* LinkedIn leads in the order the evening run hands them to the SendPilot campaign; empty without a campaign, then they wait for the LinkedIn button */
+export async function liQueue(t: Tenant) {
+  if (!t.settings.sendpilotCampaign || !await linkedinOn(t.id)) return [];
+  const bounced = await bouncedDomains(t.id);
+  const open = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`))
+    .orderBy(sql`${leads.queueRank} asc nulls last`, sql`${leads.rating} desc nulls last`, asc(leads.createdAt), asc(leads.id));
+  return open.filter(l => channelOf(l, bounced).ch === "linkedin").map(l => l.id);
+}
+
+/* The day each lead is written to: drafts go out on the send day after their evening, the queue fills one evening run per send day
+   with leadsPerDay people on each channel, mail in queue order and LinkedIn in campaign order */
+export async function sendDates(t: Tenant, q: QueueLead[], li: number[] = [], now = new Date()) {
   const p = planOf(t.settings), n = Math.max(1, Math.min(30, t.settings.leadsPerDay || 10)), today = berlinDate(now);
   const drafts = await db.select({ leadId: messages.leadId, leadIds: messages.leadIds, batchDate: messages.batchDate, channel: messages.channel }).from(messages)
     .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben"])));
   const out: Record<number, string> = {};
   for (const m of drafts) if (m.channel === "mail") for (const id of m.leadIds?.length ? m.leadIds : [m.leadId]) out[id] = draftDay(p, m.batchDate, now);
-  const cos = new Map<number | null, number>();
-  for (const r of q) if (!cos.has(r.companyId)) cos.set(r.companyId, cos.size);
-  const days = batchDays(p, Math.ceil(cos.size / n), drafts.some(m => m.batchDate === today), now);
-  for (const r of q) { const d = days[Math.floor(cos.get(r.companyId)! / n)]; if (d && !out[r.id]) out[r.id] = d; }
+  const runs = batches(q, n), liRuns = Array.from({ length: Math.ceil(li.length / n) }, (_, i) => li.slice(i * n, (i + 1) * n));
+  const days = batchDays(p, Math.max(runs.length, liRuns.length), drafts.some(m => m.batchDate === today), now);
+  for (const rs of [runs, liRuns]) rs.forEach((ids, i) => { for (const id of ids) if (days[i] && !out[id]) out[id] = days[i]; });
   return out;
 }
 
