@@ -273,6 +273,17 @@ td.wfr{white-space:normal; padding:12px 0 16px; line-height:1.6}
 .enr-at .enr-pop{left:auto; right:0; top:calc(100% + 6px); width:230px; display:flex; flex-direction:column; gap:9px; padding:12px}
 .enr-at .enr-pop .btn.pri{background:var(--accent); color:var(--accent-fg); height:32px; padding:0 12px; justify-content:center; border-radius:7px}
 .ckg{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 16px}
+.enr-pop .ck .f3{margin-left:auto; font-size:12px}
+.enr-hit,.enr-miss,.enr-rep .hit,.enr-rep .miss{display:flex; align-items:center; gap:7px; font-size:13px}
+.enr-hit svg,.enr-rep .hit svg{width:14px; height:14px; color:var(--g); flex:none}
+.enr-miss,.enr-rep .miss{color:var(--fg-3)} .enr-miss svg,.enr-rep .miss svg{width:14px; height:14px; flex:none}
+.enr-sum{display:flex; flex-wrap:wrap; gap:6px 18px; color:var(--fg-2)} .enr-sum b{color:var(--fg); font-weight:600}
+.enr-sum .bad,.enr-rep .bad{color:var(--r)}
+.enr-rep{list-style:none; margin:0; padding:0; max-height:min(60vh,520px); overflow:auto; border-top:1px solid var(--line)}
+.enr-rep li{display:flex; flex-direction:column; gap:5px; padding:10px 0; border-bottom:1px solid var(--line)}
+.enr-rep .lnk{background:none; border:0; padding:0; color:inherit; font:inherit; font-weight:600; text-align:left; cursor:pointer}
+.enr-rep .lnk:hover{text-decoration:underline; text-underline-offset:3px}
+.enr-rep .hit .f3{width:110px; flex:none} .enr-rep .hit .v{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .btn.wide{width:100%; justify-content:center; height:36px}
 @media (hover: none){.int .act{opacity:1}}
 .row3{display:flex; gap:8px; align-items:center; flex-wrap:wrap}

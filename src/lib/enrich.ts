@@ -45,14 +45,15 @@ const cleanLinkedin = (u: string) => { const h = httpUrl(u); return /^https?:\/\
 const cleanName = (n: string) => /^[\p{L}][\p{L}' .-]{0,60}$/u.test(n) ? n : "";
 const cleanText = (t: string, max: number) => t.replace(/\s+/g, " ").slice(0, max);
 
-/* Searches the web for the missing fields of each lead; nothing already there is overwritten, what it cannot find is remembered on the lead */
-export async function enrichContacts(tenantId: number, userId: number, ids: number[], fields: EnrichField[]): Promise<EnrichResult[]> {
+/* Searches the web for the missing fields of each lead; nothing already there is overwritten, what it cannot find is remembered on the lead
+   and skipped next time unless again is set, so a field that does not exist does not cost a search on every run */
+export async function enrichContacts(tenantId: number, userId: number, ids: number[], fields: EnrichField[], again = false): Promise<EnrichResult[]> {
   const ai = await aiFor(tenantId, userId);
   if (!ai) throw new AiMissing();
   const rows = await db.select().from(leads).where(and(eq(leads.tenantId, tenantId), inArray(leads.id, ids.slice(0, ENRICH_MAX))));
   const out: EnrichResult[] = [];
   for (const l of rows) {
-    const want = fields.filter(f => !hasField(l, f));
+    const want = fields.filter(f => !hasField(l, f) && (again || !l.enrichMiss[f]));
     if (!want.length) { out.push({ id: l.id, found: {}, missed: [] }); continue; }
     let r;
     try { r = await search(ai, l, want); }

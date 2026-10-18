@@ -6,6 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { EnrichField, RatingInfo, Tender } from "@/db/schema";
 import { Icon, Top, api, useDialog } from "../ui";
 import { hasField, httpUrl } from "@/lib/lead-fields";
+import { EnrichReport, type EnrichDone } from "../enrich-report";
 import { ENRICH, LeadDialog, RatingBar, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import { AnglesDialog } from "../angles-dialog";
 import type { Ctx } from "../types";
@@ -74,7 +75,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
   const liRef = useDialog(() => setLi(null));
   const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean; picked: boolean }>(null), [sel, setSel] = useState<Set<number>>(new Set());
-  const [job, setJob] = useState<null | { total: number; done: number; found: number }>(null);
+  const [job, setJob] = useState<null | { total: number; done: number; found: number }>(null), [report, setReport] = useState<null | { done: EnrichDone[]; skipped: number; stopped: boolean }>(null);
   const stop = useRef(false);
   const enrRef = useDialog(() => setEnr(null));
   useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
@@ -212,15 +213,17 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const allOn = vis.length > 0 && vis.every(r => sel.has(r.id));
   async function runEnrich() {
     if (!enr) return;
-    const { fields } = enr, list = enrichable(enr);
+    const { fields } = enr, list = enrichable(enr), skipped = enr.again ? 0 : missedBefore(enr) - list.filter(r => fields.some(f => !hasField(r, f) && r.enrichMiss?.[f])).length;
     keep.set("enrich-fields", JSON.stringify(fields));
     setEnr(null); stop.current = false; setJob({ total: list.length, done: 0, found: 0 });
     let i = 0, fail = "", found = 0, done = 0;
+    const res: EnrichDone[] = [];
     await Promise.all(Array.from({ length: Math.min(3, list.length) }, async () => {
       while (i < list.length && !stop.current && !fail) {
         const l = list[i++];
         try {
-          const { results: [r] } = await api<{ results: { id: number; found: Partial<Lead> }[] }>("/api/leads/enrich", { body: { t: t.slug, ids: [l.id], fields } });
+          const { results: [r] } = await api<{ results: { id: number; found: Partial<Lead>; missed: EnrichField[]; error?: string }[] }>("/api/leads/enrich", { body: { t: t.slug, ids: [l.id], fields, again: enr.again } });
+          if (r) res.push({ ...r, name: [person(l), l.company].filter(Boolean).join(", ") });
           const hit = !!r && Object.keys(r.found).length > 0;
           if (hit) { found++; setRows(rs => rs.map(x => x.id === r.id ? { ...x, ...r.found } : x)); }
         } catch (e) { fail = (e as Error).message; }
@@ -229,7 +232,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     }));
     setJob(null); load();
     if (fail) ctx.toast(fail, { error: true });
-    else ctx.toast(`${found} von ${done} ${done === 1 ? "Lead" : "Leads"} ergänzt`);
+    /* in list order, not in the order the parallel requests came back */
+    if (res.length || skipped) setReport({ done: list.flatMap(l => res.filter(r => r.id === l.id)), skipped, stopped: stop.current });
   }
 
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
@@ -298,7 +302,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       <div className="tbl"><table className="leads"><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Versand"></th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-ch" aria-label="Kanal"></th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="c-day">Versand</th><th className="act"></th></tr></thead><tbody>
         {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved}>
           <SortableContext items={canDrag ? vis.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{vis.map(row)}</SortableContext>
-        </DndContext> : <tr><td colSpan={13} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+        </DndContext> : <tr><td colSpan={14} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
     </div></div>
 
@@ -334,6 +338,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         {before > 0 && <label className="ck"><input type="checkbox" checked={enr.again} onChange={() => setEnr({ ...enr, again: !enr.again })} />{before} {before === 1 ? "Lead" : "Leads"} ohne Treffer bei früherer Suche erneut prüfen</label>}
         <button className="btn pri wide" onClick={runEnrich} disabled={!n}>{n} {n === 1 ? "Lead" : "Leads"} anreichern</button>
       </div></div>; })()}
+
+    {report && !edit && <EnrichReport {...report} onClose={() => setReport(null)} onOpen={id => { const r = rows.find(x => x.id === id); if (r) setEdit(r); }} />}
 
     {angles && <AnglesDialog slug={t.slug} toast={ctx.toast} onClose={() => setAngles(false)} />}
 

@@ -49,10 +49,11 @@ const Prop = ({ l, link, children }: { l: string; link?: string; children: React
   {link && <a className="pa" href={link} target={link.startsWith("http") ? "_blank" : undefined} rel="noreferrer" aria-label={`${l} öffnen`}><Icon n="external-link" /></a>}
 </div>;
 
-/* Web search for the empty fields of one saved lead; what it finds is saved right away and goes into the form */
+/* Web search for the empty fields of one saved lead, also ones an earlier search missed; what it finds is saved right away and goes into the form, the menu then says what it found and what not.
+   Fields an earlier search came back empty for are not ticked; ticking one searches again */
 function EnrichMenu({ lead, slug, miss = {}, onFound }: { lead: EditLead; slug: string; miss?: Partial<Record<EnrichField, string>>; onFound: (found: Found) => void }) {
   const empty = ENRICH.filter(([k]) => !hasField(lead, k)).map(([k]) => k);
-  const [open, setOpen] = useState(false), [fields, setFields] = useState<EnrichField[]>([]), [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
+  const [open, setOpen] = useState(false), [fields, setFields] = useState<EnrichField[]>([]), [busy, setBusy] = useState(false), [msg, setMsg] = useState(""), [done, setDone] = useState<null | { got: EnrichField[]; missed: EnrichField[] }>(null);
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -63,21 +64,30 @@ function EnrichMenu({ lead, slug, miss = {}, onFound }: { lead: EditLead; slug: 
   async function run() {
     setBusy(true); setMsg("");
     try {
-      const { results: [r] } = await api<{ results: { found: Found; error?: string }[] }>("/api/leads/enrich", { body: { t: slug, ids: [lead.id], fields } });
-      if (r?.error) setMsg(r.error);
-      else if (r && Object.keys(r.found).length) { onFound(r.found); setOpen(false); }
-      else setMsg("Nichts gefunden");
+      const { results: [r] } = await api<{ results: { found: Found; missed: EnrichField[]; error?: string }[] }>("/api/leads/enrich", { body: { t: slug, ids: [lead.id], fields, again: true } });
+      if (!r) setMsg("Lead nicht gefunden");
+      else if (r.error) setMsg(r.error);
+      else {
+        if (Object.keys(r.found).length) onFound(r.found);
+        setDone({ got: fields.filter(f => !r.missed.includes(f) && (f === "person" ? r.found.last : r.found[f as keyof Found])), missed: r.missed });
+      }
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
   }
   return <span className="enr-at" ref={ref}>
-    <button className="btn sec" onClick={() => { setOpen(!open); setFields(empty); setMsg(""); }} aria-expanded={open}><Icon n="sparkles" />Anreichern</button>
+    <button className="btn sec" onClick={() => { setOpen(!open); setFields(empty.filter(k => !miss[k])); setMsg(""); setDone(null); }} aria-expanded={open}><Icon n="sparkles" />Anreichern</button>
     {open && <div className="pop enr-pop" role="dialog" aria-label="Anreichern">
+      {done ? <>
+        {done.got.map(k => <div key={k} className="enr-hit"><Icon n="check" />{ENRICH.find(([f]) => f === k)?.[1]}</div>)}
+        {done.missed.map(k => <div key={k} className="enr-miss"><Icon n="x" />{ENRICH.find(([f]) => f === k)?.[1]} nicht gefunden</div>)}
+        <button className="btn sec wide" onClick={() => setOpen(false)}>Fertig</button>
+      </> : <>
       {ENRICH.map(([k, l]) => { const has = !empty.includes(k);
         return <label key={k} className={`ck${has ? " f3" : ""}`} title={has ? "Schon ausgefüllt" : miss[k] ? `Websuche am ${new Date(miss[k]!).toLocaleDateString("de-DE")} ohne Treffer` : undefined}>
-          <input type="checkbox" disabled={has || busy} checked={fields.includes(k)} onChange={() => setFields(fields.includes(k) ? fields.filter(f => f !== k) : [...fields, k])} />{l}</label>; })}
+          <input type="checkbox" disabled={has || busy} checked={fields.includes(k)} onChange={() => setFields(fields.includes(k) ? fields.filter(f => f !== k) : [...fields, k])} />{l}{!has && miss[k] && <span className="f3">ohne Treffer</span>}</label>; })}
       {msg && <div className="f3">{msg}</div>}
       <button className="btn pri wide" onClick={run} disabled={busy || !fields.length}>{busy && <Icon n="loader" />}Im Web suchen</button>
+      </>}
     </div>}
   </span>;
 }

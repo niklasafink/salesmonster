@@ -13,7 +13,7 @@ export const POST = route(async (req, _c, me) => {
   const fields = Array.isArray(b.fields) ? ENRICH_FIELDS.filter(f => (b.fields as unknown[]).includes(f)) as EnrichField[] : [];
   if (!ids.length) throw new HttpError(400, "Keine Leads");
   if (!fields.length) throw new HttpError(400, "Keine Felder gewählt");
-  const results = await enrichContacts(t.id, me.id, ids, fields);
+  const results = await enrichContacts(t.id, me.id, ids, fields, b.again === true);
   /* address, person and company data change the rating */
   const changed = results.filter(r => Object.keys(r.found).length).map(r => r.id);
   if (changed.length) await later(() => refreshRatings(t.id, changed));
