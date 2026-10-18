@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { companies, db, leads } from "@/db";
-import { modeOf } from "./company-mode";
+import { addrsOf, modeOf } from "./company-mode";
 
 type Lead = typeof leads.$inferSelect;
 
@@ -30,12 +30,16 @@ export async function attachCompanies(tenantId: number) {
 
 export type Unit = { leads: Lead[]; to: string[] };
 
-/* The messages for the open contacts of one company */
-export function plan(c: { mode: string; email: string }, contacts: Lead[]): Unit[] {
-  const mail = contacts.filter(l => l.email), social = contacts.filter(l => !l.email && l.linkedin);
-  const out: Unit[] = social.map(l => ({ leads: [l], to: [] }));
-  if (!mail.length) return out;
-  const m = modeOf(c, mail);
-  if (m.mode === "einzeln") return [...mail.map(l => ({ leads: [l], to: [l.email.trim()] })), ...out];
-  return [{ leads: mail, to: m.to }, ...out];
+/* The messages for the open contacts of one company. People without an own address are written
+   to through the company's shared one; `known` are addresses of contacts written to before. */
+export function plan(c: { mode: string; email: string }, contacts: Lead[], known: string[] = []): Unit[] {
+  const addrs = addrsOf(contacts).length ? addrsOf(contacts) : addrsOf(known.map(email => ({ email })));
+  if (!addrs.length) return contacts.filter(l => l.linkedin).map(l => ({ leads: [l], to: [] }));
+  const pool = addrs.map(email => ({ email }));
+  const m = modeOf(c, pool);
+  if (m.mode === "einzeln") {
+    const shared = addrs.includes(c.email.toLowerCase()) ? c.email.toLowerCase() : addrs[0];
+    return contacts.map(l => ({ leads: [l], to: [l.email.trim() || shared] }));
+  }
+  return [{ leads: contacts, to: m.to }];
 }

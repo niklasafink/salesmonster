@@ -8,6 +8,7 @@ const list = (xs: string[]) => xs.length > 1 ? `${xs.slice(0, -1).join(", ")} un
 export function anrede(tpl: FillTpl, l: FillLead) {
   /* one mail to several people names all of them */
   const ppl = (l.people || []).filter(p => p.last);
+  if (ppl.length > 4) return tpl.tone === "du" ? "Hallo zusammen," : "Guten Tag,";
   if (ppl.length > 1) {
     if (tpl.tone === "du") return `Hallo ${list(ppl.map(p => p.first || p.last))},`;
     return `Guten Tag ${list(ppl.map(p => p.salutation ? `${p.salutation} ${p.last}` : `${p.first} ${p.last}`))},`;

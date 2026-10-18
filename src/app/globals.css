@@ -542,6 +542,9 @@ table.leads .co{max-width:300px; overflow:hidden; text-overflow:ellipsis}
 .dlg-f .sp{flex:1}
 .prop .v .lnk{background:none; border:0; padding:0; color:inherit; text-align:left; cursor:pointer; text-decoration:underline; text-decoration-color:var(--line-2); text-underline-offset:3px}
 @media (max-width:640px){ .fgrid > *{grid-column:span 6 !important} }
-table.leads .clip{max-width:220px}
+table.leads .clip{max-width:190px}
+table.leads .em{max-width:250px; overflow:hidden; text-overflow:ellipsis}
+table.leads td.src{max-width:170px; overflow:hidden; text-overflow:ellipsis}
 table.leads .co{max-width:240px}
 @media (max-width:1600px){ table.leads .hide-l{display:none} }
+table.leads .gname{max-width:420px; overflow:hidden; text-overflow:ellipsis}

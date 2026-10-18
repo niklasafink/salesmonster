@@ -149,8 +149,11 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
     const [c] = await db.select().from(companies).where(eq(companies.id, companyId));
     const all = await db.select().from(leads).where(and(eq(leads.companyId, companyId), eq(leads.tenantId, t.id))).orderBy(asc(leads.id));
     let rows = await pool(all.filter(l => l.status === "neu"), 4, enrich);
-    for (const l of rows.filter(l => !l.email && !l.linkedin)) await db.update(leads).set({ note: l.note || "E-Mail fehlt" }).where(eq(leads.id, l.id));
-    rows = rows.filter(l => l.email || l.linkedin);
+    /* without any address at the company and without LinkedIn nobody can be written to */
+    if (!rows.some(l => l.email) && !all.some(l => l.email)) {
+      for (const l of rows.filter(l => !l.linkedin)) await db.update(leads).set({ note: l.note || "E-Mail fehlt" }).where(eq(leads.id, l.id));
+      rows = rows.filter(l => l.linkedin);
+    }
     if (!rows.length) return;
     /* salutation from first name and role where Jev is sure, so {{anrede}} can name the person */
     const unsure = rows.filter(l => l.last && !l.salutation);
@@ -173,7 +176,7 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
         catch (e) { if (!(e instanceof HubSpotError && e.status === 409)) await log(t.id, "hubspot", false, `${l.company}: ${(e as Error).message}`); }
       }
     }
-    units.push(...plan(c, rows));
+    units.push(...plan(c, rows, all.map(l => l.email)));
   };
 
   /* 1. imported leads first, company by company in list order */

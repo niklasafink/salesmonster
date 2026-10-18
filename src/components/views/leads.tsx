@@ -54,14 +54,15 @@ export function Leads({ ctx }: { ctx: Ctx }) {
 
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : "";
   const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
-  const row = (r: Lead, showCo: boolean) => <tr key={r.id} className="click" onClick={() => setEdit(r)}>
+  /* shared: the company has an address this contact is reached through */
+  const row = (r: Lead, showCo: boolean, shared = false) => <tr key={r.id} className="click" onClick={() => setEdit(r)}>
     <td className="dotc"><Dot s={r.status} /></td>
     <td className="co" style={{ fontWeight: 500 }} title={showCo ? r.company : undefined}>{showCo ? r.company : ""}</td>
     <td>{person(r) || <span className="f3">–</span>}</td>
     <td className="hide-m hide-l f2 clip" title={r.role}>{r.role || <span className="f3">–</span>}</td>
-    <td className="mono" style={{ fontSize: 12.5 }}>{r.email || <span className="f3">fehlt</span>}</td>
+    <td className="mono em" style={{ fontSize: 12.5 }} title={r.email || undefined}>{r.email || <span className="f3">{shared ? "–" : "fehlt"}</span>}</td>
     <td className="hide-m f2 clip" title={t.tenders ? undefined : r.hook}>{hookCell(r)}</td>
-    <td className="f2">{r.sourceUrl ? <a className="srcl" href={r.sourceUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{r.source}<Icon n="external-link" /></a> : r.source}</td>
+    <td className="f2 src">{r.sourceUrl ? <a className="srcl" href={r.sourceUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{r.source}<Icon n="external-link" /></a> : r.source}</td>
   </tr>;
 
   const ok = imp?.rows?.filter(r => !r.dup).length || 0;
@@ -82,16 +83,16 @@ export function Leads({ ctx }: { ctx: Ctx }) {
         {groups.length ? groups.map(g => {
           if (g.all.length < 2) return row(g.shown[0], true);
           const c = cos.find(x => `c${x.id}` === g.key);
-          const mailable = g.all.filter(r => r.email), addrs = addrsOf(mailable);
-          const m = c && modeOf(c, mailable), val = m ? (m.mode === "eine" ? `eine:${m.to[0] || ""}` : m.mode) : "";
+          const addrs = addrsOf(g.all);
+          const m = c && modeOf(c, g.all), val = m ? (m.mode === "eine" ? `eine:${m.to[0] || ""}` : m.mode) : "";
           return <Fragment key={g.key}>
-            <tr className="grp"><td className="dotc"></td><td colSpan={2} style={{ fontWeight: 500 }}>{g.all[0].company}</td>
-              <td colSpan={4} className="modec">{c && mailable.length > 1 && <select className="inp sel modesel" value={val} onChange={e => setMode(c, e.target.value)} aria-label="Wie anschreiben">
+            <tr className="grp"><td className="dotc"></td><td colSpan={2} style={{ fontWeight: 500 }}><div className="gname" title={g.all[0].company}>{g.all[0].company}</div></td>
+              <td colSpan={4} className="modec">{c && addrs.length > 0 && <select className="inp sel modesel" value={val} onChange={e => setMode(c, e.target.value)} aria-label="Wie anschreiben">
                 <option value="einzeln">Getrennt anschreiben</option>
                 {addrs.length > 1 && <option value="alle">Eine Mail an alle Adressen</option>}
                 {addrs.map(a => <option key={a} value={`eine:${a}`}>Eine Mail an {a}</option>)}
               </select>}</td></tr>
-            {g.shown.map(r => row(r, false))}
+            {g.shown.map(r => row(r, false, addrs.length > 0))}
           </Fragment>;
         }) : <tr><td colSpan={7} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
