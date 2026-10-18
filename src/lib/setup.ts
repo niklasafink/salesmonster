@@ -8,6 +8,7 @@ import { jevKey, scoreMail } from "./jev";
 import { lint } from "./playbook";
 import { rerate } from "./ratings";
 import { skillFor, WEB } from "./skills";
+import { track } from "./usage";
 
 type Tenant = typeof tenants.$inferSelect;
 export type Setup = typeof setups.$inferSelect;
@@ -163,7 +164,14 @@ export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | 
 const drop = (su: Setup, ...steps: SetupStep[]) => Object.fromEntries(Object.entries(su.prompts).filter(([k]) => !steps.includes(k as SetupStep) && k !== "fertig"));
 
 /* signal: the user stopped the answer in the chat, nothing from this turn is saved. onReply: the answer so far while it streams, "" when a chained step starts over */
-export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal?: AbortSignal, onReply?: (reply: string) => void): Promise<Setup> {
+export const act = (t: Tenant, ai: Ai | null, su: Setup, a: Action, signal?: AbortSignal, onReply?: (reply: string) => void) =>
+  track({ tenantId: t.id, kind: "einrichtung", ref: `setup:${su.id}` }, async m => {
+    const r = await step(t, ai, su, a, signal, onReply);
+    m.count(1);
+    return r;
+  });
+
+async function step(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal?: AbortSignal, onReply?: (reply: string) => void): Promise<Setup> {
   if (a.action === "goto") {
     if (!a.step || !SETUP_STEPS.includes(a.step)) return su;
     /* jumping ahead passes over the steps in between; those still empty count as skipped, the step jumped to is open again */

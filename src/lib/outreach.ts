@@ -17,6 +17,7 @@ import { FREEMAIL, channelOf } from "./lead-rating";
 import { bouncedDomains, linkedinOn, mailQueue } from "./queue";
 import { sendpilotPush } from "./sendpilot";
 import { DAY_NAMES, draftDay, hh, isoWeekday, planOf, sendQuota } from "./schedule";
+import { track } from "./usage";
 
 type Tenant = typeof tenants.$inferSelect;
 type Lead = typeof leads.$inferSelect;
@@ -93,7 +94,13 @@ async function keepAsContact(t: Tenant, hub: Hub | null, row: Lead, companyId: s
 
 /* Evening job: fill today's batch with drafts. Works per company: its open contacts become
    one or several messages, depending on how the company is set to be written to. */
-export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
+export const runResearch = (t: Tenant, opts: { force?: boolean } = {}) => track({ tenantId: t.id, kind: "recherche" }, async m => {
+  const r = await research(t, opts);
+  m.count(r.created);
+  return r;
+});
+
+async function research(t: Tenant, opts: { force?: boolean }) {
   const today = berlinDate();
   const key = await aiFor(t.id);
   if (!key) throw new AiMissing();

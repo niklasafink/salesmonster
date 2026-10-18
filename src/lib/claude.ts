@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { openrouterAsk, type Ai } from "./ai";
+import { spend } from "./usage";
 
 export const MODEL = "claude-sonnet-5-5";
 
@@ -29,6 +30,8 @@ export async function ask({ key, system, prompt, web, maxSearches = 20, effort =
     } as Anthropic.Beta.Messages.MessageCreateParamsStreaming, { signal });
     if (onText) stream.on("text", d => { streamed += d; onText(streamed); });
     const msg = await stream.finalMessage();
+    /* the Claude API reports tokens, not money; the call counts without a cost */
+    spend(null);
     if (msg.stop_reason === "refusal") throw new Error("Claude hat die Anfrage abgelehnt");
     if (msg.stop_reason === "max_tokens") throw new Error("Antwort von Claude zu lang, bitte in kleineren Teilen versuchen");
     if (msg.stop_reason === "pause_turn") { messages.push({ role: "assistant", content: msg.content as Anthropic.Beta.Messages.BetaContentBlockParam[] }); continue; }

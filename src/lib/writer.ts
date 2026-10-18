@@ -3,6 +3,7 @@ import { ask, json } from "./claude";
 import { AiMissing, aiFor, openrouterAsk } from "./ai";
 import { getInteg } from "./integrations";
 import { PLAYBOOK } from "./playbook";
+import { track } from "./usage";
 
 /* Grok writes the mails, Jev judges them, Claude researches. Grok runs on the account's OpenRouter key;
    without one the tenant's own AI writes. */
@@ -15,7 +16,13 @@ ${PLAYBOOK}
 
 const Out = z.object({ variants: z.array(z.object({ name: z.string().nullish().transform(v => v ?? ""), subject: z.string().min(2), body: z.string().min(20) })) });
 
-export async function writeMails(tenantId: number, prompt: string, n: number, userId?: number) {
+export const writeMails = (tenantId: number, prompt: string, n: number, userId?: number) => track({ tenantId, userId, kind: "texte" }, async m => {
+  const r = await write(tenantId, prompt, n, userId);
+  m.count(r.length);
+  return r;
+});
+
+async function write(tenantId: number, prompt: string, n: number, userId?: number) {
   const task = `${prompt}\n\nSchreibe ${n} Fassungen, die sich in einem klaren Punkt unterscheiden. Antworte nur mit \`\`\`json {"variants":[{"name":"zwei Wörter","subject":"…","body":"…"}]}\`\`\`.`;
   const or = await getInteg(tenantId, "openrouter", userId);
   let text: string;

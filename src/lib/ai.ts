@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db, tenants, type AiChoice } from "@/db";
 import { getInteg } from "./integrations";
 import { CLAUDE_MODELS, OPENROUTER_MODELS } from "./integ-meta";
+import { spend } from "./usage";
 
 export { CLAUDE_MODELS, OPENROUTER_MODELS };
 
@@ -48,14 +49,14 @@ export async function openrouterAsk(ai: { key: string; model?: string }, system:
     method: "POST", signal,
     headers: { authorization: `Bearer ${ai.key}`, "content-type": "application/json", "x-title": "Sales Portal", "http-referer": "https://sales-portal-sooty.vercel.app" },
     body: JSON.stringify({
-      model: ai.model || OPENROUTER_MODELS[0][0], max_tokens: 16000, stream: !!onText,
+      model: ai.model || OPENROUTER_MODELS[0][0], max_tokens: 16000, stream: !!onText, usage: { include: true },
       messages: [{ role: "system", content: system }, ...messages],
       plugins: web ? [{ id: "web", max_results: Math.min(10, Math.max(3, maxResults)) }] : undefined,
     }),
   });
   if (onText && r.ok && r.body) {
     const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
-    let buf = "", text = "";
+    let buf = "", text = "", cost: number | null = null;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -63,16 +64,19 @@ export async function openrouterAsk(ai: { key: string; model?: string }, system:
       const lines = buf.split("\n"); buf = lines.pop() ?? "";
       for (const l of lines) {
         if (!l.startsWith("data:") || l.includes("[DONE]")) continue;
-        const j = JSON.parse(l.slice(5)) as { error?: { message?: string }; choices?: { delta?: { content?: string } }[] };
+        const j = JSON.parse(l.slice(5)) as { error?: { message?: string }; choices?: { delta?: { content?: string } }[]; usage?: { cost?: number } };
         if (j.error) throw new Error(`OpenRouter: ${j.error.message}`);
+        if (j.usage?.cost != null) cost = j.usage.cost;
         const d = j.choices?.[0]?.delta?.content;
         if (d) { text += d; onText(text); }
       }
     }
+    spend(cost);
     return text;
   }
-  const j = await r.json().catch(() => ({})) as { error?: { message?: string }; choices?: { message?: { content?: string } }[] };
+  const j = await r.json().catch(() => ({})) as { error?: { message?: string }; choices?: { message?: { content?: string } }[]; usage?: { cost?: number } };
   if (!r.ok) throw new Error(`OpenRouter: ${j.error?.message || r.status}`);
+  spend(j.usage?.cost);
   return j.choices?.[0]?.message?.content || "";
 }
 

@@ -5,6 +5,7 @@ import { FIELDS, applyMap, headFields, splitTable, type Field } from "@/lib/lead
 import { checkLeads } from "@/lib/lead-import";
 import { pool } from "@/lib/outreach";
 import { MAX_ROWS, tsvChunks } from "@/lib/sheet";
+import { track } from "@/lib/usage";
 
 /* A 1,000-row sheet is 9 AI calls, 3 at a time */
 export const maxDuration = 300;
@@ -46,6 +47,10 @@ export const POST = route(async (req, _c, me) => {
   if (table && parts.reduce((n, p) => n + p.split("\n").length - 1, 0) > MAX_ROWS) throw new HttpError(400, "Mehr als 1.000 Datenzeilen");
   if (parts.some(p => p.length > IMPORT_CHARS))
     throw new HttpError(400, table ? "Zeilen zu lang: höchstens 40.000 Zeichen je 120 Zeilen" : "Text zu lang: höchstens 40.000 Zeichen, bitte in Teilen importieren");
-  const rows = (await pool(parts, 3, p => parseImport(key, p))).flat();
+  const rows = await track({ tenantId: t.id, userId: me.id, kind: "import" }, async m => {
+    const rs = (await pool(parts, 3, p => parseImport(key, p))).flat();
+    m.count(rs.length);
+    return rs;
+  });
   return { rows: await checkLeads(t.id, rows) };
 });

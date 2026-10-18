@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { db, enrichJobs, type EnrichField, type EnrichItem, type EnrichJobResult } from "@/db";
 import { enrichContacts } from "./enrich";
 import { later, refreshRatings } from "./ratings";
+import { track } from "./usage";
 
 type Job = typeof enrichJobs.$inferSelect;
 
@@ -28,6 +29,13 @@ export async function startJob(tenantId: number, userId: number, items: EnrichIt
 
 /* Claims leads one by one until none are left or the time budget is used up, then passes the rest on */
 export async function work(id: number, base: string) {
+  const [own] = await db.select({ tenantId: enrichJobs.tenantId, userId: enrichJobs.userId }).from(enrichJobs).where(eq(enrichJobs.id, id));
+  if (!own) return;
+  /* each call is one row of the same action; the leads count through enrichContacts */
+  await track({ ...own, kind: "anreicherung", ref: `enrich:${id}` }, () => step(id, base));
+}
+
+async function step(id: number, base: string) {
   const start = Date.now();
   await Promise.all(Array.from({ length: WORKERS }, async () => {
     while (Date.now() - start < BUDGET) {

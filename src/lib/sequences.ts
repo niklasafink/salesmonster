@@ -10,6 +10,7 @@ import { jevKey, scoreMail } from "./jev";
 import { salutationOf } from "./lead-fields";
 import { hasBounce, hasReply, sendAs } from "./mail";
 import { thompson } from "./thompson";
+import { track } from "./usage";
 
 type Tenant = typeof tenants.$inferSelect;
 type Seq = typeof sequences.$inferSelect;
@@ -219,7 +220,13 @@ export async function scoreVariant(t: Tenant, s: Seq, tplId: number) {
 const nextKey = (taken: string[]) => Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).find(k => !taken.includes(k));
 
 /* A new variant for one step, written by the AI against the others' numbers. Starts paused, so nothing goes out unread. */
-export async function proposeVariant(t: Tenant, s: Seq, step: number) {
+export const proposeVariant = (t: Tenant, s: Seq, step: number) => track({ tenantId: t.id, kind: "strecke", ref: `seq:${s.id}` }, async m => {
+  const r = await propose(t, s, step);
+  m.count(1);
+  return r;
+});
+
+async function propose(t: Tenant, s: Seq, step: number) {
   const ai = await aiFor(t.id);
   if (!ai) throw new AiMissing();
   const all = await db.select().from(sequenceTemplates).where(and(eq(sequenceTemplates.sequenceId, s.id), eq(sequenceTemplates.step, step))).orderBy(asc(sequenceTemplates.key));

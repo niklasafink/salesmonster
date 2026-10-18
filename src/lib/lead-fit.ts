@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, leads, setups, tenants } from "@/db";
 import type { FitInfo } from "@/db/schema";
 import { jevKey } from "./jev";
+import { spend, track } from "./usage";
 
 /* How well a lead matches the tenant's ideal customer, judged by a cheap model on OpenRouter against the tenant's own segments, exclusions and personas.
    Four parts 0–4 (company, person, need, evidence) plus a knockout reason; fit 0–4 is their weighted mean with caps, so a good title never rescues a wrong company.
@@ -88,13 +89,14 @@ async function judge(key: string, icp: string, batch: Lead[]): Promise<{ got: Ju
     method: "POST",
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "x-title": "Sales Portal", "http-referer": "https://sales-portal-sooty.vercel.app" },
     body: JSON.stringify({
-      models: [FIT_MODEL, FALLBACK], temperature: 0, max_tokens: 6000, reasoning: { enabled: false }, provider: { sort: "price" },
+      models: [FIT_MODEL, FALLBACK], temperature: 0, max_tokens: 6000, reasoning: { enabled: false }, provider: { sort: "price" }, usage: { include: true },
       response_format: { type: "json_schema", json_schema: { name: "lead_fit", strict: true, schema: SCHEMA } },
       messages: [{ role: "system", content: SYSTEM(icp) }, { role: "user", content: JSON.stringify(batch.map(view)) }],
     }),
   });
-  const j = await r.json().catch(() => ({})) as { model?: string; error?: { message?: string }; choices?: { message?: { content?: string } }[] };
+  const j = await r.json().catch(() => ({})) as { model?: string; error?: { message?: string }; choices?: { message?: { content?: string } }[]; usage?: { cost?: number } };
   if (!r.ok) throw new Error(`OpenRouter: ${j.error?.message || r.status}`);
+  spend(j.usage?.cost);
   const text = (j.choices?.[0]?.message?.content || "").replace(/^```(?:json)?\s*|\s*```$/g, "");
   const raw = (JSON.parse(text) as { leads?: Judged[] }).leads || [];
   return { model: j.model || FIT_MODEL, got: raw.map(x => ({ id: Number(x.id), segment: String(x.segment || ""), ko: String(x.ko || "").trim(), why: String(x.why || "").slice(0, 200),
@@ -105,7 +107,13 @@ async function judge(key: string, icp: string, batch: Lead[]): Promise<{ got: Ju
 export type FitRun = { judged: number; failed: number; error?: string };
 
 /* Judges every rated lead whose inputs changed since its last judgement (or `only`), in batches of 10, four at a time; a failed batch keeps its leads for the next run */
-export async function fitLeads(tenantId: number, only?: number[]): Promise<FitRun> {
+export const fitLeads = (tenantId: number, only?: number[]) => track({ tenantId, kind: "bewertung" }, async m => {
+  const r = await fit(tenantId, only);
+  m.count(r.judged);
+  return r;
+});
+
+async function fit(tenantId: number, only?: number[]): Promise<FitRun> {
   const key = await jevKey(tenantId);
   if (!key) return { judged: 0, failed: 0, error: "Kein OpenRouter-Schlüssel" };
   const icp = await icpOf(tenantId);

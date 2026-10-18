@@ -7,6 +7,7 @@ import { INFO_MAIL, emailTypeOf, salutationOf } from "./lead-fields";
 import { openSource, type Head, type Source } from "./mail-source";
 import { rerate } from "./ratings";
 import { readSignature, readSignatures, signatureOf } from "./signature";
+import { track } from "./usage";
 
 /* Attio-style: everyone a mailbox exchanged mail with becomes a contact of the tenant, with what their signature says.
    Runs in steps (scan headers → read signatures → file as leads) so a page or the cron can drive it within a function's time */
@@ -106,7 +107,7 @@ async function readBatch(src: Source, tenantId: number, userId: number) {
   }
   const ai = await aiFor(tenantId, userId);
   const withSig = xs.filter(x => x.signature);
-  const read = ai && withSig.length ? await readSignatures(ai, withSig).catch(e => { console.error(e); return null; }) : null;
+  const read = ai && withSig.length ? await track({ tenantId, userId, kind: "signaturen" }, m => { m.count(withSig.length); return readSignatures(ai, withSig); }).catch(e => { console.error(e); return null; }) : null;
   for (const x of xs) await db.update(mailContacts).set({ signature: x.signature, parsed: read?.get(x.email) ?? x.rules, state: "gelesen" }).where(eq(mailContacts.id, x.id));
   return open.length;
 }
@@ -166,6 +167,11 @@ export async function stepSync(tenantId: number, userId: number, budgetMs = 40_0
     .where(and(eq(mailSyncs.tenantId, tenantId), eq(mailSyncs.userId, userId), eq(mailSyncs.status, "läuft"), or(isNull(mailSyncs.lockedUntil), lt(mailSyncs.lockedUntil, new Date()))))
     .returning();
   if (!s) return syncState(tenantId, userId);
+  await track({ tenantId, userId, kind: "signaturen", ref: `sync:${s.id}` }, () => run(s, tenantId, userId, left));
+  return syncState(tenantId, userId);
+}
+
+async function run(s: typeof mailSyncs.$inferSelect, tenantId: number, userId: number, left: () => number) {
   let src: Source | null = null;
   try {
     src = await openSource(tenantId, userId);
@@ -199,7 +205,6 @@ export async function stepSync(tenantId: number, userId: number, budgetMs = 40_0
     await src?.close();
     await db.update(mailSyncs).set({ lockedUntil: null }).where(eq(mailSyncs.id, s.id));
   }
-  return syncState(tenantId, userId);
 }
 
 /* Cron: continue running syncs and pick up new mail for finished ones, within one function's time */

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, date, integer, jsonb, numeric, pgTable, real, serial, text, timestamp, uniqueIndex, index, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, integer, jsonb, numeric, pgTable, real, serial, text, timestamp, uniqueIndex, index, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export type Tender = { t: string; s: string; f: string };
 
@@ -452,3 +452,20 @@ export const enrichJobs = pgTable("enrich_jobs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("enrich_jobs_tenant").on(t.tenantId, t.id)]);
+
+/* What the AI cost per action, as the provider reported it (OpenRouter usage.cost); one row per tracked call of an action,
+   rows with the same ref belong to one action that ran over several function calls (an enrich job). Costs in millionths of a dollar. */
+export const aiUsage = pgTable("ai_usage", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  kind: text("kind").notNull(),
+  ref: text("ref"),
+  items: integer("items").notNull().default(0),
+  calls: integer("calls").notNull().default(0),
+  /* calls whose provider reported no cost (Claude API) */
+  unpriced: integer("unpriced").notNull().default(0),
+  cost: bigint("cost_micro", { mode: "number" }).notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [index("ai_usage_tenant").on(t.tenantId, t.createdAt)]);

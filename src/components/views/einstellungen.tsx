@@ -4,18 +4,19 @@ import { INTEG } from "@/lib/integ-meta";
 import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx, MailSync } from "../types";
 import { DAY_NAMES, daysText, hh, planOf } from "@/lib/schedule";
+import { Kosten } from "./kosten";
 
 const when = (s: string) => new Date(s).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 export function Einstellungen({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [tab, setTab] = useState("ablauf");
-  const tabs: [string, string][] = [["ablauf", "Ablauf"], ["integrationen", "Integrationen"], ["team", "Team"], ...(t.invoice ? [["rechnungen", "Rechnungen"] as [string, string]] : [])];
+  const tabs: [string, string][] = [["ablauf", "Ablauf"], ["integrationen", "Integrationen"], ["team", "Team"], ["kosten", "Kosten"], ...(t.invoice ? [["rechnungen", "Rechnungen"] as [string, string]] : [])];
   return <>
     <Top title="Einstellungen" onMenu={ctx.openSidebar} />
     <div className="scroll"><div className="wrap narrow">
       <div className="tabs">{tabs.map(([k, n]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{n}</button>)}</div>
-      {tab === "ablauf" ? <Ablauf ctx={ctx} /> : tab === "integrationen" ? <Integ ctx={ctx} /> : tab === "team" ? <Team ctx={ctx} /> : <Billing ctx={ctx} />}
+      {tab === "ablauf" ? <Ablauf ctx={ctx} /> : tab === "integrationen" ? <Integ ctx={ctx} /> : tab === "team" ? <Team ctx={ctx} /> : tab === "kosten" ? <Kosten ctx={ctx} /> : <Billing ctx={ctx} />}
     </div></div>
   </>;
 }

@@ -8,6 +8,7 @@ import { salutationOf } from "./lead-fields";
 import { pickAngles, rotation, roundsDue, startAngles, angleScore, type AngleStat } from "./angles";
 import { refreshRatings } from "./ratings";
 import { berlinDate } from "./dates";
+import { track } from "./usage";
 
 type Tenant = typeof tenants.$inferSelect;
 type Angle = typeof angles.$inferSelect;
@@ -66,7 +67,13 @@ Antworte nur mit \`\`\`json {"angles":[{"label":"…","query":"…"}]}\`\`\`.`,
 
 /* One research round: picks directions by Thompson sampling, researches about `want` new companies, files them with their direction,
    rates them, and lets the strategy rotate. Returns how many leads were added. */
-export async function researchRound(t: Tenant, want: number, key?: Ai | null) {
+export const researchRound = (t: Tenant, want: number, key?: Ai | null) => track({ tenantId: t.id, kind: "runde" }, async m => {
+  const r = await round(t, want, key);
+  m.count(r.added);
+  return r;
+});
+
+async function round(t: Tenant, want: number, key?: Ai | null) {
   key ??= await aiFor(t.id);
   if (!key) return { added: 0 };
   await ensureAngles(t);
