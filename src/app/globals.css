@@ -535,8 +535,9 @@ tr.click:hover td{background:var(--hover)}
 table.leads{table-layout:fixed}
 table.leads td{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 table.leads th.warm{width:46px} table.leads td.warm{font-size:12.5px; padding-right:0}
-table.leads th.co{width:22%} table.leads td.co{font-weight:500}
-table.leads th.pn{width:18%} table.leads th.c-role{width:16%} table.leads th.c-em{width:22%} table.leads th.c-hook{width:16%} table.leads th.c-src{width:130px}
+/* Firma and Ansprechpartner share whatever the other columns leave */
+table.leads td.co{font-weight:500}
+table.leads th.c-role{width:15%} table.leads th.c-em{width:21%} table.leads th.c-hook{width:15%} table.leads th.c-src{width:130px}
 table.leads td.c-em{font-size:12.5px}
 table.leads td.act,table.leads th.act{width:34px; padding:0; text-align:right}
 @media (max-width:1500px){ table.leads .c-hook{display:none} }
