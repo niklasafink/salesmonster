@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Tender } from "@/db/schema";
 import { addrsOf, modeOf } from "@/lib/company-mode";
 import { SALUTATIONS, httpUrl } from "@/lib/lead-fields";
@@ -21,10 +21,37 @@ const tendersText = (ts: Tender[] = []) => ts.map(x => [x.t, x.s, x.f].filter(Bo
 const tendersOf = (s: string): Tender[] => s.split("\n").map(r => r.split("|").map(x => x.trim())).filter(r => r[0]).map(([t, s = "", f = ""]) => ({ t, s, f }));
 
 type Co = { id: number; mode: string; email: string };
+type Mate = { id?: number; first: string; last: string; role: string; email: string; status: string };
+type Act = { at: string; kind: string; title: string; text?: string; by?: string };
 
-/* Edit one contact, or add a new one; with colleagues at the same company it also sets how the company is written to */
-export function LeadDialog({ lead, slug, tenders, co, contacts = [], onClose, onSaved, onDeleted, onTrash, onAdd }: {
-  lead: EditLead; slug: string; tenders: boolean; co?: Co; contacts?: { email: string; status: string }[]; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onTrash?: () => void; onAdd?: (company: string) => void;
+const ACT_ICON: Record<string, string> = { sent: "send", reply: "mail", bounce: "triangle-alert", draft: "file-text", mailbox: "inbox", created: "plus", linkedin: "linkedin" };
+const when = (iso: string) => new Date(iso).toLocaleDateString("de-DE", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/Berlin" });
+const nameOf = (x: { first: string; last: string }) => [x.first, x.last].filter(Boolean).join(" ");
+
+/* label left, value right; the input only shows as one on hover and focus */
+const Prop = ({ l, link, children }: { l: string; link?: string; children: React.ReactNode }) => <div className="prop">
+  <label><span className="pk">{l}</span>{children}</label>
+  {link && <a className="pa" href={link} target={link.startsWith("http") ? "_blank" : undefined} rel="noreferrer" aria-label={`${l} öffnen`}><Icon n="external-link" /></a>}
+</div>;
+
+function Activity({ id }: { id: number }) {
+  const [items, setItems] = useState<Act[] | null>(null), [err, setErr] = useState(""), [open, setOpen] = useState<number | null>(null);
+  useEffect(() => { api<{ items: Act[] }>(`/api/leads/${id}`).then(r => setItems(r.items)).catch(e => setErr((e as Error).message)); }, [id]);
+  if (err) return <div className="warn"><Icon n="triangle-alert" />{err}</div>;
+  if (!items) return <div className="f3"><Icon n="loader" /></div>;
+  return <ol className="acts">{items.map((a, i) => <li key={i} className={`k-${a.kind}`}>
+    <span className="ai"><Icon n={ACT_ICON[a.kind] || "dot"} /></span>
+    <div className="ab">
+      <div className="at"><span className="tt">{a.title}</span><time className="f3">{when(a.at)}</time></div>
+      {a.by && <div className="f3">{a.by}</div>}
+      {a.text && <button className={`ax${open === i ? " on" : ""}`} onClick={() => setOpen(open === i ? null : i)}>{a.text}</button>}
+    </div>
+  </li>)}</ol>;
+}
+
+/* Edit one contact, or add a new one: person left, what happened in the middle, company right */
+export function LeadDialog({ lead, slug, tenders, co, contacts = [], onClose, onSaved, onDeleted, onTrash, onAdd, onOpen }: {
+  lead: EditLead; slug: string; tenders: boolean; co?: Co; contacts?: Mate[]; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onTrash?: () => void; onAdd?: (company: string) => void; onOpen?: (id: number) => void;
 }) {
   const [f, setF] = useState(lead), [tt, setTt] = useState(tendersText(lead.tenders)), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const set = (k: keyof EditLead) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
@@ -32,6 +59,8 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], onClose, on
   contacts = contacts.filter(c => c.status !== "papierkorb");
   const addrs = addrsOf(contacts), m = co && contacts.length > 1 && addrs.length ? modeOf(co, contacts) : null;
   const mode0 = m ? (m.mode === "eine" ? `eine:${m.to[0] || ""}` : m.mode) : "", [mode, setMode] = useState(mode0);
+  const mates = contacts.filter(c => c.id && c.id !== f.id);
+  const dirty = JSON.stringify(f) !== JSON.stringify(lead) || tt !== tendersText(lead.tenders) || mode !== mode0;
 
   async function save() {
     setBusy(true); setErr("");
@@ -48,42 +77,56 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], onClose, on
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   }
   async function del() {
-    if (!f.id || !confirm(`${[f.first, f.last].filter(Boolean).join(" ") || f.company} löschen?`)) return;
+    if (!f.id || !confirm(`${nameOf(f) || f.company} löschen?`)) return;
     try { await api(`/api/leads/${f.id}`, { method: "DELETE" }); onDeleted?.(f.id); } catch (e) { setErr((e as Error).message); }
   }
+  const go = (id: number) => { if (!dirty || confirm("Änderungen verwerfen?")) onOpen?.(id); };
+  const web = httpUrl(f.website.includes(".") && !/^https?:/i.test(f.website) ? `https://${f.website}` : f.website);
 
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg" ref={ref} role="dialog" aria-modal="true" aria-label={f.id ? "Kontakt bearbeiten" : "Kontakt hinzufügen"}>
-    <div className="dlg-h">{f.id ? [f.first, f.last].filter(Boolean).join(" ") || f.company : "Kontakt hinzufügen"}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
-    <div className="fgrid">
-      <label className="fld s1"><span>Anrede</span><select className="inp sel" value={f.salutation} onChange={set("salutation")}><option value="">–</option>{SALUTATIONS.map(s => <option key={s}>{s}</option>)}</select></label>
-      <label className="fld s2"><span>Vorname</span><input className="inp" value={f.first} onChange={set("first")} /></label>
-      <label className="fld s3"><span>Nachname</span><input className="inp" value={f.last} onChange={set("last")} /></label>
-      <label className="fld s3"><span>Firma</span><input className="inp" value={f.company} onChange={set("company")} /></label>
-      <label className="fld s3"><span>Rolle</span><input className="inp" value={f.role} onChange={set("role")} /></label>
-      <label className="fld s4"><span>E-Mail</span><input className="inp mono" value={f.email} onChange={set("email")} /></label>
-      <label className="fld s2"><span>Adresse</span><select className="inp sel" value={f.emailType} onChange={set("emailType")}><option value="person">Persönlich</option><option value="info">Sammeladresse</option></select></label>
-      <label className="fld s2"><span>Telefon</span><input className="inp num" value={f.phone} onChange={set("phone")} /></label>
-      <label className="fld s2"><span>Ort</span><input className="inp" value={f.city} onChange={set("city")} /></label>
-      <label className="fld s2"><span>Website</span><input className="inp" value={f.website} onChange={set("website")} /></label>
-      <label className="fld s6"><span>LinkedIn</span><input className="inp" value={f.linkedin} onChange={set("linkedin")} /></label>
-      {tenders
-        ? <label className="fld s6"><span>Ausschreibungen</span><textarea className="inp ta" rows={3} value={tt} placeholder="Titel | Vergabestelle | Frist" onChange={e => setTt(e.target.value)} /></label>
-        : <label className="fld s6"><span>Anlass</span><input className="inp" value={f.hook} onChange={set("hook")} /></label>}
-      <label className="fld s2"><span>Status</span><select className="inp sel" value={f.status} onChange={set("status")} disabled={!f.id}>{Object.entries(STATUS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></label>
-      <label className="fld s4"><span>Quelle{httpUrl(f.sourceUrl) && <a className="src" href={httpUrl(f.sourceUrl)} target="_blank" rel="noreferrer" aria-label="Quelle öffnen"><Icon n="external-link" /></a>}</span><input className="inp" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></label>
-      {m && <label className="fld s6"><span>Anschreiben</span><select className="inp sel" value={mode} onChange={e => setMode(e.target.value)}>
-        <option value="einzeln">Jede der {contacts.length} Personen einzeln</option>
-        {addrs.length > 1 && <option value="alle">Eine Mail an alle Adressen</option>}
-        {addrs.map(a => <option key={a} value={`eine:${a}`}>Eine Mail an {a}</option>)}
-      </select></label>}
-      <label className="fld s6"><span>Notiz</span><textarea className="inp ta" rows={2} value={f.note} onChange={set("note")} /></label>
-      {(f.id || f.research) && <label className="fld s6"><span>Original</span><textarea className="inp ta" rows={3} value={f.research} onChange={set("research")} /></label>}
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className={`dlg ${f.id ? "xl" : "lg2"}`} ref={ref} role="dialog" aria-modal="true" aria-label={f.id ? "Kontakt bearbeiten" : "Kontakt hinzufügen"}>
+    <div className="dlg-h">{f.id ? nameOf(f) || f.company : "Kontakt hinzufügen"}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
+    <div className="rec">
+      <section className="props">
+        <h3>Person</h3>
+        <Prop l="Anrede"><select className="pv" value={f.salutation} onChange={set("salutation")}><option value="">–</option>{SALUTATIONS.map(s => <option key={s}>{s}</option>)}</select></Prop>
+        <Prop l="Vorname"><input className="pv" value={f.first} placeholder="–" onChange={set("first")} /></Prop>
+        <Prop l="Nachname"><input className="pv" value={f.last} placeholder="–" onChange={set("last")} /></Prop>
+        <Prop l="Rolle"><input className="pv" value={f.role} placeholder="–" onChange={set("role")} /></Prop>
+        <Prop l="E-Mail" link={f.email.includes("@") ? `mailto:${f.email}` : undefined}><input className="pv mono" value={f.email} placeholder="–" onChange={set("email")} /></Prop>
+        <Prop l="Adresse"><select className="pv" value={f.emailType} onChange={set("emailType")}><option value="person">Persönlich</option><option value="info">Sammeladresse</option></select></Prop>
+        <Prop l="Telefon" link={f.phone.trim() ? `tel:${f.phone.replace(/[^+\d]/g, "")}` : undefined}><input className="pv num" value={f.phone} placeholder="–" onChange={set("phone")} /></Prop>
+        <Prop l="LinkedIn" link={httpUrl(f.linkedin) || undefined}><input className="pv" value={f.linkedin} placeholder="–" onChange={set("linkedin")} /></Prop>
+        <Prop l="Status"><select className="pv" value={f.status} onChange={set("status")} disabled={!f.id}>{Object.entries(STATUS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></Prop>
+        {!tenders && <Prop l="Anlass"><textarea className="pv" rows={1} value={f.hook} placeholder="–" onChange={set("hook")} /></Prop>}
+        <Prop l="Quelle" link={httpUrl(f.sourceUrl) || undefined}><input className="pv" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></Prop>
+        <Prop l="Notiz"><textarea className="pv" rows={1} value={f.note} placeholder="–" onChange={set("note")} /></Prop>
+        {(f.id || f.research) && <Prop l="Original"><textarea className="pv f2" rows={1} value={f.research} placeholder="–" onChange={set("research")} /></Prop>}
+      </section>
+      {f.id && <section className="feed"><h3>Aktivitäten</h3><Activity id={f.id} /></section>}
+      <section className="props">
+        <h3>Unternehmen</h3>
+        <Prop l="Firma"><input className="pv" value={f.company} placeholder="–" onChange={set("company")} /></Prop>
+        <Prop l="Website" link={web || undefined}><input className="pv" value={f.website} placeholder="–" onChange={set("website")} /></Prop>
+        <Prop l="Ort"><input className="pv" value={f.city} placeholder="–" onChange={set("city")} /></Prop>
+        {m && <Prop l="Anschreiben"><select className="pv" value={mode} onChange={e => setMode(e.target.value)}>
+          <option value="einzeln">Jede der {contacts.length} Personen einzeln</option>
+          {addrs.length > 1 && <option value="alle">Eine Mail an alle Adressen</option>}
+          {addrs.map(a => <option key={a} value={`eine:${a}`}>Eine Mail an {a}</option>)}
+        </select></Prop>}
+        {tenders && <Prop l="Ausschreibungen"><textarea className="pv" rows={1} value={tt} placeholder="Titel | Vergabestelle | Frist" onChange={e => setTt(e.target.value)} /></Prop>}
+        {f.id && (mates.length > 0 || onAdd) && <>
+          <h3 className="h2">Kontakte</h3>
+          <ul className="mates">
+            {mates.map(c => <li key={c.id}><button onClick={() => go(c.id!)} disabled={!onOpen}><span className="nm">{nameOf(c) || c.email || "–"}</span>{c.role && <span className="f3">{c.role}</span>}</button></li>)}
+            {onAdd && <li><button className="f2" onClick={() => onAdd(f.company)}><Icon n="plus" />Weiterer Kontakt</button></li>}
+          </ul>
+        </>}
+      </section>
     </div>
     {err && <div className="warn"><Icon n="triangle-alert" />{err}</div>}
     <div className="dlg-f">
       {f.id && onTrash && lead.status !== "papierkorb" ? <button className="btn gh" onClick={onTrash}><Icon n="trash-2" />Löschen</button>
         : f.id && onDeleted && <button className="btn gh" onClick={del}>Endgültig löschen</button>}
-      {f.id && onAdd && <button className="btn gh" onClick={() => onAdd(f.company)}><Icon n="plus" />Weiterer Kontakt</button>}
       <span className="sp" />
       <button className="btn sec" onClick={onClose}>Abbrechen</button>
       <button className="btn pri" onClick={save} disabled={busy || !f.company.trim()}>{busy && <Icon n="loader" />}Speichern</button>

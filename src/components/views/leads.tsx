@@ -155,7 +155,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       onSaved={() => { setEdit(null); ctx.toast("Gespeichert"); load(); }}
       onDeleted={() => { setEdit(null); ctx.toast("Gelöscht"); load(); }}
       onTrash={() => { const r = edit as Lead; setEdit(null); trash(r); }}
-      onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }} />}
+      onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }}
+      onOpen={id => { const r = rows.find(x => x.id === id); if (r) setEdit(r); }} />}
 
     {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg imp" ref={impRef} role="dialog" aria-modal="true" aria-label="Importieren">
       {imp.cols && !imp.rows ? <>

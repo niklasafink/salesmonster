@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { db, leads } from "@/db";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+import { db, enrollments, leads, mailContacts, messages, sequenceMails, sequences, users } from "@/db";
 import { HttpError, assertMember, body, checkEmail, idOf, route } from "@/lib/api";
 import { attachCompanies } from "@/lib/companies";
 import { cleanLead } from "@/lib/lead-fields";
@@ -7,6 +7,45 @@ import { setLeadStatus } from "@/lib/outreach";
 
 type Ctx = { params: Promise<{ id: string }> };
 const OK = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
+
+type Act = { at: string; kind: string; title: string; text?: string; by?: string };
+
+/* Everything that happened with this person, newest first: outreach mails, replies, bounces, sequence mails, mailbox traffic */
+export const GET = route<Ctx>(async (_req, { params }, me) => {
+  const [l] = await db.select().from(leads).where(eq(leads.id, await idOf(params, "Lead")));
+  if (!l) throw new HttpError(404, "Lead nicht gefunden");
+  await assertMember(me, l.tenantId, "Lead");
+  const out: Act[] = [];
+  const ms = await db.select({ m: messages, by: users.name }).from(messages).leftJoin(users, eq(users.id, messages.senderId))
+    .where(and(eq(messages.tenantId, l.tenantId), or(eq(messages.leadId, l.id), sql`${messages.leadIds} @> ${JSON.stringify([l.id])}::jsonb`)));
+  for (const { m, by } of ms) {
+    const subject = m.finalSubject || m.subject || "", text = m.finalBody || m.body || "";
+    if (m.sentAt) out.push({ at: m.sentAt.toISOString(), kind: m.channel === "linkedin" ? "linkedin" : "sent", title: m.channel === "linkedin" ? "LinkedIn-Nachricht" : subject || "E-Mail gesendet", text, by: by || undefined });
+    else if (["entwurf", "freigegeben"].includes(m.status)) out.push({ at: m.createdAt.toISOString(), kind: "draft", title: m.status === "entwurf" ? "Entwurf in Freigabe" : "Freigegeben, geht morgen raus", text: subject });
+    if (m.repliedAt) out.push({ at: m.repliedAt.toISOString(), kind: "reply", title: "Antwort erhalten" });
+    if (m.bouncedAt) out.push({ at: m.bouncedAt.toISOString(), kind: "bounce", title: "Unzustellbar", text: m.error || undefined });
+  }
+  if (l.email) {
+    const sm = await db.select({ s: sequenceMails, seq: sequences.name, by: users.name }).from(sequenceMails)
+      .innerJoin(enrollments, eq(enrollments.id, sequenceMails.enrollmentId)).innerJoin(sequences, eq(sequences.id, sequenceMails.sequenceId)).leftJoin(users, eq(users.id, sequenceMails.senderId))
+      .where(and(eq(sequences.tenantId, l.tenantId), sql`lower(${enrollments.email}) = ${l.email.toLowerCase()}`));
+    for (const { s, seq, by } of sm) {
+      out.push({ at: s.sentAt.toISOString(), kind: "sent", title: s.subject, text: s.body, by: by ? `${by}, ${seq}` : seq });
+      if (s.repliedAt) out.push({ at: s.repliedAt.toISOString(), kind: "reply", title: "Antwort erhalten", by: seq });
+      if (s.bouncedAt) out.push({ at: s.bouncedAt.toISOString(), kind: "bounce", title: "Unzustellbar", by: seq });
+    }
+  }
+  /* the mailbox scan only keeps counts and dates, so it shows as one entry per mailbox */
+  const mc = await db.select({ c: mailContacts, by: users.name }).from(mailContacts).leftJoin(users, eq(users.id, mailContacts.userId))
+    .where(and(eq(mailContacts.tenantId, l.tenantId), l.email ? or(eq(mailContacts.leadId, l.id), sql`lower(${mailContacts.email}) = ${l.email.toLowerCase()}`) : eq(mailContacts.leadId, l.id)));
+  for (const { c, by } of mc) if (c.lastAt) {
+    const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+    out.push({ at: c.lastAt.toISOString(), kind: "mailbox", title: `${n(c.sent, "Mail", "Mails")} gesendet, ${n(c.received, "Mail", "Mails")} erhalten`,
+      text: c.firstAt ? `Seit ${c.firstAt.toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}` : undefined, by: by || undefined });
+  }
+  out.push({ at: l.createdAt.toISOString(), kind: "created", title: l.source === "Postfach" ? "Aus dem Postfach übernommen" : `Angelegt, Quelle ${l.source}` });
+  return { items: out.sort((a, b) => b.at.localeCompare(a.at)) };
+});
 
 /* Status change and/or edited fields; a new company name moves the contact to that company */
 export const PATCH = route<Ctx>(async (req, { params }, me) => {
