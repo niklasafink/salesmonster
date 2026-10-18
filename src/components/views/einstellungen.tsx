@@ -79,7 +79,6 @@ function Integ({ ctx }: { ctx: Ctx }) {
   function open(k: string) {
     const m = INTEG.find(i => i.k === k)!;
     if (m.auth === "oauth") {
-      if (!st.msConfigured) { ctx.toast("Microsoft-App fehlt: MS_CLIENT_ID und MS_CLIENT_SECRET in Vercel hinterlegen"); return; }
       location.href = `/api/integrations/microsoft?t=${t.slug}`; return;
     }
     setVals(Object.fromEntries((m.fields || []).map(f => [f.id, f.id === "user" ? st.me.email : f.value || ""]))); setErr(""); setDlg(k);
