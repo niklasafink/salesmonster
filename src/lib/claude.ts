@@ -8,11 +8,11 @@ export const MODEL = "claude-sonnet-5-5";
 const NEW_WEB = /^claude-(opus|sonnet)-/;
 const FALLBACK = /^claude-(opus|sonnet|fable)-/;
 
-type Opts = { key: Ai; system: string; prompt: string; web?: boolean; maxSearches?: number; effort?: "low" | "medium" | "high"; signal?: AbortSignal };
+type Opts = { key: Ai; system: string; prompt: string; web?: boolean; maxSearches?: number; effort?: "low" | "medium" | "high"; signal?: AbortSignal; onText?: (text: string) => void };
 
-/* One task: streams, resumes pause_turn, returns the final text */
-export async function ask({ key, system, prompt, web, maxSearches = 20, effort = "medium", signal }: Opts): Promise<string> {
-  if (typeof key === "object" && key.provider === "openrouter") return openrouterAsk(key, system, [{ role: "user", content: prompt }], !!web, maxSearches, signal);
+/* One task: streams, resumes pause_turn, returns the final text. onText gets all text so far while it streams */
+export async function ask({ key, system, prompt, web, maxSearches = 20, effort = "medium", signal, onText }: Opts): Promise<string> {
+  if (typeof key === "object" && key.provider === "openrouter") return openrouterAsk(key, system, [{ role: "user", content: prompt }], !!web, maxSearches, signal, onText);
   const client = new Anthropic({ apiKey: typeof key === "string" ? key : key.key });
   const model = (typeof key === "object" && key.model) || MODEL, modern = NEW_WEB.test(model);
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = [{ role: "user", content: prompt }];
@@ -20,12 +20,15 @@ export async function ask({ key, system, prompt, web, maxSearches = 20, effort =
     ? [{ type: modern ? "web_search_20260209" : "web_search_20250305", name: "web_search", max_uses: maxSearches, user_location: { type: "approximate", country: "DE", timezone: "Europe/Berlin" } },
        { type: modern ? "web_fetch_20260209" : "web_fetch_20250910", name: "web_fetch", max_uses: maxSearches }] as Anthropic.Beta.Messages.BetaToolUnion[]
     : [];
+  let streamed = "";
   for (let turn = 0; turn < 6; turn++) {
-    const msg = await client.beta.messages.stream({
+    const stream = client.beta.messages.stream({
       model, max_tokens: 32000, system, messages, tools: tools.length ? tools : undefined,
       output_config: { effort },
       ...(FALLBACK.test(model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}),
-    } as Anthropic.Beta.Messages.MessageCreateParamsStreaming, { signal }).finalMessage();
+    } as Anthropic.Beta.Messages.MessageCreateParamsStreaming, { signal });
+    if (onText) stream.on("text", d => { streamed += d; onText(streamed); });
+    const msg = await stream.finalMessage();
     if (msg.stop_reason === "refusal") throw new Error("Claude hat die Anfrage abgelehnt");
     if (msg.stop_reason === "max_tokens") throw new Error("Antwort von Claude zu lang, bitte in kleineren Teilen versuchen");
     if (msg.stop_reason === "pause_turn") { messages.push({ role: "assistant", content: msg.content as Anthropic.Beta.Messages.BetaContentBlockParam[] }); continue; }

@@ -204,7 +204,7 @@ export function skillFor(step: SetupStep) {
 }
 
 const OUTPUT = `## Ausgabe
-Antworte am Ende mit genau einem JSON-Block in \`\`\`json. Sende nur die Felder, die du in diesem Schritt füllst oder änderst; Listen immer vollständig, nicht nur die Änderung. Form:
+Antworte am Ende mit genau einem JSON-Block in \`\`\`json, "reply" immer als erstes Feld. Sende nur die Felder, die du in diesem Schritt füllst oder änderst; Listen immer vollständig, nicht nur die Änderung. Form:
 {"reply":"…","chips":["…"],"advance":false,"site":"",
  "profile":{"name":"","summary":"","offer":"","valueProps":[],"customers":[],"proof":[],"regions":[],"language":"sie","pricing":"","audience":"","goal":"","ask":"","giveaway":"","alternatives":[],"objections":[],"rules":[],"words":[],"known":[]},
  "segments":[{"name":"","industries":[],"size":"","regions":[],"triggers":[],"why":"","exclude":[]}],

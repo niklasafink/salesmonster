@@ -96,9 +96,29 @@ function context(t: Tenant, su: Setup) {
 
 /* Writing mails needs the most care; the profile and segments decide everything after them */
 const EFFORT: Record<SetupStep, "low" | "medium" | "high"> = { website: "medium", zielgruppe: "medium", ansprechpartner: "medium", liste: "medium", ansprache: "high", fertig: "low" };
+/* Answering the user within a step is a chat turn: one level less thinking, so the reply starts sooner */
+const LESS = { low: "low", medium: "low", high: "medium" } as const;
 
-/* One model call for the current step. text = what the user wrote; auto = decide alone; prev = the closing answer of the step just finished */
-async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean, signal?: AbortSignal, prev?: string) {
+/* The "reply" string of the JSON block as far as it has streamed, decoded up to the last complete character */
+export function partialReply(text: string) {
+  const i = text.lastIndexOf('"reply"'), m = i < 0 ? null : /^"reply"\s*:\s*"/.exec(text.slice(i));
+  if (!m) return "";
+  let out = "";
+  for (let j = i + m[0].length; j < text.length; j++) {
+    const c = text[j];
+    if (c === '"') break;
+    if (c !== "\\") { out += c; continue; }
+    const e = text[j + 1];
+    if (e === undefined) break;
+    if (e === "u") { const h = text.slice(j + 2, j + 6); if (h.length < 4) break; out += String.fromCharCode(parseInt(h, 16)); j += 5; continue; }
+    out += ({ n: "\n", t: "\t", r: "\r", b: "\b", f: "\f" } as Record<string, string>)[e] ?? e; j++;
+  }
+  return out;
+}
+
+/* One model call for the current step. text = what the user wrote; auto = decide alone; prev = the closing answer of the step just finished;
+   onReply gets the reply so far while it streams */
+async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean, signal?: AbortSignal, prev?: string, onReply?: (reply: string) => void) {
   /* the buttons shown with each question go along, so the model knows which options the user did not pick */
   const history = su.chat.filter(m => m.step === su.step).slice(-12)
     .map(m => `${m.role === "ai" ? "Du" : "Nutzer"}: ${m.text}${m.role === "ai" && m.chips?.length ? `\n(Antwort-Buttons: ${m.chips.join(" | ")})` : ""}`).join("\n");
@@ -111,7 +131,8 @@ async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean, 
   /* step 1 needs the web only to read the website; other steps search the market and get the notes instead of the site */
   const web = su.step === "website" ? read : !!WEB[su.step];
   const raw = await ask({
-    key: ai, system: skillFor(su.step), web, maxSearches: web ? WEB[su.step] ?? 0 : 0, effort: EFFORT[su.step], signal,
+    key: ai, system: skillFor(su.step), web, maxSearches: web ? WEB[su.step] ?? 0 : 0, effort: text && !auto ? LESS[EFFORT[su.step]] : EFFORT[su.step], signal,
+    onText: onReply && (raw => { const r = partialReply(raw); if (r) onReply(labelled(r, su.step)); }),
     prompt: `${context(t, su)}${history ? `\n\nBisheriger Verlauf in diesem Schritt:\n${history}` : ""}${readNote}\n\n${ask_}`,
   });
   return json(raw, Out);
@@ -140,11 +161,13 @@ export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | 
 /* Which step writes which prompt section, so an AI update replaces a hand edit */
 const drop = (su: Setup, ...steps: SetupStep[]) => Object.fromEntries(Object.entries(su.prompts).filter(([k]) => !steps.includes(k as SetupStep) && k !== "fertig"));
 
-/* signal: the user stopped the answer in the chat, nothing from this turn is saved */
-export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal?: AbortSignal): Promise<Setup> {
+/* signal: the user stopped the answer in the chat, nothing from this turn is saved. onReply: the answer so far while it streams, "" when a chained step starts over */
+export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal?: AbortSignal, onReply?: (reply: string) => void): Promise<Setup> {
   if (a.action === "goto") {
     if (!a.step || !SETUP_STEPS.includes(a.step)) return su;
-    return save(su.id, { step: a.step });
+    /* jumping ahead passes over the steps in between; those still empty count as skipped, the step jumped to is open again */
+    const src = await stepSources(t.id, su), passed = SETUP_STEPS.slice(SETUP_STEPS.indexOf(su.step), SETUP_STEPS.indexOf(a.step)).filter(k => !src[k]);
+    return save(su.id, { step: a.step, skipped: [...new Set([...su.skipped.filter(k => k !== a.step), ...passed])] });
   }
   if (a.action === "prompt") {
     if (!a.step || !SETUP_STEPS.includes(a.step)) return su;
@@ -172,7 +195,7 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
     step = nextStep(su.step);
     prev = su.chat.findLast(m => m.role === "ai" && m.step === su.step)?.text ?? "";
   } else {
-    const o = await think(t, ai, { ...su, chat }, text, a.action === "auto", signal);
+    const o = await think(t, ai, { ...su, chat }, text, a.action === "auto", signal, undefined, onReply);
     if (signal?.aborted) return su;
     cur = { ...su, ...(await absorb(t, su, o, text)) };
     if (o.site && mustRead(t, su.step)) t = { ...t, settings: { ...t.settings, site: { domain: t.domain, notes: o.site.slice(0, 20000), at: new Date().toISOString() } } };
@@ -188,7 +211,8 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
     const nsu = { ...cur, chat, step };
     try {
       const timeout = AbortSignal.timeout(left);
-      const o2 = await think(t, ai, nsu, "", false, signal ? AbortSignal.any([signal, timeout]) : timeout, prev);
+      onReply?.("");
+      const o2 = await think(t, ai, nsu, "", false, signal ? AbortSignal.any([signal, timeout]) : timeout, prev, onReply);
       cur = { ...cur, ...(await absorb(t, nsu, o2, "")) };
       chat.push({ role: "ai", text: labelled(o2.reply, step), step, chips: o2.chips.slice(0, 4) });
       return save(su.id, { ...pick(cur), chat: chat.slice(-80), step });

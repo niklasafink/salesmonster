@@ -33,6 +33,39 @@ const when = (iso: string) => new Date(iso).toLocaleString("de-DE", { day: "nume
 /* a chat is named after how far it got, the day tells same-named chats apart */
 const chatName = (c: ChatItem) => `${c.done ? "Übernommen" : NAME[c.step]} (${new Date(c.at).toLocaleDateString("de-DE", { day: "numeric", month: "short" })})`;
 
+/* Server turns keyed by content, so trimming the history to 80 does not make old turns look new */
+const keyed = (chat: Setup["chat"]) => {
+  const n = new Map<string, number>();
+  return chat.map(m => { const k = `${m.role}:${m.step}:${m.text}`, c = n.get(k) ?? 0; n.set(k, c + 1); return `${k}#${c}`; });
+};
+
+/* POST that may answer as NDJSON (AI turns): onReply gets the answer so far, the last line carries the result. live = some answer was shown */
+async function stream<T>(url: string, body: unknown, signal: AbortSignal, onReply: (reply: string) => void): Promise<{ res: T; live: boolean }> {
+  const r = await fetch(url, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (r.status === 401) { location.href = "/login"; throw new Error("Nicht angemeldet"); }
+  if (!r.headers.get("content-type")?.includes("ndjson") || !r.body) {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Fehler ${r.status}`);
+    return { res: j as T, live: false };
+  }
+  const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "", live = false;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += value;
+    const ls = buf.split("\n"); buf = ls.pop() ?? "";
+    for (const l of ls) {
+      if (!l) continue;
+      const j = JSON.parse(l) as { reply?: string; done?: T; error?: string };
+      if (j.error) throw new Error(j.error);
+      if (j.done) return { res: j.done, live };
+      if (typeof j.reply === "string") { live ||= !!j.reply; onReply(j.reply); }
+    }
+  }
+  throw new Error("Verbindung abgebrochen, bitte noch einmal senden");
+}
+
 const convert = (l: Line) => ({ id: l.id, role: l.role === "ai" ? "assistant" as const : "user" as const, content: l.text });
 
 export function Einrichtung({ ctx }: { ctx: Ctx }) {
@@ -51,21 +84,26 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
 
   /* the running AI request; the stop button aborts it and the server drops the turn */
   const run = useRef<AbortController | null>(null), stopped = useRef(false), [running, setRunning] = useState(false);
+  /* the AI answer while it streams in; once done it is in the chat and counts as read, so it is not typed out a second time */
+  const [live, setLive] = useState("");
   const post = useCallback(async (body: Record<string, unknown>) => {
     const c = new AbortController();
     run.current = c; stopped.current = false; setBusy(true); setRunning(true);
-    try { const r = await api<Res>("/api/setup", { body: { t: t.slug, ...body }, signal: c.signal }); apply(r); return r.setup; }
+    try {
+      const { res: r, live: shownLive } = await stream<Res>("/api/setup", { t: t.slug, ...body }, c.signal, setLive);
+      if (shownLive) { const ids = keyed(r.setup.chat).filter(id => id.startsWith("ai:")); setRead(x => x && new Set([...x, ...ids])); }
+      apply(r); return r.setup;
+    }
     catch (e) { stopped.current = c.signal.aborted; if (!stopped.current) ctx.toast((e as Error).message, { error: true }); return null; }
-    finally { if (run.current === c) { run.current = null; setBusy(false); setRunning(false); } }
+    finally { if (run.current === c) { run.current = null; setBusy(false); setRunning(false); setLive(""); } }
   }, [t.slug, apply, ctx]);
 
   const good = su ? su.leads.filter(l => l.vote === 1).length : 0;
 
-  /* Server turns keyed by content, so trimming the history to 80 does not make old turns look new */
   const lines = useMemo(() => {
     if (!su) return [];
-    const n = new Map<string, number>();
-    const xs: Line[] = su.chat.map(m => { const k = `${m.role}:${m.step}:${m.text}`, c = n.get(k) ?? 0; n.set(k, c + 1); return { id: `${k}#${c}`, role: m.role, text: m.text, chips: m.chips }; });
+    const ids = keyed(su.chat);
+    const xs: Line[] = su.chat.map((m, i) => ({ id: ids[i], role: m.role, text: m.text, chips: m.chips }));
     if (choose) xs.push({ id: "pick", role: "ai", text: question, chips: [...choose.map(o => o.label), NEW_KEY] });
     else if (!ai) xs.push(...local);
     if (su.step === "fertig") {
@@ -101,6 +139,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     return [...xs.slice(0, lines.indexOf(next)), { ...next, text: next.text.slice(0, typed) }];
   }, [read, lines, next, typed, cut]);
   const typing = !!next;
+  const view = useMemo(() => live ? [...shown, { id: "live", role: "ai" as const, text: live }] : shown, [shown, live]);
   /* the website is read only in the first turn of step 1, later turns work from the notes */
   const reading = !!su && su.step === "website" && !!t.domain && !su.chat.some(m => m.role === "ai" && m.step === "website");
 
@@ -168,12 +207,12 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
 
   /* stop: aborts the request, or ends the typewriter where it is */
   const stop = () => {
-    if (run.current) { run.current.abort(); run.current = null; setBusy(false); setRunning(false); }
+    if (run.current) { run.current.abort(); run.current = null; setBusy(false); setRunning(false); setLive(""); }
     if (next) { setCut(c => ({ ...c, [next.id]: typed })); setRead(r => r && new Set(r).add(next.id)); }
   };
 
   const runtime = useExternalStoreRuntime({
-    messages: shown, convertMessage: convert, isRunning: busy || typing, isDisabled: su?.step === "fertig",
+    messages: view, convertMessage: convert, isRunning: busy || typing, isDisabled: su?.step === "fertig",
     onNew: async (m: AppendMessage) => { const p = m.content.find(c => c.type === "text"); if (p?.type !== "text") return; if (choose) await pick(p.text); else if (ai) await send(p.text); else await connect(p.text); },
     onCancel: async () => stop(),
   });
@@ -208,7 +247,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
         <ThreadPrimitive.Root className="cl-thread">
           <ThreadPrimitive.Viewport className="cl-vp">
             <ThreadPrimitive.Messages>{() => <Msg />}</ThreadPrimitive.Messages>
-            {busy && !typing && <div className="cl-col cl-run"><Spark spin />{!ai ? "Prüfe den Schlüssel" : reading ? `Lese die Website ${t.domain}` : su.step === "website" ? "Denke nach" : BUSY[su.step]}</div>}
+            {busy && !typing && !live && <div className="cl-col cl-run"><Spark spin />{!ai ? "Prüfe den Schlüssel" : reading ? `Lese die Website ${t.domain}` : su.step === "website" ? "Denke nach" : BUSY[su.step]}</div>}
             {quiet && ai && su.step === "liste" && su.leads.length > 0 && <div className="cl-col cl-inl"><LeadList su={su} busy={busy} post={post} send={send} /></div>}
             {quiet && ai && su.step === "ansprache" && su.templates.length > 0 && <div className="cl-col cl-inl"><Mails xs={su.templates} /></div>}
             {/* answer options belong to the last AI turn, directly below it and its lists */}

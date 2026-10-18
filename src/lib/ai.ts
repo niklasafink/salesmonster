@@ -41,17 +41,36 @@ export class AiMissing extends Error { constructor() { super("Keine KI verbunden
 
 type Msg = { role: "user" | "assistant"; content: string };
 
-/* OpenRouter chat completion; web search through the web plugin (native search for Anthropic, OpenAI, Google models) */
-export async function openrouterAsk(ai: { key: string; model?: string }, system: string, messages: Msg[], web: boolean, maxResults: number, signal?: AbortSignal): Promise<string> {
+/* OpenRouter chat completion; web search through the web plugin (native search for Anthropic, OpenAI, Google models).
+   onText gets the text so far while it streams */
+export async function openrouterAsk(ai: { key: string; model?: string }, system: string, messages: Msg[], web: boolean, maxResults: number, signal?: AbortSignal, onText?: (text: string) => void): Promise<string> {
   const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST", signal,
     headers: { authorization: `Bearer ${ai.key}`, "content-type": "application/json", "x-title": "Sales Portal", "http-referer": "https://sales-portal-sooty.vercel.app" },
     body: JSON.stringify({
-      model: ai.model || OPENROUTER_MODELS[0][0], max_tokens: 16000,
+      model: ai.model || OPENROUTER_MODELS[0][0], max_tokens: 16000, stream: !!onText,
       messages: [{ role: "system", content: system }, ...messages],
       plugins: web ? [{ id: "web", max_results: Math.min(10, Math.max(3, maxResults)) }] : undefined,
     }),
   });
+  if (onText && r.ok && r.body) {
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "", text = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += value;
+      const lines = buf.split("\n"); buf = lines.pop() ?? "";
+      for (const l of lines) {
+        if (!l.startsWith("data:") || l.includes("[DONE]")) continue;
+        const j = JSON.parse(l.slice(5)) as { error?: { message?: string }; choices?: { delta?: { content?: string } }[] };
+        if (j.error) throw new Error(`OpenRouter: ${j.error.message}`);
+        const d = j.choices?.[0]?.delta?.content;
+        if (d) { text += d; onText(text); }
+      }
+    }
+    return text;
+  }
   const j = await r.json().catch(() => ({})) as { error?: { message?: string }; choices?: { message?: { content?: string } }[] };
   if (!r.ok) throw new Error(`OpenRouter: ${j.error?.message || r.status}`);
   return j.choices?.[0]?.message?.content || "";

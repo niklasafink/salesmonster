@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, tenants } from "@/db";
-import { HttpError, qp, route, tenantBySlug } from "@/lib/api";
+import { HttpError, publicError, qp, route, tenantBySlug } from "@/lib/api";
 import { aiFor, aiOptions, choiceId, choiceLabel, choiceOf } from "@/lib/ai";
 import { act, applySetup, listChats, loadSetup, newSetup, promptParts, stepSources, switchSetup, PROMPT_KEY, type Action, type Setup } from "@/lib/setup";
 
@@ -21,6 +21,21 @@ async function chooser(t: Tenant, su: Setup, userId: number) {
 async function full(t: Tenant, su: Setup, userId: number) {
   const c = await chooser(t, su, userId);
   return { setup: su, sources: await stepSources(t.id, su), parts: promptParts(t, su), keys: PROMPT_KEY, ai: !!(await aiFor(t.id, userId)), choose: c?.options ?? null, question: c?.question ?? "", chats: await listChats(t.id) };
+}
+
+/* AI turns answer as NDJSON: {"reply"} lines with the answer so far while the model writes, then {"done"} with the full state or {"error"} */
+function streamed(run: (onReply: (reply: string) => void) => Promise<unknown>) {
+  const enc = new TextEncoder();
+  return new Response(new ReadableStream({
+    async start(c) {
+      const put = (o: unknown) => { try { c.enqueue(enc.encode(`${JSON.stringify(o)}\n`)); } catch { /* client gone */ } };
+      let last = 0;
+      /* at most ~12 updates a second; the final state follows anyway */
+      const onReply = (reply: string) => { const now = Date.now(); if (!reply || now - last > 80) { last = now; put({ reply }); } };
+      try { put({ done: await run(onReply) }); } catch (e) { put({ error: publicError(e).message }); }
+      try { c.close(); } catch { /* client gone */ }
+    },
+  }), { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store, no-transform", "x-accel-buffering": "no" } });
 }
 
 export const GET = route(async (req, _c, me) => {
@@ -46,11 +61,18 @@ export const POST = route(async (req, _c, me) => {
     await db.update(tenants).set({ settings: { ...t.settings, ai: pick } }).where(eq(tenants.id, t.id));
     t = { ...t, settings: { ...t.settings, ai: pick } };
     /* the question and the answer stay in the chat, then step 1 starts with the chosen model */
-    const next = await act(t, await aiFor(t.id, me.id), su, { action: "start", intro: [{ role: "ai", text: c.question, step: su.step }, { role: "me", text: o.label, step: su.step }] }, req.signal);
-    return { setup: next, sources: await stepSources(t.id, next), parts: promptParts(t, next), keys: PROMPT_KEY, ai: true, choose: null, question: "", chats: await listChats(t.id) };
+    const ai = await aiFor(t.id, me.id), tt = t;
+    return streamed(async onReply => {
+      const next = await act(tt, ai, su, { action: "start", intro: [{ role: "ai", text: c.question, step: su.step }, { role: "me", text: o.label, step: su.step }] }, req.signal, onReply);
+      return { setup: next, sources: await stepSources(tt.id, next), parts: promptParts(tt, next), keys: PROMPT_KEY, ai: true, choose: null, question: "", chats: await listChats(tt.id) };
+    });
   }
   if (!["start", "message", "auto", "next", "skip", "goto", "votes", "prompt"].includes(b.action)) throw new HttpError(400, "Unbekannte Aktion");
   const { intro: _drop, ...a } = b as Action & { t: string };
-  const next = await act(t, await aiFor(t.id, me.id), su, a, req.signal);
-  return { setup: next, sources: await stepSources(t.id, next), parts: promptParts(t, next), keys: PROMPT_KEY, chats: await listChats(t.id) };
+  const ai = await aiFor(t.id, me.id);
+  const run = async (onReply?: (reply: string) => void) => {
+    const next = await act(t, ai, su, a, req.signal, onReply);
+    return { setup: next, sources: await stepSources(t.id, next), parts: promptParts(t, next), keys: PROMPT_KEY, chats: await listChats(t.id) };
+  };
+  return ["start", "message", "auto"].includes(a.action) ? streamed(run) : run();
 });
