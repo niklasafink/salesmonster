@@ -71,7 +71,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; cols?: Column[] | null; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null), [drag, setDrag] = useState(false);
   const [edit, setEdit] = useState<EditLead | null>(null), [allCols, setAllCols] = useState(false);
-  const [order, setOrder] = useState<number[]>([]), [next, setNext] = useState<number[]>([]), [days, setDays] = useState<Record<number, string>>({});
+  const [order, setOrder] = useState<number[]>([]), [days, setDays] = useState<Record<number, string>>({});
+  const [widths, setWidths] = useState<Record<string, number>>({});
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   const [sort, setSortState] = useState("versand"), [angles, setAngles] = useState(false);
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
@@ -81,9 +82,22 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const seenRes = useRef(0);
   const enrRef = useDialog(() => setEnr(null));
   useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
+  useEffect(() => { try { const v = JSON.parse(keep.get("leads-widths") || "null"); if (v && typeof v === "object") setWidths(v); } catch { /* defaults */ } }, []);
+  /* dragging a header edge sets that column's width; a double click gives the default back */
+  function resize(k: string, e: React.PointerEvent<HTMLSpanElement>) {
+    e.preventDefault(); e.stopPropagation();
+    const el = e.currentTarget, x0 = e.clientX, w0 = el.parentElement!.offsetWidth;
+    el.setPointerCapture(e.pointerId);
+    let w = w0;
+    const move = (ev: PointerEvent) => { w = Math.max(56, Math.round(w0 + ev.clientX - x0)); setWidths(cur => ({ ...cur, [k]: w })); };
+    const up = () => { el.removeEventListener("pointermove", move); setWidths(cur => { keep.set("leads-widths", JSON.stringify(cur)); return cur; }); };
+    el.addEventListener("pointermove", move); el.addEventListener("pointerup", up, { once: true });
+  }
+  const unsize = (k: string) => setWidths(cur => { const n = { ...cur }; delete n[k]; keep.set("leads-widths", JSON.stringify(n)); return n; });
+  const th = (k: string, label: ReactNode) => <th className={k}>{label}<span className="rsz" aria-hidden onPointerDown={e => resize(k, e)} onDoubleClick={() => unsize(k)} /></th>;
   const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
   const impRef = useDialog(() => setImp(null));
-  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string> }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); setOrder(r.order); setNext(r.next); setDays(r.days || {}); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
+  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string> }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); setOrder(r.order); setDays(r.days || {}); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
   /* opened from the command palette */
   useEffect(() => { const r = focus != null && rows.find(x => x.id === focus); if (r) { setEdit(r); onFocused?.(); } }, [focus, rows, onFocused]);
@@ -91,17 +105,23 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const srcs = [...new Set(rows.map(r => r.source))];
   const inFilter = (r: Lead, s: string) => s === "alle" ? r.status !== "papierkorb" : r.status === s;
   const cnt = (s: string) => rows.filter(r => inFilter(r, s)).length;
-  /* Versand: the mail queue in send order, everything else after it by rating */
-  const pos = new Map(order.map((id, i) => [id, i]));
-  const byQueue = (a: Lead, b: Lead) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity) || sorters.bewertung(a, b);
+  /* Versand: by send day, drafts waiting for approval included; within a day the queue order, where further contacts of a company
+     follow its first one, as the evening run takes them; leads without a day come last by rating */
+  const coId = new Map(rows.map(r => [r.id, r.companyId == null ? `l${r.id}` : `c${r.companyId}`]));
+  const first = new Map<string, number>();
+  order.forEach((id, i) => { const c = coId.get(id) ?? `l${id}`; if (!first.has(c)) first.set(c, i); });
+  const queue = order.map((id, i) => ({ id, k: first.get(coId.get(id) ?? `l${id}`)!, i })).sort((a, b) => a.k - b.k || a.i - b.i).map(x => x.id);
+  const pos = new Map(queue.map((id, i) => [id, i]));
+  const byQueue = (a: Lead, b: Lead) => (days[a.id] || "9").localeCompare(days[b.id] || "9") || (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity) || sorters.bewertung(a, b);
   const vis = rows.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q)).sort(sort === "versand" ? byQueue : sorters[sort]);
   /* dragging only where the whole queue is in view, so a move means the same as in the list */
   const canDrag = sort === "versand" && src === "alle" && !q.trim() && (filter === "alle" || filter === "neu");
-  const lastNext = vis.filter(r => next.includes(r.id)).at(-1)?.id;
+  /* a line under the last lead of each send day */
+  const dayEnd = new Set(sort === "versand" ? vis.filter((r, i) => days[r.id] && days[vis[i + 1]?.id] !== days[r.id]).map(r => r.id) : []);
   async function moved(e: DragEndEvent) {
-    const from = order.indexOf(Number(e.active.id)), to = e.over ? order.indexOf(Number(e.over.id)) : -1;
+    const from = queue.indexOf(Number(e.active.id)), to = e.over ? queue.indexOf(Number(e.over.id)) : -1;
     if (from < 0 || to < 0 || from === to) return;
-    const nx = arrayMove(order, from, to);
+    const nx = arrayMove(queue, from, to);
     setOrder(nx);
     /* the moved block keeps its places; what follows stays sorted by rating */
     try { await api("/api/leads/queue", { method: "PUT", body: { t: t.slug, ids: nx.slice(0, Math.max(from, to) + 1) } }); load(); }
@@ -257,18 +277,18 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   };
   const cells = (r: Lead, handle: ReactNode) => <>
     <td className="c-sel" onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.company} auswählen`} /></td>
-    <td className="c-q">{handle}{next.includes(r.id) && <span className="num">{next.indexOf(r.id) + 1}</span>}</td>
+    <td className="c-q">{handle}</td>
+    <td className="c-day f2">{dayCell(days[r.id])}</td>
     <td className="c-rt">{r.rating !== null && r.ratingInfo ? <RatingBar value={r.rating} title={[`${r.rating} von 100`, ...r.ratingInfo.reasons.slice(0, 3).map(reasonText)].join("\n")} /> : <span className="f3">–</span>}</td>
     <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
     <td className="dotc"><Dot s={r.status} /></td>
     <td className="co" title={r.company}>{r.company}</td>
-    <td title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
+    <td className="pn" title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
     <td className="c-role f2" title={r.role || undefined}>{r.role || <span className="f3">–</span>}</td>
     {chCell(r)}
     <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td>
     <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
     <td className="c-src f2">{srcCell(r)}</td>
-    <td className="c-day f2">{dayCell(days[r.id])}</td>
     <td className="act">{r.status !== "papierkorb" && r.rating !== null && <>
       <button className={`btn gh ic${r.vote > 0 ? " on" : ""}`} title="Guter Lead" aria-label="Guter Lead" aria-pressed={r.vote > 0} onClick={e => { e.stopPropagation(); vote(r, 1); }}><Icon n="thumbs-up" /></button>
       <button className={`btn gh ic${r.vote < 0 ? " on" : ""}`} title="Schlechter Lead" aria-label="Schlechter Lead" aria-pressed={r.vote < 0} onClick={e => { e.stopPropagation(); vote(r, -1); }}><Icon n="thumbs-down" /></button>
@@ -276,7 +296,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
       : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td>
   </>;
-  const rowProps = (r: Lead) => ({ className: `click${r.id === lastNext && sort === "versand" ? " cut" : ""}`, tabIndex: 0, onClick: () => setEdit(r),
+  const rowProps = (r: Lead) => ({ className: `click${dayEnd.has(r.id) ? " cut" : ""}`, tabIndex: 0, onClick: () => setEdit(r),
     onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } } });
   const row = (r: Lead) => canDrag && pos.has(r.id)
     ? <QueueRow key={r.id} id={r.id} {...rowProps(r)}>{h => cells(r, h)}</QueueRow>
@@ -296,7 +316,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
       <button className="btn pri" onClick={() => { setImp({ text: "", src: "", rows: null, busy: false }); setSheets(null); }}><Icon n="upload" />Importieren</button>
     </Top>
-    <div className="scroll"><div className="wrap wide">
+    <div className="scroll"><div className="wrap wide full">
       <div className="toolbar">
         <div className="filters">{FILTERS.map(k => <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></button>)}</div>
         <div className="row3">
@@ -305,7 +325,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads"><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Versand"></th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-ch" aria-label="Kanal"></th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="c-day">Versand</th><th className="act"></th></tr></thead><tbody>
+      <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Verschieben"></th><th className="c-day">Versand</th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th>{th("co", "Firma")}{th("pn", "Ansprechpartner")}{th("c-role", "Rolle")}<th className="c-ch" aria-label="Kanal"></th>{th("c-em", "E-Mail")}{th("c-hook", t.tenders ? "Ausschreibungen" : "Anlass")}{th("c-src", "Quelle")}<th className="act"></th></tr></thead><tbody>
         {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved}>
           <SortableContext items={canDrag ? vis.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{vis.map(row)}</SortableContext>
         </DndContext> : <tr><td colSpan={14} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
