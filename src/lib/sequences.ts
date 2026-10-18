@@ -6,8 +6,7 @@ import { aiFor, AiMissing } from "./ai";
 import { ask, json } from "./claude";
 import { fill, type FillLead } from "./fill";
 import { hubspotContactsRead, hubspotContactsWhere, hubspotToken, type HsContact } from "./hubspot";
-import { getInteg } from "./integrations";
-import { scoreMail } from "./jev";
+import { jevKey, scoreMail } from "./jev";
 import { salutationOf } from "./lead-fields";
 import { hasBounce, hasReply, sendAs } from "./mail";
 import { thompson } from "./thompson";
@@ -206,8 +205,8 @@ export async function runSequences(t: Tenant, opts: { anyHour?: boolean } = {}) 
 
 /* Jev's view of one variant, rendered for a real person in the sequence if there is one */
 export async function scoreVariant(t: Tenant, s: Seq, tplId: number) {
-  const key = (await getInteg(t.id, "jev"))?.key;
-  if (key === undefined) throw new Error("Jev ist nicht verbunden");
+  const key = await jevKey(t.id);
+  if (!key) throw new Error("OpenRouter ist nicht verbunden (für Jev)");
   const [tpl] = await db.select().from(sequenceTemplates).where(and(eq(sequenceTemplates.id, tplId), eq(sequenceTemplates.sequenceId, s.id)));
   if (!tpl) throw new Error("Variante nicht gefunden");
   const [e] = await db.select().from(enrollments).where(eq(enrollments.sequenceId, s.id)).orderBy(desc(enrollments.id)).limit(1);
