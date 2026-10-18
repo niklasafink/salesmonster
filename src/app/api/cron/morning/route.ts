@@ -7,7 +7,7 @@ import { syncAll } from "@/lib/mail-sync";
 
 export const maxDuration = 300;
 
-/* 08:00 Berlin, Mon–Fri: count replies, send approved messages, flag overdue invoices */
+/* 08:00 Berlin, daily: count replies, send what is due in the send window, flag overdue invoices */
 export async function GET(req: Request) {
   if (!cronAuthorized(req)) return new Response("Unauthorized", { status: 401 });
   const t0 = Date.now();

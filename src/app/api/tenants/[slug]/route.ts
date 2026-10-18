@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db, tenants } from "@/db";
 import { HttpError, body, route, tenantBySlug } from "@/lib/api";
 import { choiceOf } from "@/lib/ai";
+import { planOf } from "@/lib/schedule";
 
 type Ctx = { params: Promise<{ slug: string }> };
 
@@ -16,6 +17,8 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
     s.leadsPerDay = Math.max(1, Math.min(30, Math.round(Number(s.leadsPerDay)) || 10));
     s.roundsPerDay = Math.max(0, Math.min(24, Math.round(Number(s.roundsPerDay)) || 0));
     s.holdTop = s.holdTop === true;
+    const p = planOf(s);
+    s.sendDays = p.days; s.sendFrom = Math.max(0, Math.min(23, p.from)); s.sendTo = Math.max(s.sendFrom + 1, Math.min(24, p.to));
     if (typeof s.sendpilotCampaign !== "string" || !s.sendpilotCampaign) delete s.sendpilotCampaign;
     /* "claude" or "openrouter:<model>"; null goes back to the default order */
     if ("ai" in b.settings) {

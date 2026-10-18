@@ -1,8 +1,9 @@
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { db, leads, tenants } from "@/db";
-import { berlinWeekday } from "./dates";
+import { db, leads, messages, tenants } from "@/db";
+import { berlinDate, berlinWeekday } from "./dates";
 import { getInteg } from "./integrations";
 import { channelOf, domain } from "./lead-rating";
+import { batchDays, draftDay, planOf } from "./schedule";
 
 type Tenant = typeof tenants.$inferSelect;
 export type QueueLead = { id: number; companyId: number | null; held: boolean };
@@ -36,6 +37,21 @@ export async function mailQueue(t: Tenant, now = new Date()): Promise<QueueLead[
 export function nextUp(q: QueueLead[], n: number) {
   const cos: (number | null)[] = [];
   return q.filter(r => { if (!cos.includes(r.companyId)) { if (cos.length >= n) return false; cos.push(r.companyId); } return true; }).map(r => r.id);
+}
+
+/* The day each lead is written to: drafts go out on the send day after their evening, the queue fills one evening run per send day,
+   leadsPerDay companies each, in queue order */
+export async function sendDates(t: Tenant, q: QueueLead[], now = new Date()) {
+  const p = planOf(t.settings), n = Math.max(1, Math.min(30, t.settings.leadsPerDay || 10)), today = berlinDate(now);
+  const drafts = await db.select({ leadId: messages.leadId, leadIds: messages.leadIds, batchDate: messages.batchDate, channel: messages.channel }).from(messages)
+    .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben"])));
+  const out: Record<number, string> = {};
+  for (const m of drafts) if (m.channel === "mail") for (const id of m.leadIds?.length ? m.leadIds : [m.leadId]) out[id] = draftDay(p, m.batchDate, now);
+  const cos = new Map<number | null, number>();
+  for (const r of q) if (!cos.has(r.companyId)) cos.set(r.companyId, cos.size);
+  const days = batchDays(p, Math.ceil(cos.size / n), drafts.some(m => m.batchDate === today), now);
+  for (const r of q) { const d = days[Math.floor(cos.get(r.companyId)! / n)]; if (d && !out[r.id]) out[r.id] = d; }
+  return out;
 }
 
 /* New order from drag and drop: the given ids get places 1…, the rest of the queue loses its place and follows by rating */

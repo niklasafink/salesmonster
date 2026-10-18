@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { INTEG } from "@/lib/integ-meta";
 import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx, MailSync } from "../types";
+import { DAY_NAMES, daysText, hh, planOf } from "@/lib/schedule";
 
 const when = (s: string) => new Date(s).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
@@ -23,6 +24,7 @@ function Ablauf({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [n, setN] = useState(String(t.settings.leadsPerDay)), [busy, setBusy] = useState<string | null>(null);
   const [rounds, setRounds] = useState(String(t.settings.roundsPerDay ?? 0)), [hold, setHold] = useState(!!t.settings.holdTop);
+  const plan = planOf(t.settings);
   const saveSettings = async (settings: object) => { try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); } };
   const clampR = (v: string) => v.trim() && Number.isFinite(Number(v)) ? Math.max(0, Math.min(24, Math.round(Number(v)))) : null;
   /* same bounds as the server: whole numbers 1..30 */
@@ -50,8 +52,17 @@ function Ablauf({ ctx }: { ctx: Ctx }) {
       <div className="row2"><span>Ausschreibungen je Lead suchen</span><button className={`sw ${t.tenders ? "on" : ""}`} role="switch" aria-checked={!!t.tenders} aria-label="Ausschreibungen je Lead suchen"
         onClick={async () => { try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { tenders: !t.tenders } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); } }} /></div>
       {ctx.st.integ.sendpilot?.on && <LiCampaign ctx={ctx} save={saveSettings} />}
-      <div className="row2"><span>Recherche und Freigabe-Mail</span><span className="num f2">So–Do 20:00</span></div>
-      <div className="row2"><span>Versand</span><span className="num f2">Mo–Fr 08:00</span></div>
+      <div className="row2"><span>Versandtage</span><div className="seg" role="group" aria-label="Versandtage">{DAY_NAMES.map((d, i) => { const on = plan.days.includes(i + 1);
+        return <button key={d} className={on ? "on" : ""} aria-pressed={on} disabled={on && plan.days.length === 1}
+          onClick={() => saveSettings({ sendDays: on ? plan.days.filter(x => x !== i + 1) : [...plan.days, i + 1] })}>{d}</button>; })}</div></div>
+      <div className="row2"><span>Versandzeit</span><span className="row3">
+        <select className="inp sel" aria-label="Versand ab" value={plan.from} onChange={e => { const f = Number(e.target.value); saveSettings({ sendFrom: f, sendTo: Math.max(plan.to, f + 1) }); }}>
+          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hh(h)}</option>)}</select>
+        <span className="f3">bis</span>
+        <select className="inp sel" aria-label="Versand bis" value={plan.to} onChange={e => saveSettings({ sendTo: Number(e.target.value) })}>
+          {Array.from({ length: 24 - plan.from }, (_, i) => plan.from + 1 + i).map(h => <option key={h} value={h}>{hh(h)}</option>)}</select>
+      </span></div>
+      <div className="row2"><span>Recherche und Freigabe-Mail</span><span className="num f2">{daysText(plan.days.map(d => d === 1 ? 7 : d - 1))} 20:00</span></div>
     </div>
     <div className="row3">
       <button className="btn sec" onClick={() => run("research")} disabled={!!busy}>{busy === "research" && <Icon n="loader" />}Jetzt recherchieren</button>

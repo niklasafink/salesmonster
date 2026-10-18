@@ -1,0 +1,16 @@
+# Vercel Hobby runs each cron once a day; mails go out hourly inside each tenant's send window
+name: Versand
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Fällige Mails senden
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 300 -H "Authorization: Bearer $CRON_SECRET" https://sales-portal-sooty.vercel.app/api/cron/send

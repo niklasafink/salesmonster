@@ -16,6 +16,7 @@ import { beta } from "./angles";
 import { FREEMAIL, channelOf } from "./lead-rating";
 import { bouncedDomains, linkedinOn, mailQueue } from "./queue";
 import { sendpilotPush } from "./sendpilot";
+import { DAY_NAMES, draftDay, hh, isoWeekday, planOf, sendQuota } from "./schedule";
 
 type Tenant = typeof tenants.$inferSelect;
 type Lead = typeof leads.$inferSelect;
@@ -210,24 +211,33 @@ export async function approvalMail(t: Tenant) {
   const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(messages).where(and(eq(messages.tenantId, t.id), eq(messages.status, "entwurf")));
   if (!n) return;
   const url = process.env.APP_URL || "";
+  const p = planOf(t.settings), day = draftDay(p, berlinDate());
+  const when = `${DAY_NAMES[isoWeekday(day) - 1]} ${day.slice(8)}.${day.slice(5, 7)}. zwischen ${hh(p.from)} und ${hh(p.to)}`;
   const all = await db.select({ email: users.email, short: users.short }).from(users).innerJoin(members, eq(members.userId, users.id)).where(eq(members.tenantId, t.id));
   for (const u of all) {
     await sendSystem(t.id, { to: u.email, subject: `${n} Entwürfe für ${t.name} warten auf Freigabe`,
-      text: `Hallo ${u.short},\n\nfür morgen früh liegen ${n} Nachrichten zur Freigabe bereit.\n\n${url}/#freigabe\n\nVersand um 08:00.` });
+      text: `Hallo ${u.short},\n\n${n} Nachrichten liegen zur Freigabe bereit.\n\n${url}/#freigabe\n\nVersand ${when}.` });
   }
 }
 
-/* Morning job: send everything that was approved */
-export async function sendApproved(t: Tenant) {
-  const rows = await db.select({ m: messages, l: leads }).from(messages).innerJoin(leads, eq(leads.id, messages.leadId))
-    .where(and(eq(messages.tenantId, t.id), eq(messages.status, "freigegeben"), eq(messages.channel, "mail"), isNotNull(messages.senderId)));
+/* Hourly in the tenant's send window: an even share of what was approved, the rest in the last hour; now = everything at once (button) */
+export async function sendApproved(t: Tenant, opts: { now?: boolean } = {}) {
+  let rows = await db.select({ m: messages, l: leads }).from(messages).innerJoin(leads, eq(leads.id, messages.leadId))
+    .where(and(eq(messages.tenantId, t.id), eq(messages.status, "freigegeben"), eq(messages.channel, "mail"), isNotNull(messages.senderId))).orderBy(sql`${messages.error} <> ''`, asc(messages.id));
+  if (!opts.now) rows = rows.slice(0, sendQuota(planOf(t.settings), rows.length));
+  if (!rows.length) return { sent: 0, failed: 0 };
   const hub = await hubspotToken(t.id);
   let sent = 0, failed = 0;
   for (const { m, l } of rows) {
+    /* two ticks in the same hour must not send one message twice */
+    const [mine] = await db.update(messages).set({ status: "versand" }).where(and(eq(messages.id, m.id), eq(messages.status, "freigegeben"))).returning({ id: messages.id });
+    if (!mine) continue;
+    let out = false;
     try {
       const to = recipients(m, l);
       if (!to.length) throw new Error("E-Mail fehlt");
       await sendAs(t.id, m.senderId!, { to: to.join(", "), subject: m.finalSubject || "", text: m.finalBody || "" });
+      out = true;
       const covered = await db.select().from(leads).where(inArray(leads.id, idsOf(m)));
       let hs = covered.every(x => !!x.hubspotId);
       if (hub && !hs) {
@@ -239,7 +249,7 @@ export async function sendApproved(t: Tenant) {
       sent++;
     } catch (e) {
       failed++;
-      await db.update(messages).set({ error: (e as Error).message.slice(0, 300) }).where(eq(messages.id, m.id));
+      await db.update(messages).set({ status: out ? "gesendet" : "freigegeben", ...(out ? { sentAt: new Date() } : {}), error: (e as Error).message.slice(0, 300) }).where(eq(messages.id, m.id));
     }
   }
   await log(t.id, "send", failed === 0, `${sent} gesendet${failed ? `, ${failed} fehlgeschlagen` : ""}`);

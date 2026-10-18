@@ -564,6 +564,7 @@ table.leads th.c-q{width:46px} table.leads td.c-q{padding:0 0 0 4px; font-size:1
 table.leads td.c-q .grip{width:20px; height:24px; cursor:grab; touch-action:none; color:var(--fg-3); vertical-align:middle}
 table.leads th.c-ch{width:30px} table.leads td.c-ch{color:var(--fg-3); padding-right:0} table.leads td.c-ch.on{color:var(--fg)}
 table.leads td.c-ch svg{width:15px; height:15px; vertical-align:middle}
+table.leads th.c-day{width:84px} table.leads td.c-day{font-size:12.5px; white-space:nowrap}
 table.leads tr.cut td{border-bottom:2px solid var(--fg-3)}
 table.leads tr.drag{position:relative; z-index:1; background:var(--bg); box-shadow:0 4px 16px rgb(0 0 0 / .12)}
 table.leads td.act .btn.on{opacity:1; color:var(--fg)}

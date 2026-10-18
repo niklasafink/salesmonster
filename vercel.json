@@ -1,9 +1,88 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["fra1"],
+  "regions": [
+    "fra1"
+  ],
   "crons": [
-    { "path": "/api/cron/evening", "schedule": "0 18 * * 0-4" },
-    { "path": "/api/cron/morning", "schedule": "0 6 * * 1-5" },
-    { "path": "/api/cron/sequences", "schedule": "0 9 * * *" }
+    {
+      "path": "/api/cron/evening",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/morning",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/sequences",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=4",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=5",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=7",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=8",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=9",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=10",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=11",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=12",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=13",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=14",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=15",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=16",
+      "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=17",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=18",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=19",
+      "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=20",
+      "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/cron/send?h=21",
+      "schedule": "0 21 * * *"
+    }
   ]
 }

@@ -5,6 +5,9 @@ import { httpUrl } from "@/lib/lead-fields";
 import { Icon, Top, api, useAutosize } from "../ui";
 import type { Ctx, Draft, DraftScore, State, Tpl } from "../types";
 import { LeadDialog, emptyLead, type EditLead } from "../lead-dialog";
+import type { TenantSettings } from "@/db/schema";
+import { addDaysIso, berlinDate } from "@/lib/dates";
+import { DAY_NAMES, berlinHour, hh, isSendDay, isoWeekday, planOf, sendDayFrom } from "@/lib/schedule";
 
 const ST: Record<string, [string, string]> = { entwurf: ["Entwurf", ""], freigegeben: ["Freigegeben", "g"], uebersprungen: ["Übersprungen", ""] };
 
@@ -24,16 +27,12 @@ export async function approveAllDrafts(st: State) {
   return items.length;
 }
 
-/* Next weekday 08:00 in Berlin */
-function nextSend() {
-  const now = new Date(), fmt = (d: Date, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Berlin", ...o }).format(d);
-  const hour = Number(fmt(now, { hour: "2-digit", hour12: false }));
-  for (let i = 0; i < 8; i++) {
-    const d = new Date(now.getTime() + i * 864e5), wd = fmt(d, { weekday: "short" });
-    if (/Sa|So/.test(wd) || (i === 0 && hour >= 8)) continue;
-    return { short: `${wd.replace(".", "")} 08:00`, long: i === 0 ? "heute um 08:00" : i === 1 ? "morgen um 08:00" : `am ${fmt(d, { weekday: "long" })} um 08:00` };
-  }
-  return { short: "08:00", long: "um 08:00" };
+/* The next start of the tenant's send window that is still ahead, or now while the window is open */
+function nextSend(settings: TenantSettings) {
+  const p = planOf(settings), today = berlinDate(), h = berlinHour(), open = isSendDay(p, today) && h < p.to;
+  const d = open ? today : sendDayFrom(p, addDaysIso(today, 1)), at = open && h >= p.from ? `bis ${hh(p.to)}` : `ab ${hh(p.from)}`;
+  const name = new Date(`${d}T12:00:00Z`).toLocaleDateString("de-DE", { weekday: "long", timeZone: "UTC" });
+  return { short: `${DAY_NAMES[isoWeekday(d) - 1]} ${at}`, long: d === today ? `heute ${at}` : d === addDaysIso(today, 1) ? `morgen ${at}` : `am ${name} ${at}` };
 }
 
 export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | null; onFocused: () => void }) {
@@ -46,7 +45,7 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
   useEffect(() => { setL(st.drafts); }, [st.drafts]);
   useEffect(() => { if (focus != null) { const i = L.findIndex(d => d.id === focus); if (i >= 0) { setSel(i); setDet(true); setDone(false); } onFocused(); } }, [focus, L, onFocused]);
 
-  const t = st.tenant!, tpls = st.templates, sender = st.me.name, send = useMemo(nextSend, []);
+  const t = st.tenant!, tpls = st.templates, sender = st.me.name, send = useMemo(() => nextSend(t.settings), [t.settings]);
   const appr = L.filter(l => l.status === "freigegeben").length, open = L.filter(l => l.status === "entwurf").length;
   const cur = L[Math.min(sel, L.length - 1)];
 
