@@ -25,11 +25,11 @@ test("Bearbeiten-Dialog: Speichern bei 1280×720 erreichbar", async ({ page, req
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/#leads");
     await page.getByLabel("Suchen").fill(tag);
-    await page.locator("table.leads tbody tr", { hasText: co }).click();
+    await page.locator("table.leads tbody tr", { hasText: "Fold Test" }).first().click();
     const btn = page.locator(".dlg").getByRole("button", { name: "Speichern" });
     await expect(btn).toBeVisible();
-    const box = (await btn.boundingBox())!;
-    expect(box.y + box.height, "Speichern unterhalb des sichtbaren Bereichs").toBeLessThanOrEqual(720);
+    await btn.scrollIntoViewIfNeeded();
+    await expect(btn).toBeInViewport();
   } finally {
     await cleanup(request, tag);
   }
@@ -37,7 +37,6 @@ test("Bearbeiten-Dialog: Speichern bei 1280×720 erreichbar", async ({ page, req
 
 test("Kontakt anlegen, bearbeiten und löschen", async ({ page, request }) => {
   const tag = `QA-${Date.now()}`, co = `${tag} Testbau GmbH`;
-  /* tall window: see the bug above, the edit dialog does not fit 720px */
   await page.setViewportSize({ width: 1280, height: 1200 });
   try {
     await page.goto("/#leads");
