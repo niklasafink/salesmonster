@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, api } from "../ui";
 import type { Ctx } from "../types";
 
@@ -77,22 +77,28 @@ function bar(x: number, base: number, w: number, h: number) {
 }
 
 function Chart({ p, b }: { p: Period; b: Bucket[] }) {
-  const [hover, setHover] = useState<number | null>(null);
+  const [hover, setHover] = useState<number | null>(null), [W, setW] = useState(720), box = useRef<HTMLDivElement>(null);
+  /* drawn at its real width, so the axis text stays 11 px on a phone */
+  useEffect(() => {
+    const el = box.current; if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(280, Math.round(e.contentRect.width))));
+    ro.observe(el); return () => ro.disconnect();
+  }, []);
   const tk = ticks(Math.max(0, ...b.map(x => x.cost))), top = tk[tk.length - 1], step = tk[1] ?? top;
-  const W = 720, H = 220, L = 62, R = 6, Tp = 8, B = 24, iw = W - L - R, ih = H - Tp - B, bw = iw / b.length;
+  const H = 220, L = 62, R = 6, Tp = 8, B = 24, iw = W - L - R, ih = H - Tp - B, bw = iw / b.length;
   const y = (v: number) => Tp + ih - v / top * ih, gap = Math.min(bw * .3, 12);
   const lbl = (x: Bucket) => p === "jahr" ? parse(x.from).toLocaleDateString("de-DE", { month: "short" })
     : p === "woche" ? parse(x.from).toLocaleDateString("de-DE", { weekday: "short" }) : String(parse(x.from).getDate());
   const tip = (x: Bucket) => p === "jahr" ? parse(x.from).toLocaleDateString("de-DE", { month: "long", year: "numeric" }) : parse(x.from).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "long" });
-  const every = p === "monat" ? 5 : 1, h = hover !== null ? b[hover] : null;
-  return <div className="cost-chart" onMouseLeave={() => setHover(null)}>
+  const every = p === "monat" ? (W < 500 ? 7 : 5) : p === "jahr" && W < 500 ? 2 : 1, h = hover !== null ? b[hover] : null;
+  return <div className="cost-chart" ref={box} onMouseLeave={() => setHover(null)}>
     <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="KI-Kosten im Zeitraum">
       {tk.map(v => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="var(--line)" /><text x={L - 8} y={y(v) + 4} textAnchor="end">{axis(v, step)}</text></g>)}
       {b.map((x, i) => { const bx = L + i * bw + gap / 2, w = bw - gap, bh = ih - (y(x.cost) - Tp);
         return <g key={x.key} onMouseEnter={() => setHover(i)}>
           <rect x={L + i * bw} y={Tp} width={bw} height={ih} fill={hover === i ? "var(--hover)" : "transparent"} />
           {x.cost > 0 && <path d={bar(bx, Tp + ih, w, Math.max(bh, 2))} fill="var(--accent)" />}
-          {(p !== "monat" || i % every === 0 || i === b.length - 1) && <text x={L + i * bw + bw / 2} y={H - 6} textAnchor="middle">{lbl(x)}</text>}
+          {(i % every === 0) && <text x={L + i * bw + bw / 2} y={H - 6} textAnchor="middle">{lbl(x)}</text>}
         </g>; })}
     </svg>
     {h && <div className="tt" style={{ left: `${(L + (hover! + .5) * bw) / W * 100}%` }}><span className="f3">{tip(h)}</span><span className="num">{usd(h.cost)}</span></div>}
@@ -134,9 +140,9 @@ export function Kosten({ ctx }: { ctx: Ctx }) {
       <div className="kpi"><span className="l">Insgesamt</span><span className="v">{usd(ever)}</span></div>
     </div>
     <div className="blk chart"><Chart p={p} b={b} /></div>
-    {inPeriod.length > 0 && <div className="blk"><h3>Aktionen</h3><div className="tbl"><table className="costs"><thead><tr><th>Aktion</th><th>Umfang</th><th>Zeitpunkt</th><th className="num-r">Je Stück</th><th className="num-r">Kosten</th></tr></thead><tbody>
+    {inPeriod.length > 0 && <div className="blk"><h3>Aktionen</h3><div className="tbl"><table className="costs"><thead><tr><th>Aktion</th><th>Umfang</th><th>Zeitpunkt</th><th className="num-r hide-m">Je Stück</th><th className="num-r">Kosten</th></tr></thead><tbody>
       {shown.map((a, i) => <tr key={i}><td>{KINDS[a.kind]?.[0] || a.kind}</td><td className="num f2">{unit(a)}</td><td className="num f2">{when(a.at)}</td>
-        <td className="num f2 num-r">{a.items && a.cost ? usd(a.cost / a.items) : "–"}</td><td className="num num-r">{cost(a)}</td></tr>)}
+        <td className="num f2 num-r hide-m">{a.items && a.cost ? usd(a.cost / a.items) : "–"}</td><td className="num num-r">{cost(a)}</td></tr>)}
     </tbody></table></div></div>}
     {inPeriod.length > VISIBLE && <div><button className="btn gh" onClick={() => setAll(!all)}>{all ? "Weniger anzeigen" : `Alle ${inPeriod.length} anzeigen`}</button></div>}
   </>;
