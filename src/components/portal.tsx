@@ -59,7 +59,11 @@ export default function Portal() {
     const h = location.hash.slice(1); if (VIEWS[h]) setViewS(h);
     const msg = new URLSearchParams(location.search).get("msg");
     if (msg) { toast(msg); history.replaceState(null, "", location.pathname + location.hash); }
-    load(s).catch(e => toast(e.message, { error: true }));
+    /* invite link opened while signed in: join first, then load with the new tenant */
+    const inv = new URLSearchParams(location.search).get("einladung");
+    if (inv) history.replaceState(null, "", location.pathname + location.hash);
+    (inv ? api("/api/invites", { body: { accept: inv } }).then(() => toast("Einladung angenommen"), e => toast((e as Error).message, { error: true })) : Promise.resolve())
+      .then(() => load(s)).catch(e => toast(e.message, { error: true }));
     /* Back/Forward between views; Back to the bare URL is the default view */
     const onHash = () => { const v = location.hash.slice(1); if (VIEWS[v]) setViewS(v); else if (!v) setViewS("freigabe"); };
     /* restored from bfcache (e.g. Back after logout): reload so the session is checked again */

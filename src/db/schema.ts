@@ -56,6 +56,16 @@ export const members = pgTable("members", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
 }, t => [uniqueIndex("members_key").on(t.tenantId, t.userId)]);
 
+/* Link to join a tenant; single use, valid for 7 days */
+export const invites = pgTable("invites", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  createdBy: integer("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+});
+
 /* One row per tenant + kind (+ user for mailboxes); account-wide keys have no tenant. Secrets in config are encrypted. */
 export const integrations = pgTable("integrations", {
   id: serial("id").primaryKey(),

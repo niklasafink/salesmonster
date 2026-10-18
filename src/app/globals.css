@@ -580,3 +580,5 @@ tr.click:focus-visible td{background:var(--hover)}
   table.leads td,table.leads th{padding-left:6px; padding-right:6px}
   table.leads .co{max-width:90px} table.leads .pn{max-width:80px} table.leads .em{max-width:130px}
 }
+.lg-alt{align-self:center; color:var(--fg-2); font-size:13px; text-decoration:none}
+.lg-alt:hover{color:var(--fg)}

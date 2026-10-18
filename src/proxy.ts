@@ -4,7 +4,9 @@ import { safeNext } from "@/lib/safe-next";
 
 export async function proxy(req: NextRequest) {
   const uid = await readSession(req.cookies.get(COOKIE)?.value), path = req.nextUrl.pathname;
-  if (path === "/login") return uid ? NextResponse.redirect(new URL(safeNext(req.nextUrl.search, req.nextUrl.origin), req.url)) : NextResponse.next();
+  if (path === "/registrieren" && uid && req.nextUrl.searchParams.get("einladung"))
+    return NextResponse.redirect(new URL(`/?einladung=${encodeURIComponent(req.nextUrl.searchParams.get("einladung")!)}`, req.url));
+  if (path === "/login" || path === "/registrieren") return uid ? NextResponse.redirect(new URL(safeNext(req.nextUrl.search, req.nextUrl.origin), req.url)) : NextResponse.next();
   if (uid) {
     const res = NextResponse.next();
     /* no bfcache/HTTP cache for the app shell, so Back after logout cannot show it */
@@ -19,5 +21,5 @@ export async function proxy(req: NextRequest) {
 
 /* api/mcp, api/oauth and .well-known authenticate themselves (bearer token or own session check) */
 export const config = {
-  matcher: ["/((?!api/auth/login|api/cron|api/abmelden|api/integrations/microsoft/callback|api/mcp|api/oauth|.well-known|_next/static|_next/image|icon.svg|favicon.ico|apple-icon|manifest.webmanifest).*)"],
+  matcher: ["/((?!api/auth/login|api/auth/register|api/cron|api/abmelden|api/integrations/microsoft/callback|api/mcp|api/oauth|.well-known|_next/static|_next/image|icon.svg|favicon.ico|apple-icon|manifest.webmanifest).*)"],
 };

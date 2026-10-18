@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import {
   ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Check, CheckCheck, CircleAlert, ChevronDown, ChevronUp, ChevronsUpDown, Copy, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe,
   Inbox, KeyRound, Landmark, LayoutDashboard, LoaderCircle, LogOut, Mail, Menu, Plus, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, SunMoon,
-  Target, ThumbsDown, ThumbsUp, TriangleAlert, Upload, User, Users, Workflow, X, type LucideIcon,
+  Target, ThumbsDown, ThumbsUp, TriangleAlert, Upload, User, UserPlus, Users, Workflow, X, type LucideIcon,
 } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -11,7 +11,7 @@ const ICONS: Record<string, LucideIcon> = {
   "chevron-up": ChevronUp, "chevrons-up-down": ChevronsUpDown, copy: Copy, database: Database, dot: Dot, download: Download, "external-link": ExternalLink, "file-check-2": FileCheck2, "file-text": FileText,
   globe: Globe, inbox: Inbox, "key-round": KeyRound, landmark: Landmark, "layout-dashboard": LayoutDashboard, loader: LoaderCircle, "log-out": LogOut, mail: Mail,
   menu: Menu, plus: Plus, "receipt-text": ReceiptText, search: Search, send: Send, server: Server, "settings-2": Settings2, sparkles: Sparkles, square: Square, "sun-moon": SunMoon,
-  target: Target, "thumbs-down": ThumbsDown, "thumbs-up": ThumbsUp, "triangle-alert": TriangleAlert, upload: Upload, user: User, users: Users, workflow: Workflow, x: X,
+  target: Target, "thumbs-down": ThumbsDown, "thumbs-up": ThumbsUp, "triangle-alert": TriangleAlert, upload: Upload, user: User, "user-plus": UserPlus, users: Users, workflow: Workflow, x: X,
 };
 
 export function Icon({ n, className }: { n: string; className?: string }) {

@@ -13,12 +13,12 @@ const when = (s: string) => new Date(s).toLocaleString("de-DE", { day: "2-digit"
 export function Einstellungen({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [tab, setTab] = useState("zielgruppe");
-  const tabs: [string, string][] = [["zielgruppe", "Zielgruppe"], ["ablauf", "Ablauf"], ["integrationen", "Integrationen"], ...(t.invoice ? [["rechnungen", "Rechnungen"] as [string, string]] : [])];
+  const tabs: [string, string][] = [["zielgruppe", "Zielgruppe"], ["ablauf", "Ablauf"], ["integrationen", "Integrationen"], ["team", "Team"], ...(t.invoice ? [["rechnungen", "Rechnungen"] as [string, string]] : [])];
   return <>
     <Top title="Einstellungen" onMenu={ctx.openSidebar} />
     <div className="scroll"><div className="wrap narrow">
       <div className="tabs">{tabs.map(([k, n]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{n}</button>)}</div>
-      {tab === "zielgruppe" ? <Ziel ctx={ctx} /> : tab === "ablauf" ? <Ablauf ctx={ctx} /> : tab === "integrationen" ? <Integ ctx={ctx} /> : <Billing ctx={ctx} />}
+      {tab === "zielgruppe" ? <Ziel ctx={ctx} /> : tab === "ablauf" ? <Ablauf ctx={ctx} /> : tab === "integrationen" ? <Integ ctx={ctx} /> : tab === "team" ? <Team ctx={ctx} /> : <Billing ctx={ctx} />}
     </div></div>
   </>;
 }
@@ -183,6 +183,29 @@ function Connector({ ctx }: { ctx: Ctx }) {
     {d.grants.map(g => <div key={g.id} className="row2"><span>{g.clientName} <span className="f3 num">{when(g.lastUsedAt || g.createdAt)}</span></span>
       <button className="btn gh act" onClick={() => revoke(g.id)}>Trennen</button></div>)}
   </div>;
+}
+
+/* Who works in this tenant; others join through a single-use link */
+function Team({ ctx }: { ctx: Ctx }) {
+  const { st } = ctx, t = st.tenant!;
+  const [url, setUrl] = useState("");
+  async function invite() {
+    try {
+      const r = await api<{ url: string }>("/api/invites", { body: { t: t.slug } }); setUrl(r.url);
+      try { await navigator.clipboard.writeText(r.url); ctx.toast("Link kopiert"); } catch { /* shown in the field */ }
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); }
+  }
+  async function remove(id: number) {
+    try { await api(`/api/members?t=${t.slug}&user=${id}`, { method: "DELETE" }); if (id === st.me.id) location.href = "/"; else ctx.reload(); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); }
+  }
+  return <>
+    <div className="list-box">{st.users.map(u => <div key={u.id} className="row2"><span>{u.name} <span className="f3">{u.email}</span></span>
+      {st.users.length > 1 && <button className="btn gh act" onClick={() => remove(u.id)}>{u.id === st.me.id ? "Verlassen" : "Entfernen"}</button>}</div>)}</div>
+    {url && <div className="list-box"><div className="row2"><input className="inp url" readOnly value={url} aria-label="Einladungslink" onFocus={e => e.target.select()} />
+      <button className="btn sec" onClick={() => navigator.clipboard.writeText(url).then(() => ctx.toast("Link kopiert"))}><Icon n="copy" />Kopieren</button></div></div>}
+    <div><button className="btn" onClick={invite}><Icon n="user-plus" />Einladen</button></div>
+  </>;
 }
 
 function Billing({ ctx }: { ctx: Ctx }) {
