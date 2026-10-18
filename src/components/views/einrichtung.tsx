@@ -20,7 +20,7 @@ const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier
 const NEW_KEY = "Anderen Schlüssel verbinden";
 
 type Opt = { id: string; label: string };
-type Res = { setup: Setup; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean; choose?: Opt[] | null };
+type Res = { setup: Setup; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean; choose?: Opt[] | null; question?: string };
 type Line = { id: string; role: "ai" | "me"; text: string; chips?: string[] };
 
 const convert = (l: Line) => ({ id: l.id, role: l.role === "ai" ? "assistant" as const : "user" as const, content: l.text });
@@ -31,9 +31,9 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   const [busy, setBusy] = useState(false), [rail, setRail] = useState(false), [started, setStarted] = useState(""), [open, setOpen] = useState<SetupStep | null>(null);
   const [local, setLocal] = useState<Line[]>([{ id: "connect", role: "ai", text: CONNECT }]);
   /* the account has keys but this tenant has not picked one yet: one question instead of a new setup */
-  const [choose, setChoose] = useState<Opt[] | null>(null);
+  const [choose, setChoose] = useState<Opt[] | null>(null), [question, setQuestion] = useState("");
 
-  const apply = useCallback((r: Res) => { setSu(r.setup); setRes(r); if (r.ai !== undefined) setAi(r.ai); if (r.choose !== undefined) setChoose(r.choose); }, []);
+  const apply = useCallback((r: Res) => { setSu(r.setup); setRes(r); if (r.ai !== undefined) setAi(r.ai); if (r.choose !== undefined) setChoose(r.choose); if (r.question !== undefined) setQuestion(r.question); }, []);
   const load = useCallback(() => api<Res>(`/api/setup?t=${t.slug}`).then(apply).catch(e => ctx.toast(e.message, { error: true })), [t.slug, apply, ctx]);
   useEffect(() => { load(); }, [load]);
 
@@ -51,7 +51,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     if (!su) return [];
     const n = new Map<string, number>();
     const xs: Line[] = su.chat.map(m => { const k = `${m.role}:${m.step}:${m.text}`, c = n.get(k) ?? 0; n.set(k, c + 1); return { id: `${k}#${c}`, role: m.role, text: m.text, chips: m.chips }; });
-    if (choose) xs.push({ id: "pick", role: "ai", text: `Welche KI soll ${t.name} nutzen?`, chips: [...choose.map(o => o.label), NEW_KEY] });
+    if (choose) xs.push({ id: "pick", role: "ai", text: question, chips: [...choose.map(o => o.label), NEW_KEY] });
     else if (!ai) xs.push(...local);
     if (su.step === "fertig") {
       const what = [su.segments.length > 0 && "die Zielgruppe für die Abendrecherche", su.templates.length > 0 && `${su.templates.length} Vorlagen`, good > 0 && `${good} positiv bewertete Leads`].filter(Boolean) as string[];
@@ -60,7 +60,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
         : { id: "fertig", role: "ai", text: "Es gibt noch nichts zu übernehmen. Wähle links einen Schritt, dann machen wir dort weiter." });
     }
     return xs;
-  }, [su, ai, local, good, choose, t.name]);
+  }, [su, ai, local, good, choose, question]);
 
   /* Typewriter: what was there on first load counts as read, every later AI turn is typed out in order */
   const [read, setRead] = useState<Set<string> | null>(null), [tp, setTp] = useState({ id: "", n: 0 });
@@ -99,9 +99,12 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   async function pick(label: string) {
     if (label === NEW_KEY) { setChoose(null); setAi(false); return; }
     const o = choose?.find(x => x.label === label);
-    if (!o) return;
-    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: o.id } } }); setChoose(null); ctx.reload(); }
-    catch (e) { ctx.toast((e as Error).message, { error: true }); }
+    if (!o || !su) return;
+    /* the question was already read in the chat, the server stores it as the first turn */
+    setRead(r => r && new Set(r).add(`ai:${su.step}:${question}#0`));
+    setSu(s => s && { ...s, chat: [...s.chat, { role: "ai", text: question, step: s.step }, { role: "me", text: o.label, step: s.step }] });
+    setChoose(null);
+    if (await post({ action: "model", id: o.id })) ctx.reload();
   }
 
   /* Without any model nothing works, so the key is the first answer in the chat */
@@ -112,7 +115,8 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     setBusy(true);
     try {
       await api("/api/integrations", { body: { t: t.slug, kind, values: kind === "openrouter" ? { key, model: OPENROUTER_MODELS[0][0] } : { key } } });
-      await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: kind === "openrouter" ? `openrouter:${OPENROUTER_MODELS[0][0]}` : "claude" } } });
+      /* a fresh setup asks for the model next; one already running keeps going with the new key */
+      if (su?.chat.length) await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: kind === "openrouter" ? `openrouter:${OPENROUTER_MODELS[0][0]}` : "claude:claude-opus-5-5" } } });
       ctx.reload(); await load();
     }
     catch (e) { setLocal(l => [...l, { id: `ai${l.length}`, role: "ai", text: `Das hat nicht geklappt: ${(e as Error).message}. Prüfe den Schlüssel und füge ihn noch einmal ein.` }]); }
@@ -202,7 +206,7 @@ function PromptDialog({ step, text, label, busy, onClose, onGo, onSave }: {
 
 const Link = (p: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...p} target="_blank" rel="noreferrer" />;
 
-/* claude.ai: user turns in a bubble on the right, assistant turns as plain serif text with a copy action on hover */
+/* claude.ai: user turns in a bubble on the right, assistant turns as plain text in the same type, with a copy action on hover */
 function Msg() {
   const role = useAuiState(s => s.message.role);
   if (role === "user") return <MessagePrimitive.Root className="cl-col cl-me"><div><MessagePrimitive.Parts>{({ part }) => part.type === "text" ? <MarkdownTextPrimitive className="cl-md" /> : null}</MessagePrimitive.Parts></div></MessagePrimitive.Root>;

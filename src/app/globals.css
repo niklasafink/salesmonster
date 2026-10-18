@@ -463,8 +463,8 @@ a.btn{text-decoration:none}
 .cl-thread{flex:1; min-height:0; display:flex; flex-direction:column}
 .cl-vp{flex:1; overflow-y:auto; display:flex; flex-direction:column; padding:16px 16px 0}
 .cl-col{width:100%; max-width:720px; margin:0 auto}
-.cl-ai{position:relative; padding:10px 0 4px; font-family:var(--cl-serif); font-size:16.5px; line-height:1.65; color:var(--cl-fg)}
-.cl-ai p,.cl-md p{margin:0 0 .75em} .cl-ai .cl-h{margin:0 0 .5em; font-size:22px; font-weight:500; line-height:1.3} .cl-md > :last-child{margin-bottom:0}
+.cl-ai{position:relative; padding:10px 0 4px; font-size:14.5px; line-height:1.6; color:var(--cl-fg)}
+.cl-ai p,.cl-md p{margin:0 0 .75em} .cl-ai .cl-h{margin:0 0 .5em; font-size:18px; font-weight:500; line-height:1.3} .cl-md > :last-child{margin-bottom:0}
 .cl-md ul,.cl-md ol{margin:0 0 .75em; padding-left:1.4em} .cl-md li{margin:.2em 0}
 .cl-md strong{font-weight:600}
 .cl-md code{font-family:var(--mono); font-size:.85em; background:var(--cl-bubble); padding:1px 5px; border-radius:5px}
@@ -474,8 +474,8 @@ a.btn{text-decoration:none}
 .cl-acts .cl-ib{width:28px; height:28px}
 .cl-acts .lucide{width:14px; height:14px}
 .cl-me{display:flex; justify-content:flex-end; padding:10px 0}
-.cl-me > div{max-width:min(85%,560px); background:var(--cl-bubble); border-radius:16px; padding:10px 16px; font-size:15px; line-height:1.55; overflow-wrap:anywhere}
-.cl-run{display:flex; align-items:center; gap:10px; padding:12px 0; color:var(--cl-fg-3); font-family:var(--cl-serif); font-size:15px}
+.cl-me > div{max-width:min(85%,560px); background:var(--cl-bubble); border-radius:16px; padding:10px 16px; font-size:14.5px; line-height:1.6; overflow-wrap:anywhere}
+.cl-run{display:flex; align-items:center; gap:10px; padding:12px 0; color:var(--cl-fg-3); font-size:14.5px}
 .cl-spark{width:20px; height:20px; fill:var(--cl-accent); flex-shrink:0}
 .cl-spark.spin{animation:spin 2.4s linear infinite}
 .cl-foot{position:sticky; bottom:0; margin-top:auto; width:100%; max-width:752px; margin-left:auto; margin-right:auto; padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));
@@ -486,7 +486,7 @@ a.btn{text-decoration:none}
 .cl-comp{display:flex; flex-direction:column; gap:8px; border:1px solid var(--cl-line-2); border-radius:20px; background:var(--cl-comp); padding:14px 12px 10px 16px;
   box-shadow:0 4px 20px rgb(0 0 0 / .035), 0 0 0 .5px rgb(0 0 0 / .02); transition:border-color .12s, box-shadow .12s}
 .cl-comp:focus-within{border-color:var(--cl-fg-3); box-shadow:0 4px 20px rgb(0 0 0 / .06)}
-.cl-in{display:block; width:100%; max-height:240px; min-height:24px; border:0; background:none; resize:none; outline:none; font-size:15.5px; line-height:1.5; color:var(--cl-fg)}
+.cl-in{display:block; width:100%; max-height:240px; min-height:24px; border:0; background:none; resize:none; outline:none; font-size:14.5px; line-height:1.5; color:var(--cl-fg)}
 .cl-in::placeholder{color:var(--cl-fg-3)}
 .cl-cbar{display:flex; align-items:center; gap:4px}
 .cl-send{display:grid; place-items:center; width:32px; height:32px; border:0; border-radius:8px; background:var(--cl-accent); color:#fff; flex-shrink:0; transition:background .12s}
@@ -520,7 +520,6 @@ a.btn{text-decoration:none}
   .cl.rail .cl-scrim{display:block; position:absolute; inset:0; background:var(--overlay); z-index:3}
   .cl-vp{padding:8px 16px 0}
   .cl-foot{padding-left:0; padding-right:0}
-  .cl-ai{font-size:16px}
 }
 
 /* lead list: status dots, company groups, edit dialog */

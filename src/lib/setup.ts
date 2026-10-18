@@ -13,7 +13,13 @@ export type Setup = typeof setups.$inferSelect;
 
 const s = () => z.string().nullish().transform(v => (v ?? "").trim());
 const list = () => z.array(z.string()).nullish().transform(v => (v ?? []).map(x => x.trim()).filter(Boolean));
-const Profile = z.object({ name: s(), summary: s(), offer: s(), valueProps: list(), customers: list(), proof: list(), regions: list(), language: s(), pricing: s() });
+const Profile = z.object({ name: s(), summary: s(), offer: s(), valueProps: list(), customers: list(), proof: list(), regions: list(), language: s(), pricing: s(),
+  audience: s(), goal: s(), ask: s(), giveaway: s(), alternatives: list(), objections: list(), rules: list(), words: list(), known: list() });
+type ProfileOut = z.infer<typeof Profile>;
+
+/* The model sometimes sends only what changed; empty fields keep the earlier value */
+const mergeProfile = (prev: Setup["profile"], next: ProfileOut) => Object.fromEntries(Object.entries(next).map(([k, v]) =>
+  [k, (Array.isArray(v) ? v.length : v) ? v : (prev as Record<string, unknown> | null)?.[k] ?? v])) as ProfileOut;
 const Segment = z.object({ name: z.string().min(1), industries: list(), size: s(), regions: list(), triggers: list(), why: s(), exclude: list() });
 const Persona = z.object({ role: z.string().min(1), titles: list(), segment: s(), pains: list(), goals: list(), query: s() });
 const Lead = z.object({ company: z.string().min(2), website: s(), city: s(), segment: s(), person: s(), role: s(), linkedin: s(), email: s(), why: s(),
@@ -46,8 +52,14 @@ function context(t: Tenant, su: Setup) {
   if (["liste", "ansprache"].includes(su.step) && su.leads.length) parts.push(`Leads mit Bewertung:\n${JSON.stringify(su.leads)}`);
   if (su.step === "ansprache" && su.templates.length) parts.push(`Aktuelle Mails:\n${JSON.stringify(su.templates.map(({ score, ...x }) => ({ ...x, jev: score?.weakness })))}`);
   if (su.skipped.length) parts.push(`Übersprungen: ${su.skipped.join(", ")}`);
+  /* what the user said in other steps, so nothing has to be asked twice */
+  const said = su.chat.filter(m => m.role === "me" && m.step !== su.step).slice(-20);
+  if (said.length) parts.push(`Aussagen des Nutzers aus früheren Schritten:\n${said.map(m => `- (${m.step}) ${m.text}`).join("\n")}`);
   return parts.join("\n\n");
 }
+
+/* Writing mails needs the most care; the profile and segments decide everything after them */
+const EFFORT: Record<SetupStep, "low" | "medium" | "high"> = { website: "medium", zielgruppe: "medium", ansprechpartner: "medium", liste: "medium", ansprache: "high", fertig: "low" };
 
 /* One model call for the current step. text = what the user wrote; auto = decide alone */
 async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean) {
@@ -55,7 +67,7 @@ async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean) 
   const ask_ = auto ? "Der Nutzer möchte, dass du diesen Schritt ohne Rückfragen selbst erledigst. Triff alle Entscheidungen selbst, fülle die Felder vollständig und setze advance auf true."
     : text ? `Nutzer: ${text}` : "Beginne diesen Schritt: erledige die Recherche bzw. den Entwurf und stelle dann deine erste Frage.";
   const raw = await ask({
-    key: ai, system: skillFor(su.step), web: !!WEB[su.step], maxSearches: WEB[su.step] ?? 0, effort: su.step === "liste" ? "medium" : "low",
+    key: ai, system: skillFor(su.step), web: !!WEB[su.step], maxSearches: WEB[su.step] ?? 0, effort: EFFORT[su.step],
     prompt: `${context(t, su)}${history ? `\n\nBisheriger Verlauf in diesem Schritt:\n${history}` : ""}\n\n${ask_}`,
   });
   return json(raw, Out);
@@ -74,7 +86,7 @@ async function scoreTemplates(t: Tenant, su: Setup, tpls: z.infer<typeof Tpl>[])
   }));
 }
 
-export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | "goto" | "votes" | "prompt"; text?: string; step?: SetupStep; leads?: SetupLead[] };
+export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | "goto" | "votes" | "prompt"; text?: string; step?: SetupStep; leads?: SetupLead[]; intro?: ChatMsg[] };
 
 /* Which step writes which prompt section, so an AI update replaces a hand edit */
 const drop = (su: Setup, ...steps: SetupStep[]) => Object.fromEntries(Object.entries(su.prompts).filter(([k]) => !steps.includes(k as SetupStep) && k !== "fertig"));
@@ -98,12 +110,12 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promi
 
   const text = (a.text || "").trim().slice(0, 4000);
   if (a.action === "message" && !text) return su;
-  const chat: ChatMsg[] = [...su.chat];
+  const chat: ChatMsg[] = [...su.chat, ...(a.intro ?? [])];
   if (text) chat.push({ role: "me", text, step: su.step });
 
   const o = await think(t, ai, { ...su, chat }, text, a.action === "auto");
   const set: Partial<typeof setups.$inferInsert> = {};
-  if (o.profile) set.profile = o.profile;
+  if (o.profile) set.profile = mergeProfile(su.profile, o.profile);
   if (o.segments?.length) set.segments = o.segments;
   if (o.personas?.length) set.personas = o.personas;
   if (o.leads?.length) {
@@ -132,7 +144,14 @@ export function promptParts(t: Tenant, su: Setup): Record<SetupStep, string> {
     website: lines(
       `Du recherchierst jeden Abend ${t.settings.leadsPerDay} Ansprechpartner für ${t.name}${p?.summary ? `. ${p.summary}` : "."}`, "",
       p?.offer && `Angebot: ${p.offer}`,
-      p?.valueProps.length && `Nutzen: ${p.valueProps.join("; ")}`),
+      p?.valueProps.length && `Nutzen: ${p.valueProps.join("; ")}`,
+      p?.audience && `Zielgruppe: ${p.audience}`,
+      p?.goal && `Ziel: ${p.goal}`,
+      p?.ask && `Bitte an den Empfänger: ${p.ask}${p.giveaway ? ` (Angebot: ${p.giveaway})` : ""}`,
+      p?.words?.length && `Begriffe der Zielgruppe: ${p.words.join(", ")}`,
+      p?.objections?.length && `Einwände: ${p.objections.join("; ")}`,
+      p?.rules?.length && `Regeln:\n${p.rules.map(r => `- ${r}`).join("\n")}`,
+      p?.known?.length && `Nie anschreiben: ${p.known.join(", ")}`),
     zielgruppe: lines(
       `Branchen: ${uniq(segs.flatMap(x => x.industries))}`,
       `Regionen: ${uniq(segs.flatMap(x => x.regions)) || uniq(p?.regions ?? []) || "Deutschland"}`,

@@ -3,6 +3,14 @@
 export type IntegKind = "outlook" | "imap" | "smtp" | "hubspot" | "vergabehero" | "sendpilot" | "claude" | "openrouter" | "resend";
 export type Field = { id: string; label: string; type?: string; value?: string; secret?: boolean; optional?: boolean; placeholder?: string; options?: [string, string][] };
 
+/* Claude models a tenant can pick; the first is the default for new choices */
+export const CLAUDE_MODELS: [string, string][] = [
+  ["claude-opus-5-5", "Claude Opus 5.5"],
+  ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
+  ["claude-fable-5-1", "Claude Fable 5.1"],
+  ["claude-haiku-5-5", "Claude Haiku 5.5"],
+];
+
 export const OPENROUTER_MODELS: [string, string][] = [
   ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"],
   ["anthropic/claude-haiku-5.5", "Claude Haiku 5.5"],

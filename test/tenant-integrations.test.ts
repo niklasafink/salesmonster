@@ -29,6 +29,15 @@ describe("Integrationen je Mandant", () => {
     expect(await aiFor(chetti.id, me.id)).toMatchObject({ provider: "anthropic" });
   });
 
+  it("Claude-Modell je Mandant, alte Wahl bleibt Sonnet", async () => {
+    expect((await patch(chetti.slug, "claude:claude-opus-5-5")).status).toBe(200);
+    expect(await aiFor(chetti.id, me.id)).toMatchObject({ provider: "anthropic", model: "claude-opus-5-5" });
+    expect((await patch(chetti.slug, "claude")).status).toBe(200);
+    expect(await aiFor(chetti.id, me.id)).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5-5" });
+    expect((await patch(chetti.slug, "claude:claude-gibt-es-nicht")).status).toBe(400);
+    await patch(chetti.slug, null);
+  });
+
   it("unbekannte KI wird abgelehnt", async () => {
     expect((await patch(vh.slug, "openrouter:gibt-es-nicht")).status).toBe(400);
   });

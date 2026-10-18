@@ -4,23 +4,27 @@ import { openrouterAsk, type Ai } from "./ai";
 
 export const MODEL = "claude-sonnet-5-5";
 
+/* Dynamic-filtering web tools exist on Opus and Sonnet only; the server-side fallback does not exist on Haiku */
+const NEW_WEB = /^claude-(opus|sonnet)-/;
+const FALLBACK = /^claude-(opus|sonnet|fable)-/;
+
 type Opts = { key: Ai; system: string; prompt: string; web?: boolean; maxSearches?: number; effort?: "low" | "medium" | "high" };
 
 /* One task: streams, resumes pause_turn, returns the final text */
 export async function ask({ key, system, prompt, web, maxSearches = 20, effort = "medium" }: Opts): Promise<string> {
   if (typeof key === "object" && key.provider === "openrouter") return openrouterAsk(key, system, [{ role: "user", content: prompt }], !!web, maxSearches);
   const client = new Anthropic({ apiKey: typeof key === "string" ? key : key.key });
+  const model = (typeof key === "object" && key.model) || MODEL, modern = NEW_WEB.test(model);
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = [{ role: "user", content: prompt }];
   const tools: Anthropic.Beta.Messages.BetaToolUnion[] = web
-    ? [{ type: "web_search_20260209", name: "web_search", max_uses: maxSearches, user_location: { type: "approximate", country: "DE", timezone: "Europe/Berlin" } },
-       { type: "web_fetch_20260209", name: "web_fetch", max_uses: maxSearches }]
+    ? [{ type: modern ? "web_search_20260209" : "web_search_20250305", name: "web_search", max_uses: maxSearches, user_location: { type: "approximate", country: "DE", timezone: "Europe/Berlin" } },
+       { type: modern ? "web_fetch_20260209" : "web_fetch_20250910", name: "web_fetch", max_uses: maxSearches }] as Anthropic.Beta.Messages.BetaToolUnion[]
     : [];
   for (let turn = 0; turn < 6; turn++) {
     const msg = await client.beta.messages.stream({
-      model: MODEL, max_tokens: 32000, system, messages, tools: tools.length ? tools : undefined,
+      model, max_tokens: 32000, system, messages, tools: tools.length ? tools : undefined,
       output_config: { effort },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
+      ...(FALLBACK.test(model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}),
     } as Anthropic.Beta.Messages.MessageCreateParamsStreaming).finalMessage();
     if (msg.stop_reason === "refusal") throw new Error("Claude hat die Anfrage abgelehnt");
     if (msg.stop_reason === "max_tokens") throw new Error("Antwort von Claude zu lang, bitte in kleineren Teilen versuchen");

@@ -3,7 +3,7 @@ import { boolean, date, integer, jsonb, numeric, pgTable, serial, text, timestam
 export type Tender = { t: string; s: string; f: string };
 
 /* Which connected AI a tenant uses; the keys themselves belong to the account, so tenants can share one or differ */
-export type AiChoice = { kind: "claude" } | { kind: "openrouter"; model: string };
+export type AiChoice = { kind: "claude"; model?: string } | { kind: "openrouter"; model: string };
 
 export type TenantSettings = {
   prompt: string;
@@ -193,7 +193,9 @@ export const claims = pgTable("claims", {
 /* Guided setup: the AI interviews the user step by step and fills these, then writes prompt and templates */
 export const SETUP_STEPS = ["website", "zielgruppe", "ansprechpartner", "liste", "ansprache", "fertig"] as const;
 export type SetupStep = typeof SETUP_STEPS[number];
-export type Profile = { name: string; summary: string; offer: string; valueProps: string[]; customers: string[]; proof: string[]; regions: string[]; language: string; pricing: string };
+export type Profile = { name: string; summary: string; offer: string; valueProps: string[]; customers: string[]; proof: string[]; regions: string[]; language: string; pricing: string;
+  /* added 2026-10-18, older rows lack them */
+  audience?: string; goal?: string; ask?: string; giveaway?: string; alternatives?: string[]; objections?: string[]; rules?: string[]; words?: string[]; known?: string[] };
 export type Segment = { name: string; industries: string[]; size: string; regions: string[]; triggers: string[]; why: string; exclude: string[] };
 export type Persona = { role: string; titles: string[]; segment: string; pains: string[]; goals: string[]; query: string };
 export type SetupLead = { company: string; website: string; city: string; segment: string; person: string; role: string; linkedin: string; email: string; why: string; vote?: 1 | -1; reason?: string };

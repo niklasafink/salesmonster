@@ -1,18 +1,21 @@
 import { eq } from "drizzle-orm";
 import { db, tenants, type AiChoice } from "@/db";
 import { getInteg } from "./integrations";
-import { OPENROUTER_MODELS } from "./integ-meta";
+import { CLAUDE_MODELS, OPENROUTER_MODELS } from "./integ-meta";
 
-export { OPENROUTER_MODELS };
+export { CLAUDE_MODELS, OPENROUTER_MODELS };
 
 /* Which model answers for a tenant. A plain string is an Anthropic API key (older callers). */
 export type Ai = string | { provider: "anthropic" | "openrouter"; key: string; model?: string };
 
-export const modelName = (id: string) => OPENROUTER_MODELS.find(([m]) => m === id)?.[1] || id;
-export const choiceId = (c: AiChoice) => c.kind === "claude" ? "claude" : `openrouter:${c.model}`;
-export const choiceLabel = (c: AiChoice) => c.kind === "claude" ? "Claude Sonnet 5.5" : `${modelName(c.model)} über OpenRouter`;
+/* Tenants that picked "claude" before there was a model list keep the model they had */
+export const CLAUDE_LEGACY = "claude-sonnet-5-5";
+export const modelName = (id: string) => [...CLAUDE_MODELS, ...OPENROUTER_MODELS].find(([m]) => m === id)?.[1] || id;
+export const choiceId = (c: AiChoice) => c.kind === "claude" ? `claude:${c.model || CLAUDE_LEGACY}` : `openrouter:${c.model}`;
+export const choiceLabel = (c: AiChoice) => c.kind === "claude" ? modelName(c.model || CLAUDE_LEGACY) : `${modelName(c.model)} über OpenRouter`;
 export function choiceOf(id: string): AiChoice | null {
-  if (id === "claude") return { kind: "claude" };
+  if (id === "claude") return { kind: "claude", model: CLAUDE_LEGACY };
+  if (id.startsWith("claude:")) { const m = id.slice(7); return CLAUDE_MODELS.some(([x]) => x === m) ? { kind: "claude", model: m } : null; }
   const m = id.startsWith("openrouter:") ? id.slice(11) : "";
   return OPENROUTER_MODELS.some(([x]) => x === m) ? { kind: "openrouter", model: m } : null;
 }
@@ -20,7 +23,7 @@ export function choiceOf(id: string): AiChoice | null {
 /* What the account's connected keys allow: Claude, and every OpenRouter model once an OpenRouter key exists */
 export async function aiOptions(tenantId: number, userId?: number): Promise<AiChoice[]> {
   const [c, o] = await Promise.all([getInteg(tenantId, "claude", userId), getInteg(tenantId, "openrouter", userId)]);
-  return [...(c?.key ? [{ kind: "claude" as const }] : []), ...(o?.key ? OPENROUTER_MODELS.map(([model]) => ({ kind: "openrouter" as const, model })) : [])];
+  return [...(c?.key ? CLAUDE_MODELS.map(([model]) => ({ kind: "claude" as const, model })) : []), ...(o?.key ? OPENROUTER_MODELS.map(([model]) => ({ kind: "openrouter" as const, model })) : [])];
 }
 
 /* The tenant's own choice when its key is still connected; otherwise Anthropic first (server-side fallback and pause_turn), then OpenRouter.
@@ -29,7 +32,7 @@ export async function aiFor(tenantId: number, userId?: number): Promise<Ai | nul
   const [[t], c, o] = await Promise.all([db.select({ s: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId)),
     getInteg(tenantId, "claude", userId), getInteg(tenantId, "openrouter", userId)]);
   const pick = t?.s.ai;
-  const claude = c?.key ? { provider: "anthropic" as const, key: c.key } : null;
+  const claude = c?.key ? { provider: "anthropic" as const, key: c.key, model: pick?.kind === "claude" ? pick.model || CLAUDE_LEGACY : CLAUDE_LEGACY } : null;
   const or = o?.key ? { provider: "openrouter" as const, key: o.key, model: pick?.kind === "openrouter" ? pick.model : o.model || OPENROUTER_MODELS[0][0] } : null;
   return pick?.kind === "openrouter" ? or ?? claude : claude ?? or;
 }
