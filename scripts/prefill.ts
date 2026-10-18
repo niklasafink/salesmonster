@@ -12,7 +12,7 @@ async function main() {
   if (!file) throw new Error("Datei fehlt");
   const data = JSON.parse(readFileSync(file, "utf8"));
   const { db, tenants, templates, leads, setups } = await import("../src/db");
-  const { eq } = await import("drizzle-orm");
+  const { and, eq } = await import("drizzle-orm");
   const { attachCompanies } = await import("../src/lib/companies");
   const { salutationOf } = await import("../src/lib/lead-fields");
   const [t] = await db.select().from(tenants).where(eq(tenants.slug, data.slug));
@@ -27,7 +27,8 @@ async function main() {
 
   if (data.setup) {
     const v = { profile: data.setup.profile, segments: data.setup.segments, personas: data.setup.personas, step: "fertig" as const, doneAt: new Date(), updatedAt: new Date() };
-    await db.insert(setups).values({ tenantId: t.id, ...v }).onConflictDoUpdate({ target: setups.tenantId, set: v });
+    const [cur] = await db.select({ id: setups.id }).from(setups).where(and(eq(setups.tenantId, t.id), eq(setups.active, true)));
+    if (cur) await db.update(setups).set(v).where(eq(setups.id, cur.id)); else await db.insert(setups).values({ tenantId: t.id, ...v });
   }
 
   /* one row per person; several people at one company end up in one company */

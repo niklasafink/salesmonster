@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, date, integer, jsonb, numeric, pgTable, serial, text, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 export type Tender = { t: string; s: string; f: string };
@@ -204,7 +205,9 @@ export type ChatMsg = { role: "ai" | "me"; text: string; step: SetupStep; chips?
 
 export const setups = pgTable("setups", {
   id: serial("id").primaryKey(),
-  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }).unique(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  /* a tenant can start the setup over in a new chat; the older chats stay, exactly one is active */
+  active: boolean("active").notNull().default(true),
   step: text("step").$type<SetupStep>().notNull().default("website"),
   profile: jsonb("profile").$type<Profile | null>(),
   segments: jsonb("segments").$type<Segment[]>().notNull().default([]),
@@ -217,7 +220,7 @@ export const setups = pgTable("setups", {
   prompts: jsonb("prompts").$type<Partial<Record<SetupStep, string>>>().notNull().default({}),
   doneAt: timestamp("done_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, t => [uniqueIndex("setups_active").on(t.tenantId).where(sql`${t.active}`)]);
 
 export const runs = pgTable("runs", {
   id: serial("id").primaryKey(),

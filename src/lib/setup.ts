@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db, leads, setups, templates, tenants, SETUP_STEPS, type ChatMsg, type SetupLead, type SetupStep } from "@/db";
 import { ask, json } from "./claude";
@@ -32,9 +32,33 @@ const Out = z.object({
 });
 
 export async function loadSetup(tenantId: number): Promise<Setup> {
-  const [row] = await db.select().from(setups).where(eq(setups.tenantId, tenantId));
+  const active = and(eq(setups.tenantId, tenantId), eq(setups.active, true));
+  const [row] = await db.select().from(setups).where(active);
   if (row) return row;
-  return (await db.insert(setups).values({ tenantId }).onConflictDoNothing().returning())[0] ?? (await db.select().from(setups).where(eq(setups.tenantId, tenantId)))[0];
+  return (await db.insert(setups).values({ tenantId }).onConflictDoNothing().returning())[0] ?? (await db.select().from(setups).where(active))[0];
+}
+
+/* Starts the setup over; the current chat stays in the list. An untouched chat is reused instead of piling up empty ones */
+export async function newSetup(tenantId: number, su: Setup): Promise<Setup> {
+  if (!su.chat.length && !su.profile) return su;
+  await db.update(setups).set({ active: false }).where(eq(setups.tenantId, tenantId));
+  return loadSetup(tenantId);
+}
+
+export async function switchSetup(tenantId: number, id: number): Promise<Setup | null> {
+  const [row] = await db.select({ id: setups.id }).from(setups).where(and(eq(setups.tenantId, tenantId), eq(setups.id, id)));
+  if (!row) return null;
+  await db.update(setups).set({ active: false }).where(and(eq(setups.tenantId, tenantId), ne(setups.id, id)));
+  return (await db.update(setups).set({ active: true }).where(eq(setups.id, id)).returning())[0];
+}
+
+export type ChatItem = { id: number; at: string };
+
+/* The chats of a tenant for the rail, newest first; empty ones are left out except the active one */
+export async function listChats(tenantId: number): Promise<ChatItem[]> {
+  const rows = await db.select({ id: setups.id, active: setups.active, at: setups.updatedAt, chat: setups.chat })
+    .from(setups).where(eq(setups.tenantId, tenantId)).orderBy(desc(setups.updatedAt));
+  return rows.filter(r => r.active || r.chat.length).map(r => ({ id: r.id, at: r.at.toISOString() }));
 }
 
 async function save(id: number, set: Partial<typeof setups.$inferInsert>) {

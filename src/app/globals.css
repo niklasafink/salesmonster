@@ -457,6 +457,9 @@ a.btn{text-decoration:none}
 .cl-dot{width:7px; height:7px; margin:0 3.5px; border-radius:50%; background:var(--accent); flex-shrink:0}
 .cl-dot.off{background:none; box-shadow:inset 0 0 0 1.5px var(--line-2)}
 .cl-skip{margin-left:auto; font-weight:400; font-size:12px; color:var(--fg-3)}
+.cl-rs:has(+ .cl-chats){flex:none}
+.cl-chats{border-top:1px solid var(--line); padding-top:10px}
+.cl-cap{padding:12px 8px 4px; font-size:12px; color:var(--fg-3)}
 
 /* Thread */
 .cl-main{display:flex; flex-direction:column; min-width:0; min-height:0}

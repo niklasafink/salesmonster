@@ -28,7 +28,7 @@ export const GET = route(async (req, _c, me) => {
   const extra = [...new Set(drafts.flatMap(({ m }) => m.leadIds.length > 1 ? m.leadIds : []))];
   const covered = new Map((extra.length ? await db.select().from(leads).where(inArray(leads.id, extra)) : []).map(l => [l.id, l]));
 
-  const [su] = await db.select({ step: setups.step, doneAt: setups.doneAt }).from(setups).where(eq(setups.tenantId, t.id));
+  const [su] = await db.select({ step: setups.step, doneAt: setups.doneAt }).from(setups).where(and(eq(setups.tenantId, t.id), eq(setups.active, true)));
 
   const mailbox: Record<number, string | null> = {};
   for (const p of people) mailbox[p.id] = await mailboxOf(t.id, p.id);

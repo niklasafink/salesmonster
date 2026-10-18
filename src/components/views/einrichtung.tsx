@@ -4,7 +4,7 @@ import { ActionBarPrimitive, AssistantRuntimeProvider, ComposerPrimitive, Messag
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { OPENROUTER_MODELS } from "@/lib/integ-meta";
 import type { SetupLead, SetupStep, SetupTemplate } from "@/db/schema";
-import type { Setup } from "@/lib/setup";
+import type { ChatItem, Setup } from "@/lib/setup";
 import { httpUrl } from "@/lib/lead-fields";
 import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx } from "../types";
@@ -20,8 +20,10 @@ const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier
 const NEW_KEY = "Anderen Schlüssel verbinden";
 
 type Opt = { id: string; label: string };
-type Res = { setup: Setup; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean; choose?: Opt[] | null; question?: string };
+type Res = { setup: Setup; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean; choose?: Opt[] | null; question?: string; chats?: ChatItem[] };
 type Line = { id: string; role: "ai" | "me"; text: string; chips?: string[] };
+
+const when = (iso: string) => new Date(iso).toLocaleString("de-DE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 const convert = (l: Line) => ({ id: l.id, role: l.role === "ai" ? "assistant" as const : "user" as const, content: l.text });
 
@@ -31,9 +33,11 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   const [busy, setBusy] = useState(false), [rail, setRail] = useState(false), [started, setStarted] = useState(""), [open, setOpen] = useState<SetupStep | null>(null);
   const [local, setLocal] = useState<Line[]>([{ id: "connect", role: "ai", text: CONNECT }]);
   /* the account has keys but this tenant has not picked one yet: one question instead of a new setup */
-  const [choose, setChoose] = useState<Opt[] | null>(null), [question, setQuestion] = useState("");
+  const [choose, setChoose] = useState<Opt[] | null>(null), [question, setQuestion] = useState(""), [chats, setChats] = useState<ChatItem[]>([]);
 
-  const apply = useCallback((r: Res) => { setSu(r.setup); setRes(r); if (r.ai !== undefined) setAi(r.ai); if (r.choose !== undefined) setChoose(r.choose); if (r.question !== undefined) setQuestion(r.question); }, []);
+  const apply = useCallback((r: Res) => {
+    setSu(r.setup); setRes(r); if (r.ai !== undefined) setAi(r.ai); if (r.choose !== undefined) setChoose(r.choose); if (r.question !== undefined) setQuestion(r.question); if (r.chats) setChats(r.chats);
+  }, []);
   const load = useCallback(() => api<Res>(`/api/setup?t=${t.slug}`).then(apply).catch(e => ctx.toast(e.message, { error: true })), [t.slug, apply, ctx]);
   useEffect(() => { load(); }, [load]);
 
@@ -65,6 +69,9 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   /* Typewriter: what was there on first load counts as read, every later AI turn is typed out in order */
   const [read, setRead] = useState<Set<string> | null>(null), [tp, setTp] = useState({ id: "", n: 0 });
   useEffect(() => { if (su && !read) setRead(new Set(lines.filter(l => l.id !== "connect" && l.id !== "fertig" && l.id !== "pick").map(l => l.id))); }, [su, read, lines]);
+  /* another chat opened: its history counts as read like on first load */
+  const suId = su?.id;
+  useEffect(() => setRead(null), [suId]);
   const next = read ? lines.find(l => l.role === "ai" && !read.has(l.id)) : undefined;
   const typed = next && tp.id === next.id ? tp.n : 0;
   useEffect(() => {
@@ -135,6 +142,9 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     setBusy(false);
   }
 
+  /* a new chat starts the setup from scratch, the current one stays in the list below the steps */
+  const chat = (body: Record<string, unknown>) => { setRail(false); setOpen(null); post(body); };
+
   const goto = (k: SetupStep) => { setRail(false); if (su && k !== su.step) post({ action: "goto", step: k }); };
 
   const runtime = useExternalStoreRuntime({
@@ -152,7 +162,18 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   return <>
     {top}
   <div className={`cl ${rail ? "rail" : ""}`}>
-    <nav className="cl-rail"><Steps su={su} busy={busy} open={k => { setRail(false); setOpen(k); }} /></nav>
+    <nav className="cl-rail">
+      <Steps su={su} busy={busy} open={k => { setRail(false); setOpen(k); }} />
+      <div className="cl-rs cl-chats">
+        <button className="cl-sh" onClick={() => chat({ action: "new" })} disabled={busy || !su.chat.length}><Icon n="plus" />Neuer Chat</button>
+        {chats.length > 1 && <>
+          <div className="cl-cap">Chats</div>
+          {chats.map(c => <div key={c.id} className={`cl-sec ${c.id === su.id ? "on" : ""}`}>
+            <button className="cl-sh" onClick={() => c.id !== su.id && chat({ action: "switch", id: c.id })} disabled={busy} aria-current={c.id === su.id ? "true" : undefined}>{when(c.at)}</button>
+          </div>)}
+        </>}
+      </div>
+    </nav>
     {rail && <div className="cl-scrim" onClick={() => setRail(false)} />}
 
     <main className="cl-main">
