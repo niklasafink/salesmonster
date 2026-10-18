@@ -78,7 +78,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
   const liRef = useDialog(() => setLi(null));
   const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean; picked: boolean }>(null), [sel, setSel] = useState<Set<number>>(new Set());
-  const [job, setJob] = useState<EnrichJob | null>(null), [report, setReport] = useState<null | { done: EnrichDone[]; skipped: number; stopped: boolean }>(null);
+  const [job, setJob] = useState<EnrichJob | null>(null), [report, setReport] = useState<null | { done: EnrichDone[]; skipped: number; stopped: boolean }>(null), [live, setLive] = useState(false);
   const seenRes = useRef(0);
   const enrRef = useDialog(() => setEnr(null));
   useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
@@ -240,7 +240,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     const fresh = j.results.slice(seenRes.current); seenRes.current = j.results.length;
     if (fresh.length) setRows(rs => rs.map(x => { const r = fresh.find(f => f.id === x.id); return r ? { ...x, ...r.found } : x; }));
     if (j.status === "laeuft") { setJob(j); return; }
-    setJob(null); seenRes.current = 0; load();
+    setJob(null); setLive(false); seenRes.current = 0; load();
     api("/api/leads/enrich/jobs", { method: "PATCH", body: { t: t.slug, id: j.id, action: "seen" } }).catch(() => {});
     if (j.status === "fehler") ctx.toast(j.error, { error: true });
     if (j.results.length || j.skipped) setReport({ done: j.results, skipped: j.skipped, stopped: j.status !== "fertig" });
@@ -308,8 +308,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     <Top title="Leads" onMenu={ctx.openSidebar}>
       {ctx.st.integ.sendpilot?.on && <button className="btn sec" onClick={openLi}><Icon n="linkedin" />LinkedIn</button>}
       {job ? <div className="enr" role="status" aria-label="Anreichern">
-        <div className="bar"><i style={{ width: `${job.total ? job.done / job.total * 100 : 0}%` }} /></div>
-        <span className="num">{job.done}/{job.total}</span><span className="f3 num">{job.found} gefunden</span>
+        <button className="enr-run" onClick={() => setLive(true)} title="Zwischenstand ansehen">
+          <div className="bar"><i style={{ width: `${job.total ? job.done / job.total * 100 : 0}%` }} /></div>
+          <span className="num">{job.done}/{job.total}</span><span className="f3 num">{job.found} gefunden</span>
+        </button>
         <button className="btn gh ic" title="Stoppen" aria-label="Stoppen" onClick={stopEnrich}><Icon n="square" /></button>
       </div> : <button className="btn sec" onClick={openEnrich}><Icon n="sparkles" />Anreichern{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>}
       <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
@@ -365,6 +367,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         <button className="btn pri wide" onClick={runEnrich} disabled={!n}>{n} {n === 1 ? "Lead" : "Leads"} anreichern</button>
       </div></div>; })()}
 
+    {live && job && !edit && <EnrichReport done={job.results} skipped={job.skipped} stopped={false} live={{ done: job.done, total: job.total }} onClose={() => setLive(false)} onOpen={id => { const r = rows.find(x => x.id === id); if (r) setEdit(r); }} />}
     {report && !edit && <EnrichReport {...report} onClose={() => setReport(null)} onOpen={id => { const r = rows.find(x => x.id === id); if (r) setEdit(r); }} />}
 
     {angles && <AnglesDialog slug={t.slug} toast={ctx.toast} onClose={() => setAngles(false)} />}

@@ -10,19 +10,21 @@ export type EnrichDone = { id: number; name: string; found: Filled; missed: Enri
 const label = (f: EnrichField) => ENRICH.find(([k]) => k === f)?.[1] ?? f;
 const valueOf = (found: Filled, f: EnrichField) => f === "person" ? [found.salutation, found.first, found.last].filter(Boolean).join(" ") : found[f];
 
-/* What a run found for whom and what it did not; leads skipped because an earlier search came back empty are counted */
-export function EnrichReport({ done, skipped, stopped, onOpen, onClose }: { done: EnrichDone[]; skipped: number; stopped: boolean; onOpen: (id: number) => void; onClose: () => void }) {
+/* What a run found for whom and what it did not; leads skipped because an earlier search came back empty are counted.
+   With live set the run is still going: the title counts along and the latest lead comes first */
+export function EnrichReport({ done, skipped, stopped, live, onOpen, onClose }: { done: EnrichDone[]; skipped: number; stopped: boolean; live?: { done: number; total: number }; onOpen: (id: number) => void; onClose: () => void }) {
   const ref = useDialog(onClose);
   const hit = done.filter(d => Object.keys(d.found).length).length, err = done.filter(d => d.error).length;
   return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg imp" ref={ref} role="dialog" aria-modal="true" aria-label="Anreicherung">
-    <div className="dlg-h">{stopped ? "Anreicherung gestoppt" : "Anreicherung abgeschlossen"}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
+    <div className="dlg-h">{live ? <span>Anreicherung läuft <span className="num f3">{live.done}/{live.total}</span></span> : stopped ? "Anreicherung gestoppt" : "Anreicherung abgeschlossen"}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
     <div className="enr-sum num">
       <span><b>{hit}</b> ergänzt</span>
       <span><b>{done.length - hit - err}</b> ohne Treffer</span>
       {err > 0 && <span className="bad"><b>{err}</b> Fehler</span>}
       {skipped > 0 && <span title="Bei einer früheren Suche ohne Treffer, diesmal nicht erneut geprüft"><b>{skipped}</b> übersprungen</span>}
     </div>
-    <ul className="enr-rep">{done.map(d => {
+    {live && !done.length && <div className="f3">Noch kein Lead fertig</div>}
+    <ul className="enr-rep">{(live ? [...done].reverse() : done).map(d => {
       const got = ENRICH.map(([k]) => k).filter(f => valueOf(d.found, f));
       return <li key={d.id}>
         <button className="lnk" onClick={() => onOpen(d.id)}>{d.name}</button>
