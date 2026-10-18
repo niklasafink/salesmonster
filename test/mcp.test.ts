@@ -37,6 +37,7 @@ describe("MCP-Endpunkt", () => {
   it("tenants_list liefert nur eigene Mandanten", async () => {
     const c = await mcp((await connectorTokens(me)).access_token);
     expect((await c.listTools()).tools.map(t => t.name)).toContain("tenants_list");
+    expect(c.getInstructions()).toMatch(/Schritt für Schritt/);
     const list = await c.tool<{ slug: string; name: string; domain: string }[]>("tenants_list");
     expect(list.map(t => t.slug).sort()).toEqual(mine.map(t => t.slug).sort());
     expect(list[0]).toEqual({ slug: expect.any(String), name: expect.any(String), domain: "example.test" });
