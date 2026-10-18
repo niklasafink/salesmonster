@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GET, POST } from "@/app/api/leads/route";
 import { POST as PARSE } from "@/app/api/leads/parse/route";
+import { POST as COLUMNS } from "@/app/api/leads/columns/route";
 import { call, fixtures } from "./helpers";
 
 const fx = fixtures();
@@ -72,5 +73,20 @@ describe("Lead-Import über die Leads-Routen", () => {
     const { json } = await call(PARSE, { as: me, body: { t: slug, text } });
     expect(json.rows.map((r: { co: string; p: string; email: string; city: string; dup: string; extra: string }) => [r.co, r.p, r.email, r.city, r.dup, r.extra])).toEqual([
       ["Lang Glas GmbH", "Lea Lang", "lea@langglas.de", "Ulm", "", ""], ["Kurz Stahl AG", "Kai Kurz", "", "Hof", "", "E-Mail ungültig"]]);
+  });
+});
+
+describe("Spalten prüfen vor dem Import", () => {
+  const text = "Firmenname\tTelefon\tKontakt\tMail\nPrüf Holz GmbH\t0221 1\tFrau Pia Prüf\tpia@pruefholz.de";
+  it("schlägt eine Zuordnung vor, Freitext bekommt keine", async () => {
+    const { json } = await call(COLUMNS, { as: me, body: { t: slug, text } });
+    expect(json.cols.map((c: { field: string }) => c.field)).toEqual(["co", "", "name", "email"]);
+    expect((await call(COLUMNS, { as: me, body: { t: slug, text: "Muster GmbH, GF Ida Muster" } })).json).toEqual({ cols: null });
+  });
+  it("übernimmt die geprüfte Zuordnung, ignorierte Spalten bleiben draußen", async () => {
+    const { json } = await call(PARSE, { as: me, body: { t: slug, text, map: ["co", "", "name", ""] } });
+    expect(json.rows).toMatchObject([{ co: "Prüf Holz GmbH", sal: "Frau", p: "Pia Prüf", email: "" }]);
+    expect((await call(PARSE, { as: me, body: { t: slug, text, map: ["", "", "name", "email"] } })).status).toBe(400);
+    expect((await call(PARSE, { as: me, body: { t: slug, text, map: ["co", "toString"] } })).status).toBe(400);
   });
 });

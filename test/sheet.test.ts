@@ -41,3 +41,10 @@ describe("tsvChunks", () => {
     expect(tsvChunks("Muster GmbH - GF: Ida Muster\nBau AG", 120)).toEqual(["Muster GmbH - GF: Ida Muster\nBau AG"]);
   });
 });
+
+describe("toTsv Kopfzeile", () => {
+  it("überspringt Titelzeilen über der Tabelle", () => {
+    const rows = [["Leadliste Oktober", null, null], ["Export vom 01.10.", "", ""], ["Firma", "Ort", "E-Mail"], ["A GmbH", "Ulm", "a@a.de"]];
+    expect(toTsv(rows)).toBe("Firma\tOrt\tE-Mail\nA GmbH\tUlm\ta@a.de");
+  });
+});

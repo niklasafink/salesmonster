@@ -36,9 +36,12 @@ const p2 = (n: number) => String(n).padStart(2, "0");
 /* Excel dates arrive as UTC midnight */
 const cellText = (v: unknown) => v == null ? "" : v instanceof Date ? `${p2(v.getUTCDate())}.${p2(v.getUTCMonth() + 1)}.${v.getUTCFullYear()}` : String(v).replace(/[\t\r\n]+/g, " ").trim();
 
-/* First non-empty row is the header; the parser maps columns by it */
+/* The header is the first row filled at least half as wide as the widest of the first 20 rows,
+   so title lines and export notes above the table fall away */
 export function toTsv(rows: unknown[][]): string {
-  const lines = rows.map(r => r.map(cellText)).filter(r => r.some(Boolean));
+  let lines = rows.map(r => r.map(cellText)).filter(r => r.some(Boolean));
+  const filled = (r: string[]) => r.filter(Boolean).length, widest = Math.max(0, ...lines.slice(0, 20).map(filled));
+  lines = lines.slice(Math.max(0, lines.findIndex(r => filled(r) * 2 >= widest)));
   if (lines.length < 2) throw new Error("Datei ist leer");
   if (lines.length - 1 > MAX_ROWS) throw new Error("Mehr als 1.000 Datenzeilen");
   return lines.map(r => r.join("\t")).join("\n");

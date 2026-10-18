@@ -6,6 +6,7 @@ import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
 import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import type { Ctx } from "../types";
+import { FIELDS, type Column, type Field } from "@/lib/lead-columns";
 import { parseCsv, toTsv } from "@/lib/sheet";
 
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[] };
@@ -24,7 +25,7 @@ export const matches = (hay: string, q: string) => { const f = fold(q.trim()); r
 export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | null; onFocused?: () => void }) {
   const t = ctx.st.tenant!;
   const [rows, setRows] = useState<Lead[]>([]), [cos, setCos] = useState<Company[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
-  const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; rows: Parsed[] | null; busy: boolean }>(null);
+  const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; cols?: Column[] | null; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null);
   const [edit, setEdit] = useState<EditLead | null>(null);
   const impRef = useDialog(() => setImp(null));
@@ -76,11 +77,24 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     try { text = toTsv(sheets.list[i].data); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
     setImp(cur => cur && { ...cur, text });
   }
+  /* Tables first get a column mapping (Jev) to review; free text goes straight to the parser */
   async function parse() {
     if (!imp) return; setImp({ ...imp, busy: true });
-    try { const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text: imp.text } }); setImp(cur => cur && { ...cur, rows: r.rows, busy: false }); }
+    try {
+      const { cols } = await api<{ cols: Column[] | null }>("/api/leads/columns", { body: { t: t.slug, text: imp.text } });
+      if (cols) { setImp(cur => cur && { ...cur, cols, busy: false }); return; }
+      const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text: imp.text } });
+      setImp(cur => cur && { ...cur, cols: null, rows: r.rows, busy: false });
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); setImp(cur => cur && { ...cur, busy: false }); }
+  }
+  async function mapped() {
+    if (!imp?.cols) return;
+    if (!imp.cols.some(c => c.field === "co")) { ctx.toast("Ordne eine Spalte der Firma zu", { error: true }); return; }
+    setImp({ ...imp, busy: true });
+    try { const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text: imp.text, map: imp.cols.map(c => c.field) } }); setImp(cur => cur && { ...cur, rows: r.rows, busy: false }); }
     catch (e) { ctx.toast((e as Error).message, { error: true }); setImp(cur => cur && { ...cur, busy: false }); }
   }
+  const setField = (i: number, field: Field) => setImp(cur => cur?.cols ? { ...cur, cols: cur.cols.map((c, k) => k === i ? { ...c, field } : c) } : cur);
   async function save() {
     if (!imp?.rows) return;
     const add = imp.rows.filter(r => !r.dup);
@@ -141,7 +155,19 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }} />}
 
     {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg" ref={impRef} role="dialog" aria-modal="true" aria-label="Importieren">
-      {!imp.rows ? <>
+      {imp.cols && !imp.rows ? <>
+        <div className="dlg-h">Spalten zuordnen<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+        <div className="tbl"><table><thead><tr><th>Spalte</th><th>Beispiele</th><th>Feld</th></tr></thead><tbody>
+          {imp.cols.map((c, i) => <tr key={i}>
+            <td style={{ fontWeight: 500 }}>{c.head || <span className="f3">–</span>}</td>
+            <td className="f2 clip" style={{ maxWidth: 320 }} title={c.samples.join("\n")}>{c.samples.slice(0, 3).join(", ") || <span className="f3">leer</span>}</td>
+            <td><select className="inp sel" style={{ width: "auto" }} aria-label={`Feld für ${c.head}`} value={c.field} onChange={e => setField(i, e.target.value as Field)}>
+              <option value="">Ignorieren</option>
+              {Object.entries(FIELDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select></td></tr>)}
+        </tbody></table></div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button className="btn sec" onClick={() => setImp({ ...imp, cols: null })}>Zurück</button><button className="btn pri" onClick={mapped} disabled={imp.busy}>{imp.busy && <Icon n="loader" />}Kontakte erkennen</button></div>
+      </> : !imp.rows ? <>
         <div className="dlg-h">Leads importieren<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         <div style={{ display: "flex", gap: 8 }}>
           <label className="btn sec"><Icon n="upload" />Datei wählen<input type="file" accept=".xlsx,.csv" hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = ""; }} /></label>

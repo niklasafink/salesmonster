@@ -174,3 +174,28 @@ test("Barrierefreiheit: Navigation, Verbinden-Buttons, Kontrast", async ({ page 
   expect(new Set(names).size).toBe(names.length);
   for (const n of names) expect(n).toMatch(/^.+ verbinden$/);
 });
+
+test("Import: Spaltenzuordnung prüfen und ändern", async ({ page }) => {
+  /* fixed answers, so neither Jev nor the database is involved */
+  await page.route("**/api/leads/columns", r => r.fulfill({ json: { cols: [
+    { head: "Firmenname", samples: ["Spalten GmbH"], field: "co" },
+    { head: "Telefon", samples: ["0221 1"], field: "" },
+    { head: "Kontakt", samples: ["Eva Spalte"], field: "name" },
+    { head: "Notiz", samples: ["eva@example.com"], field: "" },
+  ] } }));
+  let sent: unknown;
+  await page.route("**/api/leads/parse", r => { sent = r.request().postDataJSON().map; return r.fulfill({ json: { rows: [{ co: "Spalten GmbH", sal: "", p: "Eva Spalte", role: "", email: "eva@example.com", web: "", city: "", dup: "", extra: "" }] } }); });
+  await page.goto("/#leads");
+  await page.getByRole("button", { name: "Importieren" }).click();
+  const dlg = page.getByRole("dialog", { name: "Importieren" });
+  await dlg.getByPlaceholder("Liste, Tabelle oder Text einfügen").fill("Firmenname\tTelefon\tKontakt\tNotiz\nSpalten GmbH\t0221 1\tEva Spalte\teva@example.com");
+  await dlg.getByRole("button", { name: "Daten erkennen" }).click();
+  await expect(dlg.locator(".dlg-h")).toHaveText("Spalten zuordnen");
+  await expect(dlg.getByLabel("Feld für Telefon")).toHaveValue("");
+  await dlg.getByLabel("Feld für Notiz").selectOption("email");
+  await dlg.getByRole("button", { name: "Kontakte erkennen" }).click();
+  await expect(dlg.locator(".dlg-h")).toHaveText("1 Kontakt erkannt");
+  expect(sent).toEqual(["co", "", "name", "email"]);
+  await dlg.getByRole("button", { name: "Zurück" }).click();
+  await expect(dlg.locator(".dlg-h")).toHaveText("Spalten zuordnen");
+});

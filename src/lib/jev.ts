@@ -1,5 +1,6 @@
 import type { MailScore } from "@/db/schema";
 import { getInteg } from "./integrations";
+import type { Field } from "./lead-columns";
 import { words } from "./playbook";
 
 /* Jev (TypeSafe AI) answers typed questions with probabilities and never writes text.
@@ -103,6 +104,42 @@ export async function guessSalutations(key: string, people: { first: string; las
       const a = pick(r[`p${k}`], "choice");
       const sure = a.probabilities ? (a.probabilities[a.choice] ?? 0) >= 0.9 : false;
       if (sure && a.choice !== "unklar") out[i + k] = a.choice === "frau" ? "Frau" : "Herr";
+    });
+  }
+  return out;
+}
+
+const COLS = {
+  co: "Company or organisation name",
+  sal: "Salutation or academic title of the contact person (Herr, Frau, Dr.)",
+  first: "First name of the contact person",
+  last: "Last name of the contact person",
+  name: "Full name of the contact person",
+  role: "Job title or role of the contact person",
+  email: "Email address",
+  web: "Company website or domain",
+  city: "City or location of the company",
+  li: "LinkedIn profile URL",
+  hook: "Note on why to contact the company now (project, tender, news, expansion)",
+  url: "Link to the source the lead was found in",
+  skip: "Anything else: phone, street, zip, IDs, dates, numbers, status, revenue, internal notes, empty",
+} as const;
+
+/* Which CRM field each table column holds, judged from header and sample values, 25 columns per call.
+   Below 60 % certainty the column stays "" and the user decides in the review step. */
+export async function guessColumns(key: string, cols: { head: string; samples: string[] }[]): Promise<(Field | null)[]> {
+  const out: (Field | null)[] = cols.map(() => null);
+  for (let i = 0; i < cols.length; i += 25) {
+    const chunk = cols.slice(i, i + 25);
+    const questions: Record<string, Question> = Object.fromEntries(chunk.map((c, k) => [`c${k}`, {
+      type: "choice" as const, criteria: { ...COLS },
+      instructions: `Column "${c.head}"${c.samples.length ? ` with values ${c.samples.map(s => JSON.stringify(s)).join(", ")}` : " (empty)"}. Which CRM field does this column hold?`,
+    }]));
+    const r = await decide(key, "Columns of a German B2B lead list (Excel or CSV) imported into a sales CRM. Map each column to a contact field.", questions, true);
+    chunk.forEach((_, k) => {
+      const a = pick(r[`c${k}`], "choice");
+      const p = a.probabilities?.[a.choice] ?? 0;
+      out[i + k] = p < 0.6 ? null : a.choice === "skip" ? "" : a.choice as Field;
     });
   }
   return out;
