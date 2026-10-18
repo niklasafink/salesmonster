@@ -23,5 +23,9 @@ export const PUT = route<Ctx>(async (req, { params }, me) => {
     set.active = b.active;
   }
   if (!Object.keys(set).length) return;
+  if (set.active ?? t.active) {
+    if (!(set.subject ?? t.subject).trim()) throw new HttpError(400, "Betreff fehlt");
+    if (!(set.body ?? t.body).trim()) throw new HttpError(400, "Text fehlt");
+  }
   await db.update(templates).set(set).where(eq(templates.id, id));
 });

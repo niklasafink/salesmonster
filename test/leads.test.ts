@@ -66,4 +66,11 @@ describe("Lead-Import über die Leads-Routen", () => {
     const { json } = await call(PARSE, { as: me, body: { t: slug, text } });
     expect(json.rows.map((r: { co: string; email: string; web: string }) => [r.co, r.email, r.web])).toEqual([["Weber Bau GmbH", "anna@weber-bau.de", "www.weber-bau.de"]]);
   });
+
+  it("Tabelle mit Semikolon ohne KI: Spalten erkannt, ungültige E-Mail markiert", async () => {
+    const text = "Firma;Vorname;Name;E-Mail;Ort\nLang Glas GmbH;Lea;Lang;lea@langglas.de;Ulm\nKurz Stahl AG;Kai;Kurz;kai@kurz;Hof";
+    const { json } = await call(PARSE, { as: me, body: { t: slug, text } });
+    expect(json.rows.map((r: { co: string; p: string; email: string; city: string; dup: string }) => [r.co, r.p, r.email, r.city, r.dup])).toEqual([
+      ["Lang Glas GmbH", "Lea Lang", "lea@langglas.de", "Ulm", ""], ["Kurz Stahl AG", "Kai Kurz", "kai@kurz", "Hof", "E-Mail ungültig"]]);
+  });
 });

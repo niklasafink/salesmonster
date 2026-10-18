@@ -15,12 +15,22 @@ export function salutationOf(raw: string) {
 export const INFO_MAIL = /^(info|kontakt|office|mail|post|service|vertrieb|hallo)@/i;
 /* info = a company mailbox or no person to address; the rule for every place that writes email or name */
 export const emailTypeOf = (email: string, person: boolean) => INFO_MAIL.test(email) || !person ? "info" : "person";
-export const websiteOf = (w: string) => w && !/^https?:\/\//i.test(w) ? `https://${w}` : w;
+
+export const validEmail = (s: string) => /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(s);
+
+/* Only http(s) links; a bare domain gets https://, any other scheme is dropped */
+export function httpUrl(raw: string) {
+  const s = raw.trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  return /^[a-z][a-z\d+.-]*:/i.test(s) || /^\/\//.test(s) || !/^[^\s/?#:.]+(\.[^\s/?#:.]+)+(:\d+)?([/?#]|$)/.test(s) ? "" : `https://${s}`;
+}
 
 export function cleanLead(b: Record<string, unknown>) {
   const out: Partial<Record<LeadField, string>> = {};
   for (const k of LEAD_FIELDS) if (typeof b[k] === "string") out[k] = (b[k] as string).trim().slice(0, k === "research" || k === "note" ? 4000 : 500);
   if (out.salutation !== undefined) out.salutation = salutationOf(out.salutation);
+  for (const k of ["website", "linkedin", "sourceUrl"] as const) if (out[k] !== undefined) out[k] = httpUrl(out[k]);
   if (out.emailType !== undefined && out.emailType !== "info") out.emailType = "person";
   return out;
 }

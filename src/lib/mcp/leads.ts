@@ -3,8 +3,8 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db, leads } from "@/db";
 import { attachCompanies } from "@/lib/companies";
-import { cleanLead, emailTypeOf, websiteOf } from "@/lib/lead-fields";
-import { tenantBySlug } from "@/lib/api";
+import { cleanLead, emailTypeOf } from "@/lib/lead-fields";
+import { HttpError, checkEmail, tenantBySlug } from "@/lib/api";
 import { addLeads } from "@/lib/lead-import";
 import { setLeadStatus } from "@/lib/outreach";
 import { checkRun } from "@/lib/workflows";
@@ -98,11 +98,22 @@ export function leadTools(server: McpServer) {
       .where(and(eq(leads.tenantId, t.id), inArray(leads.id, updates.map(u => u.id))))).map(l => [l.id, l]));
     const updated: number[] = [], notFound: number[] = [];
     let moved = false;
-    for (const { id, status, ...f } of updates) {
+    /* same address checks as the portal, all before the first write so a bad address changes nothing */
+    const sets = new Map<number, Partial<typeof leads.$inferInsert>>(), taken = new Set<string>();
+    for (const { id, ...f } of updates) {
       const l = found.get(id);
-      if (!l) { notFound.push(id); continue; }
+      if (!l) continue;
       const set: Partial<typeof leads.$inferInsert> = Object.fromEntries(Object.entries(cleanLead(f)).filter(([, v]) => v));
-      if (set.website) set.website = websiteOf(set.website);
+      if (set.email && set.email.toLowerCase() !== l.email.toLowerCase()) {
+        if (taken.has(set.email.toLowerCase())) throw new HttpError(400, `Schon in der Liste: ${set.email}`);
+        await checkEmail(t.id, set.email, id).catch(e => { throw new HttpError(400, `${(e as Error).message}: ${set.email}`); });
+        taken.add(set.email.toLowerCase());
+      }
+      sets.set(id, set);
+    }
+    for (const { id, status } of updates) {
+      const l = found.get(id), set = sets.get(id);
+      if (!l || !set) { notFound.push(id); continue; }
       if (set.email || set.first || set.last) set.emailType = emailTypeOf(set.email ?? l.email, !!((set.first ?? l.first) || (set.last ?? l.last)));
       if (set.company && set.company !== l.company) { set.companyId = null; moved = true; }
       if (Object.keys(set).length) await db.update(leads).set(set).where(eq(leads.id, id));

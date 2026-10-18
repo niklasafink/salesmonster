@@ -3,9 +3,9 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, leads, members, messages, runs, templates, tenants, users, type MailScore, type TemplateScore } from "@/db";
 import { getInteg } from "./integrations";
 import { proposeTemplates } from "./claude";
-import { aiFor } from "./ai";
+import { AiMissing, aiFor } from "./ai";
 import { fill } from "./fill";
-import { scoreMail } from "./jev";
+import { jevKey, scoreMail } from "./jev";
 import { lint, nextKey, PLAYBOOK } from "./playbook";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -49,10 +49,10 @@ Betreff: ${t.subject}
 ${t.body}`;
 
 export async function optimizeTemplates(t: Tenant) {
-  const jev = (await getInteg(t.id, "jev"))?.key;
+  const jev = await jevKey(t.id);
   const claude = await aiFor(t.id);
-  if (!jev) throw new Error("Jev ist nicht verbunden");
-  if (!claude) throw new Error("Keine KI verbunden");
+  if (!jev) throw new Error("OpenRouter ist nicht verbunden (für Jev)");
+  if (!claude) throw new AiMissing();
 
   const sample = await db.select().from(leads)
     .where(and(eq(leads.tenantId, t.id), t.tenders ? sql`jsonb_array_length(${leads.tenders}) > 0` : sql`${leads.hook} <> ''`))

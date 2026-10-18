@@ -20,12 +20,60 @@ function regexParse(txt: string) {
   }).filter((x): x is NonNullable<typeof x> => !!x);
 }
 
+/* Pasted tables (Excel, CSV): column headers, lowercased and without spaces, dashes and dots */
+const HEAD: [string, RegExp][] = [
+  ["co", /^(firma|firmenname|unternehmen|company|companyname|organisation|organization|account|accountname|kunde)$/],
+  ["sal", /^(anrede|salutation|titel|prefix)$/],
+  ["first", /^(vorname|firstname|first|givenname)$/],
+  ["last", /^(nachname|lastname|last|surname|familyname|familienname)$/],
+  ["name", /^(name|fullname|kontakt|kontaktperson|ansprechpartner(in)?|contact|contactname|contactperson|person)$/],
+  ["role", /^(rolle|position|funktion|role|jobtitle|title|job)$/],
+  ["email", /^(e?mail|emailadresse|mailadresse|emailaddress)$/],
+  ["web", /^(website|webseite|homepage|internet|url|web|domain)$/],
+  ["city", /^(ort|stadt|city|standort|location|town)$/],
+  ["li", /^(linkedin|linkedinurl|linkedinprofil|linkedinprofile)$/],
+];
+
+const cells = (line: string, sep: string) => {
+  const out: string[] = []; let cur = "", q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { if (q && line[i + 1] === '"') { cur += ch; i++; } else q = !q; }
+    else if (ch === sep && !q) { out.push(cur.trim()); cur = ""; }
+    else cur += ch;
+  }
+  return [...out, cur.trim()];
+};
+
+/* A header row naming at least the company and one more known column; null when the text is no such table */
+function tableParse(txt: string) {
+  const lines = txt.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return null;
+  for (const sep of ["\t", ";", ","]) {
+    const col: Record<string, number> = {};
+    cells(lines[0], sep).forEach((h, i) => {
+      const k = HEAD.find(([, re]) => re.test(h.toLowerCase().replace(/[\s_.\-:/()]/g, "")))?.[0];
+      if (k && !(k in col)) col[k] = i;
+    });
+    if (!("co" in col) || Object.keys(col).length < 2) continue;
+    /* "Name" next to "Vorname" is the family name */
+    if ("first" in col && "name" in col && !("last" in col)) { col.last = col.name; delete col.name; }
+    return lines.slice(1).map(line => {
+      const c = cells(line, sep), v = (k: string) => k in col ? c[col[k]] || "" : "";
+      /* "Herr Dr. Max Muster" in one cell: the title goes to the salutation */
+      const [, t, p] = (v("name") || [v("first"), v("last")].filter(Boolean).join(" ")).match(/^((?:(?:Herr|Frau|Prof\.|Dr\.)\s+)*)(.*)$/)!;
+      return { co: v("co"), sal: v("sal") || t.trim(), p, role: v("role"), email: v("email"), web: v("web"), city: v("city"), li: v("li"), hook: "" };
+    }).filter(r => r.co);
+  }
+  return null;
+}
+
 export const POST = route(async (req, _c, me) => {
   const { t: slug, text } = await req.json();
   const t = await tenantBySlug(slug, me);
   if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Keine Daten");
   const key = await aiFor(t.id, me.id);
-  if (!key) return { rows: await checkLeads(t.id, regexParse(text)) };
+  if (!key) return { rows: await checkLeads(t.id, tableParse(text) ?? regexParse(text)) };
   const parts = tsvChunks(text, 120), table = parts.length > 1;
   if (table && parts.reduce((n, p) => n + p.split("\n").length - 1, 0) > MAX_ROWS) throw new HttpError(400, "Mehr als 1.000 Datenzeilen");
   if (parts.some(p => p.length > IMPORT_CHARS))

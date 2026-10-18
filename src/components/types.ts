@@ -16,7 +16,10 @@ export type State = {
   setup: { step: string; done: boolean; started: boolean };
 };
 
+/* a download action, or an error (stays longer, no check mark) */
+export type ToastOpt = { label: string; href: string } | { error: true };
+
 export type Ctx = {
-  st: State; reload: () => Promise<void>; toast: (m: string, action?: { label: string; href: string }) => void;
+  st: State; reload: () => Promise<void>; toast: (m: string, opt?: ToastOpt) => void;
   setView: (v: string) => void; openSidebar: () => void;
 };

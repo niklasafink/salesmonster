@@ -1,6 +1,6 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { companies, db, leads } from "@/db";
-import { HttpError, qp, route, tenantBySlug } from "@/lib/api";
+import { HttpError, checkEmail, qp, route, tenantBySlug } from "@/lib/api";
 import { attachCompanies } from "@/lib/companies";
 import { LEAD_FIELDS, cleanLead } from "@/lib/lead-fields";
 import { insertLeads, type LeadRow } from "@/lib/lead-import";
@@ -20,6 +20,7 @@ export const POST = route(async (req, _c, me) => {
   if (lead) {
     const v = cleanLead(lead);
     if (!v.company) throw new HttpError(400, "Firma fehlt");
+    await checkEmail(t.id, v.email);
     const [r] = await db.insert(leads).values({ ...v, tenantId: t.id, company: v.company, source: "Manuell", status: "neu" }).returning();
     await attachCompanies(t.id);
     return { id: r.id };

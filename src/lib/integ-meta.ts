@@ -1,6 +1,6 @@
 /* Shared between client and server. perUser = one connection per person and tenant (mailboxes).
    account = one connection per person for all their tenants (AI keys); jobs without a user take the key of a member. */
-export type IntegKind = "outlook" | "smtp" | "hubspot" | "vergabehero" | "sendpilot" | "claude" | "openrouter" | "jev" | "resend";
+export type IntegKind = "outlook" | "smtp" | "hubspot" | "vergabehero" | "sendpilot" | "claude" | "openrouter" | "resend";
 export type Field = { id: string; label: string; type?: string; value?: string; secret?: boolean; options?: [string, string][] };
 
 export const OPENROUTER_MODELS: [string, string][] = [
@@ -21,6 +21,5 @@ export const INTEG: { k: IntegKind; ico: string; name: string; perUser?: boolean
   { k: "openrouter", ico: "sparkles", name: "OpenRouter", account: true, auth: "fields", fields: [{ id: "key", label: "API-Schlüssel", type: "password", secret: true },
     { id: "model", label: "Modell", type: "select", value: OPENROUTER_MODELS[0][0], options: OPENROUTER_MODELS }] },
   { k: "claude", ico: "sparkles", name: "Claude", account: true, auth: "fields", fields: [{ id: "key", label: "API-Schlüssel", type: "password", secret: true }] },
-  { k: "jev", ico: "target", name: "Jev", account: true, auth: "fields", fields: [{ id: "key", label: "AI-Gateway-Schlüssel", type: "password", secret: true }] },
   { k: "resend", ico: "bell", name: "Resend", auth: "fields", fields: [{ id: "key", label: "API-Schlüssel", type: "password", secret: true }, { id: "from", label: "Absender", type: "email" }] },
 ];
