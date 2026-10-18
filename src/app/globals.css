@@ -263,6 +263,14 @@ th:first-child,td:first-child{padding-left:0} th:last-child,td:last-child{paddin
 .dlg td{white-space:normal}
 .wrap.wide{max-width:1320px}
 .dlg .tbl{max-height:50vh; overflow:auto}
+.tl{display:flex; flex-direction:column; gap:2px; max-height:50vh; overflow:auto; margin:0 -8px}
+.tl button{display:flex; align-items:center; gap:10px; width:100%; padding:8px; border:0; background:none; border-radius:8px; text-align:left; font-weight:500}
+.tl button:hover,.tl button:focus-visible{background:var(--hover); outline:none}
+.tl button.on{background:var(--hover)}
+.tl .tic{width:22px; height:22px; border-radius:6px; font-size:9.5px}
+.tl .nm{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.tl .end{margin-left:auto; flex:none}
+.tl .lucide.end{width:15px; height:15px; color:var(--fg-2)}
 /* Palette, toast */
 .ov{position:fixed; inset:0; background:var(--overlay); z-index:90; display:flex; justify-content:center; align-items:flex-start; padding:12vh 16px 16px; animation:fade .12s ease}
 .pal{width:min(560px,100%); background:var(--panel); border-radius:14px; box-shadow:var(--shadow-lg); overflow:hidden; animation:pop .14s ease}

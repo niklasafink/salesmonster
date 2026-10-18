@@ -29,11 +29,11 @@ export default function Portal() {
   const [st, setSt] = useState<State | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
   const [view, setViewS] = useState("freigabe");
-  const [pop, setPop] = useState<null | "ws" | "me">(null);
+  const [pop, setPop] = useState<null | "me">(null);
   const [sbo, setSbo] = useState(false);
   const [pal, setPal] = useState(false), [palQ, setPalQ] = useState(""), [palI, setPalI] = useState(0);
   const [toastS, setToast] = useState<Toast>(null);
-  const [dlg, setDlg] = useState<null | "tenant" | "pw">(null);
+  const [dlg, setDlg] = useState<null | "ws" | "tenant" | "pw">(null);
   const [focusLead, setFocusLead] = useState<number | null>(null);
   const tt = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -61,7 +61,7 @@ export default function Portal() {
   }, [load, toast]);
 
   const setView = useCallback((v: string) => { setViewS(v); setSbo(false); try { history.replaceState(null, "", "#" + v); } catch { /* ignore */ } }, []);
-  const switchTenant = useCallback((s: string) => { setSlug(s); ls.set("sp-tenant", s); setPop(null); load(s).catch(e => toast(e.message)); }, [load, toast]);
+  const switchTenant = useCallback((s: string) => { setSlug(s); ls.set("sp-tenant", s); setPop(null); setDlg(null); load(s).catch(e => toast(e.message)); }, [load, toast]);
 
   const hasInvoice = !!st?.tenant?.invoice;
   const navKeys = Object.keys(VIEWS).filter(v => (v !== "rechnungen" || hasInvoice));
@@ -115,13 +115,7 @@ export default function Portal() {
     <>
       <div id="app" className={sbo ? "sbo" : ""} onClick={e => { if (sbo && !(e.target as HTMLElement).closest(".sb")) setSbo(false); }}>
         <aside className="sb">
-          <div className="rel">
-            <button className="ws" onClick={() => setPop(pop === "ws" ? null : "ws")}>{t && <TenantIcon key={t.slug} t={t} />}{t?.name || "Kein Mandant"}<Icon n="chevrons-up-down" /></button>
-            {pop === "ws" && <div className="pop" style={{ top: 38 }}>
-              {st.tenants.map((x, i) => <button key={x.slug} onClick={() => switchTenant(x.slug)} title={i < 9 ? `⌘${i + 1}` : undefined}><TenantIcon t={x} />{x.name}{x.slug === t?.slug && <Icon n="check" className="end" />}</button>)}
-              <hr /><button onClick={() => { setPop(null); setDlg("tenant"); }}><Icon n="plus" />Mandant hinzufügen</button>
-            </div>}
-          </div>
+          <button className="ws" onClick={() => { setPop(null); setDlg("ws"); }}>{t && <TenantIcon key={t.slug} t={t} />}{t?.name || "Kein Mandant"}<Icon n="chevrons-up-down" /></button>
           <button className="find" onClick={() => { setPal(true); setPalQ(""); setPalI(0); }} title="⌘K"><Icon n="search" />Suchen</button>
           {navKeys.map(nav)}
           <div className="sb-foot">
@@ -154,6 +148,15 @@ export default function Portal() {
           : <div className="grp">Nichts gefunden</div>}</div>
       </div></div>}
 
+      {dlg === "ws" && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><div className="dlg" role="dialog" aria-label="Unternehmen">
+        <div className="dlg-h">Unternehmen<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+        <div className="tl">
+          {st.tenants.map((x, i) => <button key={x.slug} className={x.slug === t?.slug ? "on" : ""} onClick={() => switchTenant(x.slug)} autoFocus={x.slug === t?.slug}>
+            <TenantIcon t={x} /><span className="nm">{x.name}</span>{x.slug === t?.slug ? <Icon n="check" className="end" /> : i < 9 && <span className="k end">⌘{i + 1}</span>}
+          </button>)}
+        </div>
+        <button className="btn wide" onClick={() => setDlg("tenant")}><Icon n="plus" />Unternehmen hinzufügen</button>
+      </div></div>}
       {dlg === "tenant" && <TenantDialog onClose={() => setDlg(null)} onDone={s => { setDlg(null); switchTenant(s); setView("einrichtung"); }} />}
       {dlg === "pw" && <PwDialog onClose={() => setDlg(null)} onDone={() => { setDlg(null); toast("Passwort geändert"); }} />}
 
@@ -174,7 +177,7 @@ function TenantDialog({ onClose, onDone }: { onClose: () => void; onDone: (slug:
     e.preventDefault(); setBusy(true); setErr("");
     try { const r = await api<{ slug: string }>("/api/tenants", { body: { name, domain } }); onDone(r.slug); } catch (x) { setErr((x as Error).message); setBusy(false); }
   }}>
-    <div className="dlg-h">Mandant hinzufügen<button type="button" className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
+    <div className="dlg-h">Unternehmen hinzufügen<button type="button" className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
     <label className="fld"><span>Name</span><input className="inp" value={name} onChange={e => setName(e.target.value)} autoFocus /></label>
     <label className="fld"><span>Domain</span><input className="inp" value={domain} onChange={e => setDomain(e.target.value)} placeholder="firma.de" /></label>
     {err && <div className="warn">{err}</div>}
