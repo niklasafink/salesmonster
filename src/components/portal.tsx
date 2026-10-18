@@ -9,11 +9,12 @@ import { Vorlagen } from "./views/vorlagen";
 import { Einstellungen } from "./views/einstellungen";
 import { Rechnungen } from "./views/rechnungen";
 import { Einrichtung } from "./views/einrichtung";
+import { Strecken } from "./views/strecken";
 
 const VIEWS: Record<string, [string, string]> = {
   einrichtung: ["Einrichtung", "sparkles"],
   freigabe: ["Freigabe", "inbox"], statistik: ["Übersicht", "layout-dashboard"], leads: ["Leads", "users"],
-  vorlagen: ["Vorlagen", "file-text"], rechnungen: ["Rechnungen", "receipt-text"], einstellungen: ["Einstellungen", "settings-2"],
+  vorlagen: ["Vorlagen", "file-text"], strecken: ["Strecken", "send"], rechnungen: ["Rechnungen", "receipt-text"], einstellungen: ["Einstellungen", "settings-2"],
 };
 
 const ls = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } } };
@@ -155,6 +156,7 @@ export default function Portal() {
             : curView === "statistik" ? <Uebersicht key={t.slug} ctx={ctx} />
             : curView === "leads" ? <Leads key={t.slug} ctx={ctx} focus={leadFocus} onFocused={clearLeadFocus} />
             : curView === "vorlagen" ? <Vorlagen key={t.slug} ctx={ctx} />
+            : curView === "strecken" ? <Strecken key={t.slug} ctx={ctx} />
             : curView === "rechnungen" ? <Rechnungen key={t.slug} ctx={ctx} />
             : curView === "einrichtung" ? <Einrichtung key={t.slug} ctx={ctx} />
             : <Einstellungen key={t.slug} ctx={ctx} />}

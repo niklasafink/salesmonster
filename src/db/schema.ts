@@ -208,3 +208,64 @@ export const runs = pgTable("runs", {
   info: text("info").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/* Mail sequence for people who registered on the website (synced to HubSpot). Each step is sent `day` days
+   after registration; a reply pauses the person until someone decides to continue or stop. */
+export type SeqStep = { day: number; name: string };
+export type SeqMatch = { property: string; value: string };
+export type SeqConfig = { enter: SeqMatch; bought: SeqMatch; stop: SeqMatch; senderId: number | null; trialDays: number; since: string };
+
+export const sequences = pgTable("sequences", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  active: boolean("active").notNull().default(false),
+  steps: jsonb("steps").$type<SeqStep[]>().notNull(),
+  config: jsonb("config").$type<SeqConfig>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* Variants A/B/C of one step */
+export const sequenceTemplates = pgTable("sequence_templates", {
+  id: serial("id").primaryKey(),
+  sequenceId: integer("sequence_id").notNull().references(() => sequences.id, { onDelete: "cascade" }),
+  step: integer("step").notNull(),
+  key: text("key").notNull(),
+  tone: text("tone").notNull().default("sie"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  active: boolean("active").notNull().default(true),
+  score: jsonb("score").$type<MailScore>(),
+}, t => [uniqueIndex("sequence_templates_key").on(t.sequenceId, t.step, t.key)]);
+
+/* One person in a sequence. step = index of the next mail; status aktiv | antwort | beendet | gekauft | abgemeldet | unzustellbar */
+export const enrollments = pgTable("enrollments", {
+  id: serial("id").primaryKey(),
+  sequenceId: integer("sequence_id").notNull().references(() => sequences.id, { onDelete: "cascade" }),
+  hubspotId: text("hubspot_id").notNull(),
+  email: text("email").notNull(),
+  first: text("first").notNull().default(""),
+  last: text("last").notNull().default(""),
+  salutation: text("salutation").notNull().default(""),
+  company: text("company").notNull().default(""),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  step: integer("step").notNull().default(0),
+  status: text("status").notNull().default("aktiv"),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  repliedAt: timestamp("replied_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex("enrollments_key").on(t.sequenceId, t.hubspotId), index("enrollments_status").on(t.sequenceId, t.status)]);
+
+export const sequenceMails = pgTable("sequence_mails", {
+  id: serial("id").primaryKey(),
+  sequenceId: integer("sequence_id").notNull().references(() => sequences.id, { onDelete: "cascade" }),
+  enrollmentId: integer("enrollment_id").notNull().references(() => enrollments.id, { onDelete: "cascade" }),
+  step: integer("step").notNull(),
+  variant: text("variant").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  senderId: integer("sender_id").references(() => users.id),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  repliedAt: timestamp("replied_at", { withTimezone: true }),
+  bouncedAt: timestamp("bounced_at", { withTimezone: true }),
+}, t => [index("sequence_mails_step").on(t.sequenceId, t.step)]);
