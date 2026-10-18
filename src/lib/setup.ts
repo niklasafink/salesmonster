@@ -166,12 +166,20 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
   if (text) chat.push({ role: "me", text, step: su.step });
 
   const t0 = Date.now();
-  const o = await think(t, ai, { ...su, chat }, text, a.action === "auto", signal);
-  if (signal?.aborted) return su;
-  let cur = { ...su, ...(await absorb(t, su, o, text)) };
-  if (o.site && mustRead(t, su.step)) t = { ...t, settings: { ...t.settings, site: { domain: t.domain, notes: o.site.slice(0, 20000), at: new Date().toISOString() } } };
-  const reply: ChatMsg = { role: "ai", text: labelled(o.reply, su.step), step: su.step, chips: o.chips.slice(0, 4) };
-  const step = a.action === "auto" || (o.advance && a.action === "message") ? nextStep(su.step) : su.step;
+  let cur: Setup = su, step: SetupStep = su.step, reply: ChatMsg | null = null, prev = "";
+  if (a.action === "message" && GO.test(text)) {
+    /* "Weiter zur Zielgruppe" and the like change the step for sure; asking the model first only cost time and sometimes kept the step */
+    step = nextStep(su.step);
+    prev = su.chat.findLast(m => m.role === "ai" && m.step === su.step)?.text ?? "";
+  } else {
+    const o = await think(t, ai, { ...su, chat }, text, a.action === "auto", signal);
+    if (signal?.aborted) return su;
+    cur = { ...su, ...(await absorb(t, su, o, text)) };
+    if (o.site && mustRead(t, su.step)) t = { ...t, settings: { ...t.settings, site: { domain: t.domain, notes: o.site.slice(0, 20000), at: new Date().toISOString() } } };
+    reply = { role: "ai", text: labelled(o.reply, su.step), step: su.step, chips: o.chips.slice(0, 4) };
+    prev = o.reply;
+    if (a.action === "auto" || (o.advance && a.action === "message")) step = nextStep(su.step);
+  }
 
   /* A finished step starts the next one in the same request, so the user gets one answer instead of a closing answer, a wait and a second answer.
      Without enough time left the closing answer is saved and the client starts the next step as before */
@@ -180,7 +188,7 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
     const nsu = { ...cur, chat, step };
     try {
       const timeout = AbortSignal.timeout(left);
-      const o2 = await think(t, ai, nsu, "", false, signal ? AbortSignal.any([signal, timeout]) : timeout, o.reply);
+      const o2 = await think(t, ai, nsu, "", false, signal ? AbortSignal.any([signal, timeout]) : timeout, prev);
       cur = { ...cur, ...(await absorb(t, nsu, o2, "")) };
       chat.push({ role: "ai", text: labelled(o2.reply, step), step, chips: o2.chips.slice(0, 4) });
       return save(su.id, { ...pick(cur), chat: chat.slice(-80), step });
@@ -189,9 +197,12 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
       console.error("setup: next step not chained", e);
     }
   }
-  chat.push(reply);
+  if (reply) chat.push(reply);
   return save(su.id, { ...pick(cur), chat: chat.slice(-80), step });
 }
+
+/* The "Weiter zu …" chip the skills offer when a step is done */
+const GO = /^weiter zu[rm]?\s+[\wäöüÄÖÜß -]{2,30}$/i;
 
 /* Vercel stops the function at 300 s (maxDuration of /api/setup); the chained call gets what is left, minus room to save */
 const CHAIN_MS = 270_000, CHAIN_MIN_MS = 90_000;
