@@ -9,10 +9,13 @@ import { jevKey } from "./jev";
    About 1 ct per 100 leads with DeepSeek V4.1 Flash (thinking off, cheapest provider). A lead is judged again only when its inputs or the ideal customer change (hash). */
 export const FIT_MODEL = "deepseek/deepseek-v4.1-flash";
 const FALLBACK = "google/gemini-2.5-flash-lite";
-const VERSION = 1, BATCH = 10, PARALLEL = 4, MAX = 400;
+const VERSION = 2, BATCH = 10, PARALLEL = 6, MAX = 400;
 const RATED = ["neu", "freigabe", "angeschrieben", "beantwortet"];
 
-type Lead = typeof leads.$inferSelect;
+/* only what the judge reads */
+const COLS = { id: leads.id, company: leads.company, city: leads.city, website: leads.website, first: leads.first, last: leads.last, role: leads.role, email: leads.email,
+  emailType: leads.emailType, linkedin: leads.linkedin, hook: leads.hook, note: leads.note, research: leads.research, sourceUrl: leads.sourceUrl, tenders: leads.tenders, fitInfo: leads.fitInfo };
+type Lead = { [K in keyof typeof COLS]: (typeof leads.$inferSelect)[K] };
 type Part = { company: number; person: number; need: number; evidence: number };
 
 /* weights from the reviews: company 45 %, person 35 %, need 20 %; evidence only lowers confidence */
@@ -53,7 +56,7 @@ ${icp}
 Bewerte jeden Lead nur nach seinen Angaben. Erfinde nichts; fehlt etwas, bewerte niedriger und nenne es.
 Ein "nicht in diesem Segment" gilt nur für sein Segment und meint genau die genannten Firmen: Passt der Lead in ein anderes Segment, bewerte ihn dort. Steht dort z. B. "Sparkassen (über Verbände)", sind die Sparkassen selbst gemeint, ihre Verbände sind erwünscht.
 - segment: Name des am besten passenden Segments, sonst "".
-- ko: kurzer Grund nur in diesen Fällen: der Lead fällt unter ein "nicht" und passt in kein anderes Segment, ist Bestandskunde, Testeintrag oder keine echte Firma, oder die Person arbeitet nicht bei der Firma. Passt ein Lead nur schlecht, ist das kein ko, sondern eine niedrige company. Sonst "".
+- ko: kurzer Grund nur in diesen Fällen: der Lead fällt unter ein "nicht" und passt in kein anderes Segment, ist Bestandskunde, Testeintrag oder keine echte Firma, oder die Person arbeitet nicht bei der Firma. Schreib den Grund in eigenen Worten mit Bezug auf den Lead, z. B. "Big Four" oder "Testeintrag, keine Firma". Passt ein Lead nur schlecht oder in kein Segment, ist das kein ko, sondern eine niedrige company. Sonst "".
 - company 0–4: 0 in keinem Segment · 1 Randbereich · 2 Segment passt, Größe oder Region weicht ab oder ist unklar · 3 passt in Segment, Größe und Region · 4 wie 3 im besten Segment oder mit belegtem Bedarf.
 - person 0–4: 0 keine Person oder klar falsche Funktion · 1 fachfremd · 2 angrenzend oder unklar · 3 Funktion einer Ansprechpartner-Gruppe · 4 entscheidet selbst in dieser Funktion.
 - need 0–4: 0 kein Anlass · 1 nur allgemein für die Branche · 2 Thema passt, aber nicht firmenspezifisch · 3 konkreter Anlass bei dieser Firma · 4 konkret, aktuell und direkt zum Angebot.
@@ -91,7 +94,9 @@ async function judge(key: string, icp: string, batch: Lead[]): Promise<{ got: Ju
   const text = (j.choices?.[0]?.message?.content || "").replace(/^```(?:json)?\s*|\s*```$/g, "");
   const raw = (JSON.parse(text) as { leads?: Judged[] }).leads || [];
   return { model: j.model || FIT_MODEL, got: raw.map(x => ({ id: Number(x.id), segment: String(x.segment || ""), ko: String(x.ko || "").trim(), why: String(x.why || "").slice(0, 200),
-    company: clamp(x.company), person: clamp(x.person), need: clamp(x.need), evidence: clamp(x.evidence) })) };
+    company: clamp(x.company), person: clamp(x.person), need: clamp(x.need), evidence: clamp(x.evidence) }))
+    /* a knockout without a real reason is the model echoing the instructions: it counts as a poor fit, not as excluded */
+    .map(x => /^(ko|ja|yes|true|x)$|fällt unter ein|der lead/i.test(x.ko) || x.ko.length < 3 ? { ...x, ko: "", company: Math.min(x.company, 1) } : x) };
 }
 
 export type FitRun = { judged: number; failed: number; error?: string };
@@ -102,7 +107,7 @@ export async function fitLeads(tenantId: number, only?: number[]): Promise<FitRu
   if (!key) return { judged: 0, failed: 0, error: "Kein OpenRouter-Schlüssel" };
   const icp = await icpOf(tenantId);
   if (!icp) return { judged: 0, failed: 0, error: "Kein Zielkundenprofil" };
-  const all = await db.select().from(leads).where(and(eq(leads.tenantId, tenantId), inArray(leads.status, RATED), only ? inArray(leads.id, only.length ? only : [0]) : undefined));
+  const all = await db.select(COLS).from(leads).where(and(eq(leads.tenantId, tenantId), inArray(leads.status, RATED), only ? inArray(leads.id, only.length ? only : [0]) : undefined));
   const todo = all.filter(l => l.fitInfo?.hash !== fitHash(icp, l)).slice(0, MAX);
   const batches: Lead[][] = [];
   for (let i = 0; i < todo.length; i += BATCH) batches.push(todo.slice(i, i + BATCH));
