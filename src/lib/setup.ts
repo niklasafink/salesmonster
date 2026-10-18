@@ -1,6 +1,6 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, count, desc, eq, like, ne } from "drizzle-orm";
 import { z } from "zod";
-import { db, leads, setups, templates, tenants, SETUP_STEPS, type ChatMsg, type SetupLead, type SetupStep } from "@/db";
+import { db, leads, setups, templates, tenants, SETUP_STEPS, type ChatMsg, type SetupLead, type SetupStep, type StepSource } from "@/db";
 import { ask, json } from "./claude";
 import { AiMissing, type Ai } from "./ai";
 import { getInteg } from "./integrations";
@@ -124,9 +124,11 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promi
     if (!a.step || !SETUP_STEPS.includes(a.step)) return su;
     const text = (a.text || "").trim().slice(0, 20000), prompts = a.step === "fertig" ? { ...su.prompts } : drop(su, a.step);
     if (text) prompts[a.step] = text; else delete prompts[a.step];
-    return save(su.id, { prompts });
+    const sources = { ...su.sources };
+    if (text) sources[a.step] = "nutzer"; else delete sources[a.step];
+    return save(su.id, { prompts, sources });
   }
-  if (a.action === "votes") return save(su.id, { leads: (a.leads ?? su.leads).map(l => Lead.parse(l)), prompts: drop(su, "liste") });
+  if (a.action === "votes") return save(su.id, { leads: (a.leads ?? su.leads).map(l => Lead.parse(l)), prompts: drop(su, "liste"), sources: { ...su.sources, liste: "nutzer" } });
   if (a.action === "skip") return save(su.id, { step: nextStep(su.step), skipped: [...new Set([...su.skipped, su.step])] });
   if (a.action === "next") return save(su.id, { step: nextStep(su.step), skipped: su.skipped.filter(x => x !== su.step) });
   if (su.step === "fertig") return su;
@@ -149,7 +151,11 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promi
   }
   if (o.templates?.length) set.templates = await scoreTemplates(t, su, o.templates.slice(0, 3));
   const wrote = ([["website", o.profile], ["zielgruppe", o.segments?.length], ["ansprechpartner", o.personas?.length], ["liste", o.leads?.length], ["ansprache", o.templates?.length]] as const).filter(([, v]) => v).map(([k]) => k);
-  if (wrote.length) set.prompts = drop(su, ...wrote);
+  if (wrote.length) {
+    set.prompts = drop(su, ...wrote);
+    /* written from the user's answer counts as input, on its own (start, auto) as AI */
+    set.sources = { ...su.sources, ...Object.fromEntries(wrote.map(k => [k, text ? "nutzer" : "ki"])) };
+  }
   chat.push({ role: "ai", text: o.reply, step: su.step, chips: o.chips.slice(0, 4) });
   set.chat = chat.slice(-80);
   if (a.action === "auto" || (o.advance && a.action === "message")) set.step = nextStep(su.step);
@@ -200,6 +206,24 @@ export function promptParts(t: Tenant, su: Setup): Record<SetupStep, string> {
   return parts;
 }
 
+export type Sources = Partial<Record<SetupStep, StepSource>>;
+
+/* Who filled each step, for the dots in the rail. Filled without a recorded source means it came from a research run (scripts/prefill.ts);
+   leads and templates from such a run go straight into the tenant, so they count for their step too */
+export async function stepSources(tenantId: number, su: Setup): Promise<Sources> {
+  const [[l], [m]] = await Promise.all([
+    db.select({ n: count() }).from(leads).where(and(eq(leads.tenantId, tenantId), like(leads.source, "Recherche%"))),
+    db.select({ n: count() }).from(templates).where(and(eq(templates.tenantId, tenantId), eq(templates.origin, "Recherche"))),
+  ]);
+  const filled: Record<SetupStep, boolean> = { website: !!su.profile, zielgruppe: su.segments.length > 0, ansprechpartner: su.personas.length > 0,
+    liste: su.leads.length > 0, ansprache: su.templates.length > 0, fertig: !!su.doneAt };
+  const research: Partial<Record<SetupStep, boolean>> = { liste: l.n > 0, ansprache: m.n > 0 };
+  return Object.fromEntries(SETUP_STEPS.flatMap(k => {
+    const v = filled[k] ? su.sources[k] ?? "recherche" : research[k] ? "recherche" : undefined;
+    return v ? [[k, v]] : [];
+  }));
+}
+
 export const buildPrompt = (t: Tenant, su: Setup) => promptParts(t, su).fertig;
 
 /* Writes the results into the tenant. Each part is opt-in on the last screen. */
@@ -226,6 +250,6 @@ export async function applySetup(t: Tenant, su: Setup, opts: { prompt?: string; 
       out.leads++;
     }
   }
-  await db.update(setups).set({ step: "fertig", doneAt: new Date(), updatedAt: new Date() }).where(and(eq(setups.id, su.id)));
+  await db.update(setups).set({ step: "fertig", doneAt: new Date(), sources: { ...su.sources, fertig: "nutzer" }, updatedAt: new Date() }).where(and(eq(setups.id, su.id)));
   return out;
 }

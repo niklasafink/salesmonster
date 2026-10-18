@@ -4,7 +4,7 @@ import { ActionBarPrimitive, AssistantRuntimeProvider, ComposerPrimitive, Messag
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { OPENROUTER_MODELS } from "@/lib/integ-meta";
 import type { SetupLead, SetupStep, SetupTemplate } from "@/db/schema";
-import type { ChatItem, Setup } from "@/lib/setup";
+import type { ChatItem, Setup, Sources } from "@/lib/setup";
 import { httpUrl } from "@/lib/lead-fields";
 import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx } from "../types";
@@ -18,9 +18,10 @@ const BUSY: Record<SetupStep, string> = { website: "Lese die Website", zielgrupp
 const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier deinen API-Schlüssel ein, von [OpenRouter](https://openrouter.ai/settings/keys) oder von der [Claude-API](https://console.anthropic.com/settings/keys).";
 
 const NEW_KEY = "Anderen Schlüssel verbinden";
+const SOURCE = { ki: "Von der KI", nutzer: "Aus deiner Eingabe", recherche: "Aus der Recherche" };
 
 type Opt = { id: string; label: string };
-type Res = { setup: Setup; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean; choose?: Opt[] | null; question?: string; chats?: ChatItem[] };
+type Res = { setup: Setup; sources: Sources; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean; choose?: Opt[] | null; question?: string; chats?: ChatItem[] };
 type Line = { id: string; role: "ai" | "me"; text: string; chips?: string[] };
 
 const when = (iso: string) => new Date(iso).toLocaleString("de-DE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -163,7 +164,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     {top}
   <div className={`cl ${rail ? "rail" : ""}`}>
     <nav className="cl-rail">
-      <Steps su={su} busy={busy} open={k => { setRail(false); setOpen(k); }} />
+      <Steps su={su} sources={res?.sources ?? {}} busy={busy} open={k => { setRail(false); setOpen(k); }} />
       <div className="cl-rs cl-chats">
         <button className="cl-sh" onClick={() => chat({ action: "new" })} disabled={busy || !su.chat.length}><Icon n="plus" />Neuer Chat</button>
         {chats.length > 1 && <>
@@ -244,13 +245,13 @@ function Spark({ spin }: { spin?: boolean }) {
   </svg>;
 }
 
-function Steps({ su, busy, open }: { su: Setup; busy: boolean; open: (k: SetupStep) => void }) {
-  const idx = STEPS.findIndex(([k]) => k === su.step);
-  return <div className="cl-rs">{STEPS.map(([k, n], i) => {
-    const cur = k === su.step, skipped = su.skipped.includes(k);
+/* The dot says who filled the step, the highlighted row which step the chat is on */
+function Steps({ su, sources, busy, open }: { su: Setup; sources: Sources; busy: boolean; open: (k: SetupStep) => void }) {
+  return <div className="cl-rs">{STEPS.map(([k, n]) => {
+    const cur = k === su.step, skipped = su.skipped.includes(k), src = sources[k];
     return <div key={k} className={`cl-sec ${cur ? "on" : ""}`}>
       <button className="cl-sh" onClick={() => open(k)} disabled={busy} aria-current={cur ? "step" : undefined}>
-        {cur ? <i className="cl-dot" /> : i < idx && !skipped ? <Icon n="check" /> : <i className="cl-dot off" />}{n}{skipped && <span className="cl-skip">übersprungen</span>}
+        <i className={`cl-dot ${src ?? "off"}`} title={src ? SOURCE[src] : "Offen"} aria-label={src ? SOURCE[src] : "Offen"} />{n}{skipped && <span className="cl-skip">übersprungen</span>}
       </button>
     </div>;
   })}</div>;

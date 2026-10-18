@@ -202,6 +202,8 @@ export type Persona = { role: string; titles: string[]; segment: string; pains: 
 export type SetupLead = { company: string; website: string; city: string; segment: string; person: string; role: string; linkedin: string; email: string; why: string; vote?: 1 | -1; reason?: string };
 export type SetupTemplate = { key: string; name: string; tone: string; subject: string; body: string; score?: MailScore | null };
 export type ChatMsg = { role: "ai" | "me"; text: string; step: SetupStep; chips?: string[] };
+/* who filled a step: the AI on its own, the AI from the user's answer or a hand edit, or a research run outside the chat */
+export type StepSource = "ki" | "nutzer" | "recherche";
 
 export const setups = pgTable("setups", {
   id: serial("id").primaryKey(),
@@ -218,6 +220,7 @@ export const setups = pgTable("setups", {
   skipped: jsonb("skipped").$type<SetupStep[]>().notNull().default([]),
   /* hand-edited prompt sections per step; the AI writing that step again drops the edit */
   prompts: jsonb("prompts").$type<Partial<Record<SetupStep, string>>>().notNull().default({}),
+  sources: jsonb("sources").$type<Partial<Record<SetupStep, StepSource>>>().notNull().default({}),
   doneAt: timestamp("done_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [uniqueIndex("setups_active").on(t.tenantId).where(sql`${t.active}`)]);

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { db, tenants } from "@/db";
 import { HttpError, qp, route, tenantBySlug } from "@/lib/api";
 import { aiFor, aiOptions, choiceId, choiceLabel, choiceOf } from "@/lib/ai";
-import { act, applySetup, listChats, loadSetup, newSetup, promptParts, switchSetup, PROMPT_KEY, type Action, type Setup } from "@/lib/setup";
+import { act, applySetup, listChats, loadSetup, newSetup, promptParts, stepSources, switchSetup, PROMPT_KEY, type Action, type Setup } from "@/lib/setup";
 
 export const maxDuration = 300;
 
@@ -20,7 +20,7 @@ async function chooser(t: Tenant, su: Setup, userId: number) {
 /* The full state of one chat, as after loading the page */
 async function full(t: Tenant, su: Setup, userId: number) {
   const c = await chooser(t, su, userId);
-  return { setup: su, parts: promptParts(t, su), keys: PROMPT_KEY, ai: !!(await aiFor(t.id, userId)), choose: c?.options ?? null, question: c?.question ?? "", chats: await listChats(t.id) };
+  return { setup: su, sources: await stepSources(t.id, su), parts: promptParts(t, su), keys: PROMPT_KEY, ai: !!(await aiFor(t.id, userId)), choose: c?.options ?? null, question: c?.question ?? "", chats: await listChats(t.id) };
 }
 
 export const GET = route(async (req, _c, me) => {
@@ -47,10 +47,10 @@ export const POST = route(async (req, _c, me) => {
     t = { ...t, settings: { ...t.settings, ai: pick } };
     /* the question and the answer stay in the chat, then step 1 starts with the chosen model */
     const next = await act(t, await aiFor(t.id, me.id), su, { action: "start", intro: [{ role: "ai", text: c.question, step: su.step }, { role: "me", text: o.label, step: su.step }] });
-    return { setup: next, parts: promptParts(t, next), keys: PROMPT_KEY, ai: true, choose: null, question: "", chats: await listChats(t.id) };
+    return { setup: next, sources: await stepSources(t.id, next), parts: promptParts(t, next), keys: PROMPT_KEY, ai: true, choose: null, question: "", chats: await listChats(t.id) };
   }
   if (!["start", "message", "auto", "next", "skip", "goto", "votes", "prompt"].includes(b.action)) throw new HttpError(400, "Unbekannte Aktion");
   const { intro: _drop, ...a } = b as Action & { t: string };
   const next = await act(t, await aiFor(t.id, me.id), su, a);
-  return { setup: next, parts: promptParts(t, next), keys: PROMPT_KEY, chats: await listChats(t.id) };
+  return { setup: next, sources: await stepSources(t.id, next), parts: promptParts(t, next), keys: PROMPT_KEY, chats: await listChats(t.id) };
 });

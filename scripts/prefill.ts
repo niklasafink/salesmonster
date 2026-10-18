@@ -26,7 +26,7 @@ async function main() {
   }
 
   if (data.setup) {
-    const v = { profile: data.setup.profile, segments: data.setup.segments, personas: data.setup.personas, step: "fertig" as const, doneAt: new Date(), updatedAt: new Date() };
+    const v = { profile: data.setup.profile, segments: data.setup.segments, personas: data.setup.personas, sources: { website: "recherche" as const, zielgruppe: "recherche" as const, ansprechpartner: "recherche" as const, fertig: "recherche" as const }, step: "fertig" as const, doneAt: new Date(), updatedAt: new Date() };
     const [cur] = await db.select({ id: setups.id }).from(setups).where(and(eq(setups.tenantId, t.id), eq(setups.active, true)));
     if (cur) await db.update(setups).set(v).where(eq(setups.id, cur.id)); else await db.insert(setups).values({ tenantId: t.id, ...v });
   }
