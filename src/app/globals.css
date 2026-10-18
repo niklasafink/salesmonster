@@ -176,7 +176,7 @@ svg.lucide{width:15px; height:15px; stroke-width:1.75; flex-shrink:0}
 .cost-chart{position:relative}
 .cost-chart .tt{position:absolute; top:0; transform:translateX(-50%); pointer-events:none; display:grid; gap:1px; padding:6px 9px; border-radius:8px; background:var(--panel); box-shadow:var(--shadow-lg); font-size:12px; white-space:nowrap}
 .cost-chart .tt .num{font-weight:600}
-table.costs th.r,table.costs td.r{text-align:right}
+table.costs th.num-r,table.costs td.num-r{text-align:right}
 .abrow{display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:6px 10px; align-items:center; padding:12px 0; border-top:1px solid var(--line)}
 .abrow:first-of-type{border-top:0; padding-top:0}
 .abrow .track{grid-column:2 / 4; height:5px; border-radius:3px; background:var(--line); overflow:hidden}

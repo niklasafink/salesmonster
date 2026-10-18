@@ -79,7 +79,7 @@ function bar(x: number, base: number, w: number, h: number) {
 function Chart({ p, b }: { p: Period; b: Bucket[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const tk = ticks(Math.max(0, ...b.map(x => x.cost))), top = tk[tk.length - 1], step = tk[1] ?? top;
-  const W = 1040, H = 240, L = 64, R = 6, Tp = 8, B = 24, iw = W - L - R, ih = H - Tp - B, bw = iw / b.length;
+  const W = 720, H = 220, L = 62, R = 6, Tp = 8, B = 24, iw = W - L - R, ih = H - Tp - B, bw = iw / b.length;
   const y = (v: number) => Tp + ih - v / top * ih, gap = Math.min(bw * .3, 12);
   const lbl = (x: Bucket) => p === "jahr" ? parse(x.from).toLocaleDateString("de-DE", { month: "short" })
     : p === "woche" ? parse(x.from).toLocaleDateString("de-DE", { weekday: "short" }) : String(parse(x.from).getDate());
@@ -134,10 +134,10 @@ export function Kosten({ ctx }: { ctx: Ctx }) {
       <div className="kpi"><span className="l">Insgesamt</span><span className="v">{usd(ever)}</span></div>
     </div>
     <div className="blk chart"><Chart p={p} b={b} /></div>
-    {inPeriod.length > 0 && <div className="tbl"><table className="costs"><thead><tr><th>Aktion</th><th>Umfang</th><th>Zeitpunkt</th><th className="r">Je Stück</th><th className="r">Kosten</th></tr></thead><tbody>
+    {inPeriod.length > 0 && <div className="blk"><h3>Aktionen</h3><div className="tbl"><table className="costs"><thead><tr><th>Aktion</th><th>Umfang</th><th>Zeitpunkt</th><th className="num-r">Je Stück</th><th className="num-r">Kosten</th></tr></thead><tbody>
       {shown.map((a, i) => <tr key={i}><td>{KINDS[a.kind]?.[0] || a.kind}</td><td className="num f2">{unit(a)}</td><td className="num f2">{when(a.at)}</td>
-        <td className="num f2 r">{a.items && a.cost ? usd(a.cost / a.items) : "–"}</td><td className="num r">{cost(a)}</td></tr>)}
-    </tbody></table></div>}
+        <td className="num f2 num-r">{a.items && a.cost ? usd(a.cost / a.items) : "–"}</td><td className="num num-r">{cost(a)}</td></tr>)}
+    </tbody></table></div></div>}
     {inPeriod.length > VISIBLE && <div><button className="btn gh" onClick={() => setAll(!all)}>{all ? "Weniger anzeigen" : `Alle ${inPeriod.length} anzeigen`}</button></div>}
   </>;
 }
