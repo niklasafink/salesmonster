@@ -5,13 +5,13 @@ import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
 import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import type { Ctx } from "../types";
-import { FIELDS, splitTable, type Column, type Field } from "@/lib/lead-columns";
+import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
 
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null };
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
-type Parsed = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; dup: string; extra: string };
+type Parsed = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; note?: string; dup: string; extra: string };
 const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
 
 /* we already had contact: a mail went out, an answer came in, or the mailbox knows them */
@@ -29,7 +29,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [rows, setRows] = useState<Lead[]>([]), [cos, setCos] = useState<Company[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
   const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; cols?: Column[] | null; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null), [drag, setDrag] = useState(false);
-  const [edit, setEdit] = useState<EditLead | null>(null);
+  const [edit, setEdit] = useState<EditLead | null>(null), [allCols, setAllCols] = useState(false);
   const impRef = useDialog(() => setImp(null));
   const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
@@ -86,7 +86,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     setImp(cur => cur && { ...cur, busy: true });
     try {
       const { cols } = await api<{ cols: Column[] | null }>("/api/leads/columns", { body: { t: t.slug, text } });
-      if (cols) { setImp(cur => cur && { ...cur, cols, rows: null, busy: false }); return; }
+      if (cols) { setAllCols(false); setImp(cur => cur && { ...cur, cols, rows: null, busy: false }); return; }
       const r = await api<{ rows: Parsed[] }>("/api/leads/parse", { body: { t: t.slug, text } });
       setImp(cur => cur && { ...cur, cols: null, rows: r.rows, busy: false });
     } catch (e) { ctx.toast((e as Error).message, { error: true }); setImp(cur => cur && { ...cur, busy: false }); }
@@ -157,19 +157,22 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       onTrash={() => { const r = edit as Lead; setEdit(null); trash(r); }}
       onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }} />}
 
-    {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg" ref={impRef} role="dialog" aria-modal="true" aria-label="Importieren">
+    {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg imp" ref={impRef} role="dialog" aria-modal="true" aria-label="Importieren">
       {imp.cols && !imp.rows ? <>
         <div className="dlg-h">Spalten zuordnen<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         {sheets && <select className="inp sel" aria-label="Blatt" value={sheets.i} onChange={e => pickSheet(Number(e.target.value))} disabled={imp.busy}>{sheets.list.map((s, i) => <option key={i} value={i}>{s.sheet}</option>)}</select>}
-        <div className="tbl"><table className="map"><thead>
-          <tr>{imp.cols.map((c, i) => <th key={i} className={c.field ? "" : "off"} title={c.head}>{c.head || "–"}</th>)}</tr>
-          <tr className="mapsel">{imp.cols.map((c, i) => <th key={i}><select className={`inp sel${c.field ? "" : " off"}`} aria-label={`Feld für ${c.head}`} value={c.field} onChange={e => setField(i, e.target.value as Field)}>
-            <option value="">Ignorieren</option>
-            {Object.entries(FIELDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select></th>)}</tr>
-        </thead><tbody>
-          {table?.rows.slice(0, 100).map((r, k) => <tr key={k}>{imp.cols!.map((c, i) => <td key={i} className={c.field ? "" : "off"} title={r[i] || undefined}>{r[i] || ""}</td>)}</tr>)}
-        </tbody></table></div>
+        {/* one line per source column; unassigned ones stay folded so the list shows what goes into the CRM */}
+        <div className="tbl"><table className="map"><tbody>
+          {imp.cols.map((c, i) => !c.field && !allCols ? null : <tr key={i} className={c.field ? "" : "off"}>
+            <td className="mh" title={c.head}>{c.head || "–"}</td>
+            <td className="ms f3" title={c.samples[0]}>{c.samples[0] ? clean(c.samples[0]) : "leer"}</td>
+            <td className="mf"><select className={`inp sel${c.field ? "" : " off"}`} aria-label={`Feld für ${c.head}`} value={c.field} onChange={e => setField(i, e.target.value as Field)}>
+              <option value="">Ignorieren</option>
+              {Object.entries(FIELDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select></td>
+          </tr>)}
+        </tbody></table>
+        {imp.cols.some(c => !c.field) && <button className="btn gh more" onClick={() => setAllCols(!allCols)}>{allCols ? "Ignorierte ausblenden" : `${imp.cols.filter(c => !c.field).length} ignorierte ${imp.cols.filter(c => !c.field).length === 1 ? "Spalte" : "Spalten"}`}</button>}</div>
         <div className="dlg-f">{table && <span className="f3">{table.rows.length} {table.rows.length === 1 ? "Zeile" : "Zeilen"}</span>}<span className="sp" />
           <button className="btn sec" onClick={() => { setImp({ ...imp, cols: null }); setSheets(null); }}>Zurück</button><button className="btn pri" onClick={mapped} disabled={imp.busy}>{imp.busy && <Icon n="loader" />}Kontakte erkennen</button></div>
       </> : !imp.rows ? <>
@@ -188,7 +191,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         <div className="dlg-h">{imp.rows.length} {imp.rows.length === 1 ? "Kontakt" : "Kontakte"} erkannt<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th className="hide-m">Rolle</th><th>E-Mail</th><th className="hide-m">Ort</th><th></th></tr></thead><tbody>
           {imp.rows.map((r, i) => <tr key={i}><td style={{ fontWeight: 500 }}>{r.co}</td><td>{r.p ? [r.sal, r.p].filter(Boolean).join(" ") : <span className="f3">–</span>}</td>
-            <td className="hide-m f2">{r.role || <span className="f3">–</span>}</td>
+            <td className="hide-m f2" title={r.note || undefined}>{r.role || <span className="f3">–</span>}</td>
             <td className="mono" style={{ fontSize: 12.5 }}>{r.email || (r.web ? <span className="f3">{r.web}</span> : <span className="f3">fehlt</span>)}</td>
             <td className="hide-m f2">{r.city || <span className="f3">–</span>}</td>
             <td>{r.dup ? <span className="pill">{r.dup}</span> : r.extra ? <span className="pill">{r.extra}</span> : null}</td></tr>)}

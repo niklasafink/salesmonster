@@ -14,6 +14,7 @@ export const FIELDS = {
   li: "LinkedIn",
   hook: "Anlass",
   url: "Quell-Link",
+  note: "Notiz",
 } as const;
 export type Field = keyof typeof FIELDS | "";
 export type Column = { head: string; samples: string[]; field: Field };
@@ -65,25 +66,62 @@ export function splitTable(txt: string): { head: string[]; rows: string[][] } | 
   return null;
 }
 
+/* A cell as it goes into the CRM: no wrapping quotes, no placeholder dash, a Markdown link becomes its text */
+export function clean(raw: string) {
+  let s = (raw || "").trim().replace(/\[([^\]]*)\]\((\S+?)\)/g, "$1").trim();
+  while (/^["'„“”‚‘’»«]/.test(s) && /["'„“”‘’»«]$/.test(s) && s.length > 1) s = s.slice(1, -1).trim();
+  return /^[-–—/]$|^(n\/?a|k\.?\s?a\.?)$/i.test(s) ? "" : s;
+}
+/* For link fields: the target of a Markdown link, else the cleaned cell */
+const link = (raw: string) => (raw || "").match(/\]\((https?:\/\/\S+?)\)/)?.[1] || clean(raw);
+const cellOf = (raw: string, f: Field) => f === "web" || f === "url" || f === "li" ? link(raw) : clean(raw);
+
+/* Do the values fit the field? Header names and Jev both misjudge, e.g. "Standort" holding dates or notes. */
+const URL_RE = /^(https?:\/\/|www\.)\S+$|^[\w-]+(\.[\w-]+)+(\/\S*)?$/i;
+const FITS: Partial<Record<Field, (v: string) => boolean>> = {
+  co: v => v.length <= 100,
+  sal: v => v.length <= 30,
+  first: v => v.length <= 40 && !/[\d@]/.test(v),
+  last: v => v.length <= 40 && !/[\d@]/.test(v),
+  name: v => v.length <= 60 && !/[\d@;]/.test(v),
+  /* codes like "A" or "R1" are no role and stay out */
+  role: v => v.length <= 100 && !/@/.test(v) && !/^[A-Z]{0,2}\d{0,2}$/i.test(v),
+  note: v => !/^[A-Z]{0,2}\d{0,2}$/i.test(v),
+  email: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+  web: v => URL_RE.test(v) && !/@/.test(v),
+  url: v => URL_RE.test(v),
+  li: v => /linkedin\./i.test(v),
+  city: v => v.length <= 40 && !/[\d;:@]/.test(v),
+};
+export function fits(f: Field, samples: string[]) {
+  const ok = f && FITS[f], vals = samples.map(s => cellOf(s, f)).filter(Boolean);
+  return !ok || !vals.length || vals.filter(ok).length * 2 > vals.length;
+}
+
 /* Up to 5 distinct non-empty values per column, for Jev and for the review step */
 export function columnsOf(t: { head: string[]; rows: string[][] }): Column[] {
   const f = headFields(t.head);
   return t.head.map((head, i) => {
     const seen = new Set<string>();
-    for (const r of t.rows) { const v = (r[i] || "").slice(0, 80); if (v) seen.add(v); if (seen.size === 5) break; }
-    return { head, samples: [...seen], field: f[i] };
+    for (const r of t.rows) { const v = (r[i] || "").trim().slice(0, 120); if (clean(v)) seen.add(v); if (seen.size === 5) break; }
+    const samples = [...seen];
+    return { head, samples, field: fits(f[i], samples) ? f[i] : "" };
   });
 }
 
-export type MappedRow = { co: string; sal: string; p: string; role: string; email: string; web: string; city: string; li: string; hook: string; url: string };
+export type MappedRow = { co: string; sal: string; p: string; role: string; email: string; web: string; city: string; li: string; hook: string; url: string; note: string };
 
 /* Applies the reviewed mapping; columns set to "" are ignored, rows without a company are dropped.
-   Several columns on one field: the first non-empty cell wins (e.g. "E-Mail 1", "E-Mail 2"). */
+   Several columns on one field: the first non-empty cell wins (e.g. "E-Mail 1", "E-Mail 2");
+   columns on Notiz are collected as "Spalte: Wert", so side facts sit in one short text instead of fields of their own. */
 export function applyMap(t: { head: string[]; rows: string[][] }, map: Field[]): MappedRow[] {
   return t.rows.map(c => {
-    const v = (f: Field) => map.reduce<string>((acc, m, i) => acc || (m === f ? (c[i] || "").trim() : ""), "");
+    /* a cell that does not fit its field (a code as role, a date as city) is left out, the rest of the row stays */
+    const cell = (i: number, f: Field) => { const x = cellOf(c[i] || "", f); return f === "co" || !FITS[f] || FITS[f]!(x) ? x : ""; };
+    const v = (f: Field) => map.reduce<string>((acc, m, i) => acc || (m === f ? cell(i, f) : ""), "");
     /* "Herr Dr. Max Muster" in one cell: the title goes to the salutation */
     const [, title, p] = (v("name") || [v("first"), v("last")].filter(Boolean).join(" ")).match(/^((?:(?:Herr|Frau|Prof\.|Dr\.)\s+)*)(.*)$/)!;
-    return { co: v("co"), sal: v("sal") || title.trim(), p: p.trim(), role: v("role"), email: v("email"), web: v("web"), city: v("city"), li: v("li"), hook: v("hook"), url: v("url") };
+    const note = map.map((m, i) => m === "note" && cell(i, m) ? `${t.head[i]}: ${cell(i, m)}` : "").filter(Boolean).join(" · ").slice(0, 500);
+    return { co: v("co"), sal: v("sal") || title.trim(), p: p.trim(), role: v("role"), email: v("email"), web: v("web"), city: v("city"), li: v("li"), hook: v("hook"), url: v("url"), note };
   }).filter(r => r.co);
 }

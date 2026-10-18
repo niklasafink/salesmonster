@@ -122,7 +122,8 @@ const COLS = {
   li: "LinkedIn profile URL",
   hook: "Note on why to contact the company now (project, tender, news, expansion)",
   url: "Link to the source the lead was found in",
-  skip: "Anything else: phone, street, zip, IDs, dates, numbers, status, revenue, internal notes, empty",
+  note: "Short side fact about the person worth knowing before writing: department, area of responsibility, topic, committee",
+  skip: "Anything else: phone, street, zip, IDs, dates, numbers, status, revenue, category, rating, short codes like A, B or R1, internal notes, empty. When in doubt, skip",
 } as const;
 
 /* Which CRM field each table column holds, judged from header and sample values, 25 columns per call.
@@ -135,7 +136,7 @@ export async function guessColumns(key: string, cols: { head: string; samples: s
       type: "choice" as const, criteria: { ...COLS },
       instructions: `Column "${c.head}"${c.samples.length ? ` with values ${c.samples.map(s => JSON.stringify(s)).join(", ")}` : " (empty)"}. Which CRM field does this column hold?`,
     }]));
-    const r = await decide(key, "Columns of a German B2B lead list (Excel or CSV) imported into a sales CRM. Map each column to a contact field.", questions, true);
+    const r = await decide(key, "Columns of a German B2B lead list (Excel or CSV) imported into a sales CRM. Map each column to a contact field. Only columns a salesperson needs to write to the contact; everything else is skip.", questions, true);
     chunk.forEach((_, k) => {
       const a = pick(r[`c${k}`], "choice");
       const p = a.probabilities?.[a.choice] ?? 0;

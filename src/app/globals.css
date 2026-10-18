@@ -589,9 +589,11 @@ tr.click:focus-visible td{background:var(--hover)}
 .drop:focus-within{outline:2px solid var(--ring); outline-offset:2px}
 .drop u{color:var(--accent); text-decoration:none; font-weight:500}
 .vh{position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; pointer-events:none}
-.dlg .map thead{position:sticky; top:0; z-index:1; background:var(--panel)}
-.dlg .map th,.dlg .map td{white-space:nowrap; max-width:240px; overflow:hidden; text-overflow:ellipsis}
-.dlg .map .mapsel th{padding-top:0; font-weight:400}
-.dlg .map .mapsel select{width:100%; min-width:172px}
-.dlg .map .off{color:var(--fg-3)}
-.dlg .map thead tr:first-child th{color:var(--fg); border-bottom:0}
+.dlg.imp{width:min(640px,100%)}
+.dlg .map{table-layout:fixed; width:100%}
+.dlg .map td{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-top:6px; padding-bottom:6px}
+.dlg .map .mh{width:34%; font-weight:500}
+.dlg .map .mf{width:170px}
+.dlg .map .mf select{width:100%}
+.dlg .map .off .mh{color:var(--fg-3); font-weight:400}
+.dlg .more{margin-top:6px; color:var(--fg-2)}

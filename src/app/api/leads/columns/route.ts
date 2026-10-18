@@ -1,6 +1,6 @@
 import { HttpError, route, tenantBySlug } from "@/lib/api";
 import { guessColumns, jevKey } from "@/lib/jev";
-import { columnsOf, splitTable } from "@/lib/lead-columns";
+import { columnsOf, fits, splitTable } from "@/lib/lead-columns";
 
 export const maxDuration = 60;
 
@@ -16,7 +16,8 @@ export const POST = route(async (req, _c, me) => {
   const key = await jevKey(t.id, me.id);
   const ask = cols.map((c, i) => i).filter(i => cols[i].samples.length);
   const g = key && ask.length ? await guessColumns(key, ask.map(i => cols[i])).catch(e => { console.error(e); return []; }) : [];
-  ask.forEach((i, k) => { const f = g[k]; if (f != null) cols[i].field = f; });
+  /* a guess the values contradict is dropped: the column stays unassigned rather than filling a field with noise */
+  ask.forEach((i, k) => { const f = g[k]; if (f != null) cols[i].field = fits(f, cols[i].samples) ? f : ""; });
   cols.forEach(c => { if (!c.samples.length) c.field = ""; });
   return { cols };
 });

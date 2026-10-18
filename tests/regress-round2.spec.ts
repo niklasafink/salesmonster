@@ -191,6 +191,7 @@ test("Import: Spaltenzuordnung prüfen und ändern", async ({ page }) => {
   await dlg.getByPlaceholder("Liste, Tabelle oder Text einfügen").fill("Firmenname\tTelefon\tKontakt\tNotiz\nSpalten GmbH\t0221 1\tEva Spalte\teva@example.com");
   await dlg.getByRole("button", { name: "Daten erkennen" }).click();
   await expect(dlg.locator(".dlg-h")).toHaveText("Spalten zuordnen");
+  await dlg.getByRole("button", { name: "2 ignorierte Spalten" }).click();
   await expect(dlg.getByLabel("Feld für Telefon")).toHaveValue("");
   await dlg.getByLabel("Feld für Notiz").selectOption("email");
   await dlg.getByRole("button", { name: "Kontakte erkennen" }).click();
@@ -210,6 +211,7 @@ test("Import: Datei geht direkt in die Spaltenansicht", async ({ page }) => {
   await expect(dlg.locator("table.map tbody tr")).toHaveCount(2);
   await expect(dlg.locator("table.map tbody tr").first()).toContainText("Datei GmbH");
   await expect(dlg.getByLabel("Feld für Firma")).toHaveValue("co");
+  await dlg.getByRole("button", { name: "1 ignorierte Spalte" }).click();
   await expect(dlg.getByLabel("Feld für Telefon")).toHaveValue("");
   await dlg.getByRole("button", { name: "Zurück" }).click();
   await expect(dlg.locator(".dlg-h")).toHaveText("Leads importieren");
