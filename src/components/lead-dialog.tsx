@@ -14,7 +14,13 @@ export const STATUS: Record<string, [string, string]> = {
   neu: ["Neu", "n"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", "b"], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", "x"], kontakt: ["Kontakt", "k"], papierkorb: ["Papierkorb", "t"],
 };
 
-export const gradeTone = (g?: string | null) => g === "A" || g === "B" ? "hi" : g === "C" ? "mid" : "lo";
+/* rating 0–100 as ten segments, red to green by position; filled up to the score, the rest grey */
+export const RatingBar = ({ value, title }: { value: number; title?: string }) => {
+  const on = Math.max(value > 0 ? 1 : 0, Math.round(value / 10));
+  return <span className="rbar" role="img" aria-label={`Bewertung ${value} von 100`} title={title}>
+    {Array.from({ length: 10 }, (_, i) => <i key={i} className={i < on ? `s${i}` : undefined} />)}
+  </span>;
+};
 
 export const emptyLead = (company = ""): EditLead => ({ company, salutation: "", first: "", last: "", role: "", email: "", emailType: "person", phone: "", linkedin: "", website: "",
   city: "", hook: "", note: "", sourceUrl: "", research: "", status: "neu", tenders: [] });
@@ -110,7 +116,7 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], rating, onV
       <section className="props">
         {rating?.ratingInfo && rating.rating !== null && <div className="rating">
           <h3>Bewertung</h3>
-          <div className="gr"><span className={`score ${gradeTone(rating.ratingInfo.grade)}`}>{rating.ratingInfo.grade}</span><span className="num f3">{rating.rating} von 100</span></div>
+          <div className="gr"><RatingBar value={rating.rating} /><span className="num f3">{rating.rating} von 100</span></div>
           <ul>{rating.ratingInfo.reasons.map((r, i) => <li key={i}><span className="p">{r.pts > 0 ? `+${r.pts}` : `−${Math.abs(r.pts)}`}</span><span>{r.text}{r.learned && <span className="f3"> gelernt</span>}</span></li>)}</ul>
           {onVote && <div className="votes">
             <button className={`btn gh${rating.vote > 0 ? " on" : ""}`} aria-pressed={rating.vote > 0} onClick={() => onVote(1)}><Icon n="thumbs-up" />Guter Lead</button>

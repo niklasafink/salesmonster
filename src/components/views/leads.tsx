@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { RatingInfo, Tender } from "@/db/schema";
 import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
-import { LeadDialog, STATUS, emptyLead, gradeTone, type EditLead } from "../lead-dialog";
+import { LeadDialog, RatingBar, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import { AnglesDialog } from "../angles-dialog";
 import type { Ctx } from "../types";
 import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
@@ -140,7 +140,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   };
   const row = (r: Lead) => <tr key={r.id} className="click" tabIndex={0} onClick={() => setEdit(r)}
     onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } }}>
-    <td className="c-rt" title={r.ratingInfo?.reasons.slice(0, 3).map(reasonText).join("\n")}>{r.rating !== null && r.ratingInfo ? <><span className={`score ${gradeTone(r.ratingInfo.grade)}`}>{r.ratingInfo.grade}</span><span className="f3 num">{r.rating}</span></> : <span className="f3">–</span>}</td>
+    <td className="c-rt">{r.rating !== null && r.ratingInfo ? <RatingBar value={r.rating} title={[`${r.rating} von 100`, ...r.ratingInfo.reasons.slice(0, 3).map(reasonText)].join("\n")} /> : <span className="f3">–</span>}</td>
     <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
     <td className="dotc"><Dot s={r.status} /></td>
     <td className="co" title={r.company}>{r.company}</td>

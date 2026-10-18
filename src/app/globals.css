@@ -546,12 +546,12 @@ table.leads td.co{font-weight:500}
 table.leads th.c-role{width:15%} table.leads th.c-em{width:21%} table.leads th.c-hook{width:15%} table.leads th.c-src{width:150px}
 table.leads td.c-em{font-size:12.5px}
 table.leads td.act,table.leads th.act{width:90px; padding:0; text-align:right}
-table.leads th.c-rt{width:84px} table.leads td.c-rt .num{margin-left:8px}
+table.leads th.c-rt{width:120px}
 table.leads td.act .btn.on{opacity:1; color:var(--fg)}
 @media (max-width:1500px){ table.leads .c-hook{display:none} }
 @media (max-width:1200px){ table.leads .c-role{display:none} }
 @media (max-width:960px){ table.leads .c-src{display:none} }
-@media (max-width:640px){ table.leads .c-em{display:none} table.leads th.c-rt{width:56px} table.leads td.c-rt .num{display:none} table.leads td.act,table.leads th.act{width:34px} table.leads td.act .btn:not(:last-child){display:none} table.leads td,table.leads th{padding-left:6px; padding-right:6px} table.leads th.warm{width:40px} table.leads th.dotc{width:22px} }
+@media (max-width:640px){ table.leads .c-em{display:none} table.leads th.c-rt{width:84px} table.leads .rbar{gap:2px} table.leads .rbar i{width:5px} table.leads td.act,table.leads th.act{width:34px} table.leads td.act .btn:not(:last-child){display:none} table.leads td,table.leads th{padding-left:6px; padding-right:6px} table.leads th.warm{width:40px} table.leads th.dotc{width:22px} }
 table.leads td.act .btn{width:26px; height:26px; color:var(--fg-3); opacity:0}
 table.leads tr:hover td.act .btn,table.leads td.act .btn:focus-visible{opacity:1}
 table.leads td.act .btn:hover{color:var(--fg)}
@@ -663,7 +663,7 @@ select.pv:disabled{cursor:default; opacity:1}
 .score.hi{color:var(--g)} .score.mid{color:var(--a)} .score.lo{color:var(--r)}
 
 /* rating block in the contact dialog: grade and score, then the reasons with their points */
-.rating .gr{display:flex; align-items:baseline; gap:8px; font-size:20px}
+.rating .gr{display:flex; align-items:center; gap:10px}
 .rating .gr .num{font-size:13px}
 .rating ul{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:4px; font-size:13px}
 .rating li{display:flex; gap:8px} .rating li .p{width:28px; flex:none; text-align:right; font-variant-numeric:tabular-nums; color:var(--fg-3)}
@@ -672,3 +672,9 @@ select.pv:disabled{cursor:default; opacity:1}
 table.angles td.n,table.angles th.n{text-align:right; font-variant-numeric:tabular-nums; width:84px}
 table.angles td.sw-c{width:52px; text-align:right}
 table.angles tr.off td:not(.sw-c){color:var(--fg-3)}
+
+/* rating bar: ten rounded segments, coloured by position like a level meter */
+.rbar{display:inline-flex; gap:3px; vertical-align:middle}
+.rbar i{width:7px; height:20px; border-radius:2px; background:var(--line-2)}
+.rbar .s0,.rbar .s1,.rbar .s2{background:#e5383b} .rbar .s3,.rbar .s4{background:#f08c1a}
+.rbar .s5,.rbar .s6{background:#e3b21b} .rbar .s7{background:#7bb342} .rbar .s8{background:#3d9a4a} .rbar .s9{background:#23743a}
