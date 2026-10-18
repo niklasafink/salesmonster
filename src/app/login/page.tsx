@@ -16,7 +16,7 @@ export default function Login() {
         <div className="lg-mesh"><i /><i /><i /><i /></div>
         <svg className="lg-grain"><filter id="lg-noise"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3" stitchTiles="stitch" /></filter><rect width="100%" height="100%" filter="url(#lg-noise)" /></svg>
         <div className="lg-brand">
-          <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="7" fill="#3d63dd" /><g transform="translate(5.5 5.5) scale(.65)" fill="#fff" stroke="#fff" strokeWidth="2" strokeLinejoin="round"><path d="M28.5 3.5 3.5 13.5l9 4.5Z" /><path d="M28.5 3.5 14 19.5l4.5 9Z" /></g></svg>
+          <svg viewBox="0 0 32 32" width="22" height="22" fill="#000" stroke="#000" strokeWidth="2" strokeLinejoin="round"><path d="M28.5 3.5 3.5 13.5l9 4.5Z" /><path d="M28.5 3.5 14 19.5l4.5 9Z" /></svg>
           Sales Monster
         </div>
       </aside>
