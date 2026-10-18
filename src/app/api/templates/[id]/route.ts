@@ -1,5 +1,5 @@
 import { and, eq, ne } from "drizzle-orm";
-import { db, templates, tenants } from "@/db";
+import { db, messages, templates, tenants } from "@/db";
 import { HttpError, assertMember, body, idOf, route } from "@/lib/api";
 import { PLACEHOLDERS } from "@/lib/fill";
 import { unknownPlaceholders } from "@/lib/playbook";
@@ -35,4 +35,16 @@ export const PUT = route<Ctx>(async (req, { params }, me) => {
     if (!(set.body ?? t.body).trim()) throw new HttpError(400, "Text fehlt");
   }
   await db.update(templates).set(set).where(eq(templates.id, id));
+});
+
+/* Only a template nothing was written with; sent mails and drafts keep their variant key */
+export const DELETE = route<Ctx>(async (_req, { params }, me) => {
+  const id = await idOf(params, "Vorlage");
+  const [t] = await db.select().from(templates).where(eq(templates.id, id));
+  if (!t) throw new HttpError(404, "Vorlage nicht gefunden");
+  await assertMember(me, t.tenantId, "Vorlage");
+  if (t.active) throw new HttpError(400, "Aktive Vorlagen erst pausieren");
+  const [used] = await db.select({ id: messages.id }).from(messages).where(and(eq(messages.tenantId, t.tenantId), eq(messages.variant, t.key))).limit(1);
+  if (used) throw new HttpError(400, "Mit dieser Vorlage wurden schon Nachrichten geschrieben");
+  await db.delete(templates).where(eq(templates.id, id));
 });
