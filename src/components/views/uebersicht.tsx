@@ -63,7 +63,7 @@ export function Uebersicht({ ctx }: { ctx: Ctx }) {
 
   return <>
     <Top title="Übersicht" onMenu={ctx.openSidebar}>
-      {tab === "ueberblick" && <div className="seg">{PERIODS.map(([k, n]) => <button key={k} className={period === k ? "on" : ""} onClick={() => setPeriod(k)}>{n}</button>)}</div>}
+      {tab === "ueberblick" && <div className="seg">{PERIODS.map(([k, n]) => <button key={k} className={period === k ? "on" : ""} aria-pressed={period === k} onClick={() => setPeriod(k)}>{n}</button>)}</div>}
       <button className="btn sec" onClick={csv}><Icon n="download" /><span className="hide-m">Export</span></button>
     </Top>
     <div className="scroll"><div className="wrap">
@@ -88,7 +88,7 @@ function Overview({ days, hub, ctx }: { days: Day[]; hub: boolean; ctx: Ctx }) {
     <div className="split two">
       <div className="blk"><h3>A/B-Test<button className="btn gh" onClick={() => ctx.setView("vorlagen")}>Vorlagen<Icon n="arrow-right" /></button></h3>
         {t.map(x => <div key={x.key} className={`abrow ${x.key === best && x.sent ? "best" : ""}`}><span className="vc">{x.key}</span><span>{x.name}{!x.active && <> <span className="pill">Pausiert</span></>}</span>
-          <span className="mono num">{pct(rate(x))}</span><span className="track"><i style={{ width: `${rate(x) / maxR * 100}%` }} /></span></div>)}</div>
+          <span className="mono num">{x.sent ? pct(rate(x)) : "–"}</span><span className="track"><i style={{ width: `${rate(x) / maxR * 100}%` }} /></span></div>)}</div>
       <div className="blk"><h3>Nach Person</h3>
         <table><thead><tr><th>Person</th><th>Gesendet</th><th>Antworten</th><th>Quote</th></tr></thead><tbody>
           {people.map(([n, s, r]) => <tr key={n}><td><span className="cell">{n}</span></td><td className="num">{s}</td><td className="num">{r}</td><td className="num">{s ? pct(r / s * 100) : "–"}</td></tr>)}

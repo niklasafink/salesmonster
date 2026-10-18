@@ -2,7 +2,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { Tender } from "@/db/schema";
 import { addrsOf, modeOf } from "@/lib/company-mode";
-import { Icon, Top, api, useEscape } from "../ui";
+import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
 import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import type { Ctx } from "../types";
@@ -27,7 +27,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null);
   const [edit, setEdit] = useState<EditLead | null>(null);
-  useEscape(() => { if (imp) setImp(null); });
+  const impRef = useDialog(() => setImp(null));
   const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
   /* opened from the command palette */
@@ -84,11 +84,11 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   async function save() {
     if (!imp?.rows) return;
     const add = imp.rows.filter(r => !r.dup);
-    try { await api("/api/leads", { body: { t: t.slug, rows: add, source: imp.src || "Import" } }); ctx.toast(`${add.length} Leads übernommen`); setImp(null); setFilter("neu"); load(); }
+    try { await api("/api/leads", { body: { t: t.slug, rows: add, source: imp.src || "Import" } }); ctx.toast(`${add.length} ${add.length === 1 ? "Lead" : "Leads"} übernommen`); setImp(null); setFilter("neu"); load(); }
     catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
 
-  const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : "";
+  const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
   const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
   /* shared: the company has an address this contact is reached through */
   const row = (r: Lead, showCo: boolean, shared = false) => <tr key={r.id} className="click" tabIndex={0} onClick={() => setEdit(r)}
@@ -140,7 +140,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       onDeleted={() => { setEdit(null); ctx.toast("Gelöscht"); load(); }}
       onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }} />}
 
-    {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg" role="dialog" aria-modal="true" aria-label="Importieren">
+    {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg" ref={impRef} role="dialog" aria-modal="true" aria-label="Importieren">
       {!imp.rows ? <>
         <div className="dlg-h">Leads importieren<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -151,13 +151,13 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         <label className="fld"><span>Quelle</span><input className="inp" value={imp.src} placeholder="z. B. DTVP Oktober" onChange={e => setImp({ ...imp, src: e.target.value, auto: false })} /></label>
         <button className="btn pri wide" onClick={parse} disabled={imp.busy || !imp.text.trim()}>{imp.busy && <Icon n="loader" />}Daten erkennen</button>
       </> : <>
-        <div className="dlg-h">{imp.rows.length} Kontakte erkannt<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+        <div className="dlg-h">{imp.rows.length} {imp.rows.length === 1 ? "Kontakt" : "Kontakte"} erkannt<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>E-Mail</th><th></th></tr></thead><tbody>
           {imp.rows.map((r, i) => <tr key={i}><td style={{ fontWeight: 500 }}>{r.co}</td><td>{r.p ? <>{[r.sal, r.p].filter(Boolean).join(" ")}{r.role && <span className="f3"> ({r.role})</span>}</> : <span className="f3">–</span>}</td>
             <td className="mono" style={{ fontSize: 12.5 }}>{r.email || (r.web ? <span className="f3">{r.web}</span> : <span className="f3">fehlt</span>)}</td>
             <td>{r.dup ? <span className="pill">{r.dup}</span> : r.extra ? <span className="pill">{r.extra}</span> : null}</td></tr>)}
         </tbody></table></div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button className="btn sec" onClick={() => setImp({ ...imp, rows: null })}>Zurück</button><button className="btn pri" onClick={save} disabled={!ok}>{ok} Leads übernehmen</button></div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}><button className="btn sec" onClick={() => setImp({ ...imp, rows: null })}>Zurück</button><button className="btn pri" onClick={save} disabled={!ok}>{ok} {ok === 1 ? "Lead" : "Leads"} übernehmen</button></div>
       </>}
     </div></div>}
   </>;

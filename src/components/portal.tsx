@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Icon, api } from "./ui";
+import { Icon, api, useDialog } from "./ui";
 import type { Ctx, State, ToastOpt } from "./types";
 import { Freigabe, approveAllDrafts } from "./views/freigabe";
 import { Uebersicht } from "./views/uebersicht";
@@ -39,6 +39,7 @@ export default function Portal() {
   const [focusLead, setFocusLead] = useState<number | null>(null), [leadFocus, setLeadFocus] = useState<number | null>(null);
   const [palLeads, setPalLeads] = useState<{ id: number; company: string; first: string; last: string; email: string }[]>([]);
   const tt = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const wsRef = useDialog(() => setDlg(null));
 
   const toast = useCallback((m: string, opt?: ToastOpt) => {
     const action = opt && "href" in opt ? opt : undefined, error = !!opt && "error" in opt;
@@ -132,7 +133,7 @@ export default function Portal() {
   const t = st.tenant;
   const open = st.drafts.filter(d => d.status === "entwurf").length;
   const nav = (v: string) => (
-    <button key={v} className={`nav ${curView === v ? "on" : ""}`} onClick={() => setView(v)}>
+    <button key={v} className={`nav ${curView === v ? "on" : ""}`} aria-current={curView === v ? "page" : undefined} onClick={() => setView(v)}>
       <Icon n={VIEWS[v][1]} />{VIEWS[v][0]}{v === "freigabe" && open ? <span className="cnt">{open}</span> : null}
     </button>);
 
@@ -176,7 +177,7 @@ export default function Portal() {
           : <div className="grp">Nichts gefunden</div>}</div>
       </div></div>}
 
-      {dlg === "ws" && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><div className="dlg" role="dialog" aria-label="Unternehmen">
+      {dlg === "ws" && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><div className="dlg" ref={wsRef} role="dialog" aria-modal="true" aria-label="Unternehmen">
         <div className="dlg-h">Unternehmen<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         <div className="tl">
           {st.tenants.map((x, i) => <button key={x.slug} className={x.slug === t?.slug ? "on" : ""} onClick={() => switchTenant(x.slug)} autoFocus={x.slug === t?.slug}>
@@ -200,8 +201,8 @@ function TenantIcon({ t }: { t: { slug: string; initials: string } }) {
 }
 
 function TenantDialog({ onClose, onDone }: { onClose: () => void; onDone: (slug: string) => void }) {
-  const [name, setName] = useState(""), [domain, setDomain] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><form className="dlg" role="dialog" aria-label="Unternehmen hinzufügen" onSubmit={async e => {
+  const [name, setName] = useState(""), [domain, setDomain] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false), ref = useDialog(onClose);
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><form className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label="Unternehmen hinzufügen" onSubmit={async e => {
     e.preventDefault(); setBusy(true); setErr("");
     try { const r = await api<{ slug: string }>("/api/tenants", { body: { name, domain } }); onDone(r.slug); } catch (x) { setErr((x as Error).message); setBusy(false); }
   }}>
@@ -214,8 +215,8 @@ function TenantDialog({ onClose, onDone }: { onClose: () => void; onDone: (slug:
 }
 
 function PwDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [cur, setCur] = useState(""), [next, setNext] = useState(""), [err, setErr] = useState("");
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><form className="dlg" role="dialog" aria-label="Passwort ändern" onSubmit={async e => {
+  const [cur, setCur] = useState(""), [next, setNext] = useState(""), [err, setErr] = useState(""), ref = useDialog(onClose);
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><form className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label="Passwort ändern" onSubmit={async e => {
     e.preventDefault(); setErr("");
     try { await api("/api/auth/password", { body: { current: cur, next } }); onDone(); } catch (x) { setErr((x as Error).message); }
   }}>

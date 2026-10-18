@@ -1,6 +1,8 @@
 import { and, eq, ne } from "drizzle-orm";
-import { db, templates } from "@/db";
+import { db, templates, tenants } from "@/db";
 import { HttpError, assertMember, body, idOf, route } from "@/lib/api";
+import { PLACEHOLDERS } from "@/lib/fill";
+import { unknownPlaceholders } from "@/lib/playbook";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -23,6 +25,11 @@ export const PUT = route<Ctx>(async (req, { params }, me) => {
     set.active = b.active;
   }
   if (!Object.keys(set).length) return;
+  const text = `${set.subject ?? ""} ${set.body ?? ""}`;
+  if (/{{|}}/.test(text.replace(/{{[^{}]*}}/g, ""))) throw new HttpError(400, "Platzhalter unvollständig");
+  const [tn] = await db.select({ tenders: tenants.tenders }).from(tenants).where(eq(tenants.id, t.tenantId));
+  const unknown = unknownPlaceholders(text, PLACEHOLDERS(!!tn?.tenders));
+  if (unknown.length) throw new HttpError(400, `Unbekannte Platzhalter: ${unknown.join(", ")}`);
   if (set.active ?? t.active) {
     if (!(set.subject ?? t.subject).trim()) throw new HttpError(400, "Betreff fehlt");
     if (!(set.body ?? t.body).trim()) throw new HttpError(400, "Text fehlt");

@@ -1,7 +1,7 @@
 
 /* Layout: Attio/Linear-style shell. Grey canvas, inset white panel, split review view; hairlines instead of cards */
 :root{
-  --bg:#f5f5f6; --panel:#ffffff; --fg:#18181b; --fg-2:#5f5f69; --fg-3:#90909a;
+  --bg:#f5f5f6; --panel:#ffffff; --fg:#18181b; --fg-2:#5f5f69; --fg-3:#6f6f79;
   --line:#ececef; --line-2:#dfdfe4; --hover:#f3f3f5; --sel:#eef2fe;
   --accent:#3d63dd; --accent-fg:#ffffff; --ring:#3d63dd; --overlay:rgb(15 15 20 / .35);
   --g:#1a7f4b; --g-bg:#e5f5ec; --a:#9a5a06; --a-bg:#fcf0d9; --b:#2556c4; --b-bg:#e7eefc; --r:#bf3a2f; --r-bg:#fce8e6; --n:#62626c; --n-bg:#efeff2;
@@ -10,12 +10,12 @@
   --font:var(--font-geist-sans),"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; --mono:var(--font-geist-mono),"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0c0c0e; --panel:#141417; --fg:#ececef; --fg-2:#a4a4ae; --fg-3:#6e6e79; --line:#222227; --line-2:#2d2d33; --hover:#1b1b1f; --sel:#1a2140;
+  --bg:#0c0c0e; --panel:#141417; --fg:#ececef; --fg-2:#a4a4ae; --fg-3:#82828d; --line:#222227; --line-2:#2d2d33; --hover:#1b1b1f; --sel:#1a2140;
   --accent:#7091ff; --accent-fg:#0b1020; --ring:#7091ff; --overlay:rgb(0 0 0 / .6);
   --g:#4ccf8a; --g-bg:rgb(76 207 138 / .12); --a:#f0b44c; --a-bg:rgb(240 180 76 / .12); --b:#7aa2ff; --b-bg:rgb(122 162 255 / .13); --r:#ff7b70; --r-bg:rgb(255 123 112 / .12); --n:#a4a4ae; --n-bg:#202025;
   --bar:#2c2c33; --av-l:22%; --av-fl:80%; --shadow:0 0 0 1px rgb(255 255 255 / .03); --shadow-lg:0 16px 40px -12px rgb(0 0 0 / .7), 0 0 0 1px rgb(255 255 255 / .06); color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0c0c0e; --panel:#141417; --fg:#ececef; --fg-2:#a4a4ae; --fg-3:#6e6e79; --line:#222227; --line-2:#2d2d33; --hover:#1b1b1f; --sel:#1a2140;
+  --bg:#0c0c0e; --panel:#141417; --fg:#ececef; --fg-2:#a4a4ae; --fg-3:#82828d; --line:#222227; --line-2:#2d2d33; --hover:#1b1b1f; --sel:#1a2140;
   --accent:#7091ff; --accent-fg:#0b1020; --ring:#7091ff; --overlay:rgb(0 0 0 / .6);
   --g:#4ccf8a; --g-bg:rgb(76 207 138 / .12); --a:#f0b44c; --a-bg:rgb(240 180 76 / .12); --b:#7aa2ff; --b-bg:rgb(122 162 255 / .13); --r:#ff7b70; --r-bg:rgb(255 123 112 / .12); --n:#a4a4ae; --n-bg:#202025;
   --bar:#2c2c33; --av-l:22%; --av-fl:80%; --shadow:0 0 0 1px rgb(255 255 255 / .03); --shadow-lg:0 16px 40px -12px rgb(0 0 0 / .7), 0 0 0 1px rgb(255 255 255 / .06); color-scheme:dark}
@@ -199,7 +199,7 @@ td.wfr{white-space:normal; padding:12px 0 16px; line-height:1.6}
 .vitem:hover{background:var(--hover)}
 .vitem.on{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
 .vitem .top2{display:flex; gap:8px; align-items:center}
-.vitem .rate{margin-left:auto; font-family:var(--mono); font-size:12px}
+.vitem .rate{margin-left:auto; font-family:var(--mono); font-size:12px; white-space:nowrap}
 .vitem .track{height:3px; border-radius:2px; background:var(--line); overflow:hidden}
 .vitem .track i{display:block; height:100%; background:var(--accent)}
 .vitem .sub{font-size:12px; color:var(--fg-3)}

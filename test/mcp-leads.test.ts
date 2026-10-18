@@ -49,14 +49,15 @@ describe("leads_add", () => {
     expect(list.rows.find(l => l.id === kim.id)).toMatchObject({ companyId: kim.companyId, salutation: "Frau Dr.", linkedin: "https://linkedin.com/in/kim", hook: "die neue Halle", sourceUrl: "https://kappa.de/team" });
   });
 
-  it("ungültige E-Mail wird übersprungen, Links nur mit http(s)", async () => {
+  it("ungültige E-Mail wird verworfen, Links nur mit http(s)", async () => {
     const u = await fx.tenant(me);
     const r = await c.tool<Added>("leads_add", { tenant: u.slug, rows: [
       { company: "Iota GmbH", person: "Ina Iota", email: "ina@iota" }, { company: "Jota AG", person: "Jo Jota", email: " jo@jota.de ", linkedin: "javascript:alert(1)", sourceUrl: "jota.de/team" }] });
-    expect(r.skipped).toEqual([{ company: "Iota GmbH", why: "E-Mail ungültig" }]);
+    expect(r.skipped).toEqual([]);
     const l = (await c.tool<List>("leads_list", { tenant: u.slug })).rows;
-    expect(l).toHaveLength(1);
-    expect(l[0]).toMatchObject({ company: "Jota AG", email: "jo@jota.de", linkedin: "", sourceUrl: "https://jota.de/team" });
+    expect(l).toHaveLength(2);
+    expect(l.find(x => x.company === "Iota GmbH")).toMatchObject({ email: "" });
+    expect(l.find(x => x.company === "Jota AG")).toMatchObject({ company: "Jota AG", email: "jo@jota.de", linkedin: "", sourceUrl: "https://jota.de/team" });
   });
 
   it("mehr als 200 Zeilen werden abgelehnt", async () => {

@@ -30,7 +30,7 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
   function insert(p: string) {
     const f = last.current, el = f === "subject" ? sj.current : ta.current; if (!el) return;
     const s = el.selectionStart ?? el.value.length, v = el.value.slice(0, s) + p + el.value.slice(el.selectionEnd ?? s);
-    set({ [f]: v }); requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = s + p.length; });
+    set({ [f]: v }); requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + p.length, s + p.length); last.current = f; });
   }
 
   return <>
@@ -40,16 +40,16 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
     </Top>
     <div className="scroll"><div className="wrap"><div className="tpl">
       <div className="vlist">{list.map(x => <button key={x.key} className={`vitem ${x.key === cur.key ? "on" : ""}`} onClick={() => setK(x.key)}>
-        <span className="top2"><span className="vc">{x.key}</span><span style={{ fontWeight: 500 }}>{x.name}</span>{!x.active && <span className="pill">Pausiert</span>}<span className="rate">{pct(rate(x))}</span></span></button>)}</div>
+        <span className="top2"><span className="vc">{x.key}</span><span style={{ fontWeight: 500 }}>{x.name}</span>{!x.active && <span className="pill">Pausiert</span>}<span className="rate">{x.sent ? pct(rate(x)) : "–"}</span></span></button>)}</div>
       <div className="doc">
         <div className="vstats">
           <div><span className="l">Gesendet</span><span className="v">{cur.sent}</span></div>
           <div><span className="l">Antworten</span><span className="v">{cur.replies}</span></div>
-          <div><span className="l">Quote</span><span className="v">{pct(rate(cur))}</span></div>
+          <div><span className="l">Quote</span><span className="v">{cur.sent ? pct(rate(cur)) : "–"}</span></div>
           <div><span className="l">Unzustellbar</span><span className="v">{cur.bounced}</span></div>
           <div className="act">
             <div className="seg"><button className={cur.tone === "sie" ? "on" : ""} onClick={() => set({ tone: "sie" })}>Sie</button><button className={cur.tone === "du" ? "on" : ""} onClick={() => set({ tone: "du" })}>Du</button></div>
-            <span className="f3">Aktiv</span><button className={`sw ${cur.active ? "on" : ""}`} onClick={toggle} aria-label="Variante aktiv" />
+            <span className="f3">Aktiv</span><button className={`sw ${cur.active ? "on" : ""}`} onClick={toggle} role="switch" aria-checked={cur.active} aria-label="Variante aktiv" />
           </div>
         </div>
         {mode === "edit" ? <>

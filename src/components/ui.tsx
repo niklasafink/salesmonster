@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Check, CheckCheck, CircleAlert, ChevronDown, ChevronUp, ChevronsUpDown, Copy, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe,
   Inbox, KeyRound, Landmark, LayoutDashboard, LoaderCircle, LogOut, Mail, Menu, Plus, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, SunMoon,
@@ -43,7 +43,32 @@ export function useEscape(close: () => void) {
   }, []);
 }
 
-export const pct = (n: number) => (isFinite(n) ? n : 0).toFixed(1).replace(".", ",") + " %";
+/* Dialog ref: focus moves in and stays inside, Escape closes, focus goes back to where it was */
+const FOCUSABLE = "a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
+let outside: HTMLElement | null = null;
+if (typeof document !== "undefined") document.addEventListener("focusin", e => { if (!(e.target as HTMLElement).closest?.("[role=dialog]")) outside = e.target as HTMLElement; });
+export function useDialog(close: () => void) {
+  const c = useRef(close);
+  useEffect(() => { c.current = close; });
+  return useCallback((el: HTMLElement | null) => {
+    if (!el) return;
+    const a = document.activeElement as HTMLElement | null, prev = a && !a.closest("[role=dialog]") && a !== document.body ? a : outside;
+    const items = () => [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(x => x.getClientRects().length);
+    /* after autoFocus inside has had its turn */
+    queueMicrotask(() => { if (!el.contains(document.activeElement)) { const f = items(); (f.find(x => !x.closest(".dlg-h")) ?? f[0])?.focus(); } });
+    const k = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { c.current(); return; }
+      if (e.key !== "Tab") return;
+      const f = items(), i = f.indexOf(document.activeElement as HTMLElement);
+      if (!f.length) e.preventDefault();
+      else if (i < 0 || (e.shiftKey ? i === 0 : i === f.length - 1)) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+    };
+    addEventListener("keydown", k);
+    return () => { removeEventListener("keydown", k); if (prev?.isConnected) prev.focus(); };
+  }, []);
+}
+
+export const pct =(n: number) => (isFinite(n) ? n : 0).toFixed(1).replace(".", ",") + " %";
 export const rate = (t: { sent: number; replies: number }) => t.sent ? t.replies / t.sent * 100 : 0;
 export const hue = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 export const ini = (s: string) => s.replace(/&/g, "").split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase();

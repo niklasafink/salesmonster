@@ -29,11 +29,12 @@ export async function checkLeads(tenantId: number, rows: LeadRow[]): Promise<Che
   const inHub = hub ? await pool(rows, 4, r => hubKnown(hub, r).catch(e => { console.error(e); return HUB_DOWN; })) : rows.map(() => null);
   const out = rows.map((r, i) => {
     const h = inHub[i], hit = typeof h === "object" ? h : null;
-    const email = (r.email || "").trim().toLowerCase(), known = companies.has(norm(r.co)) || !!hit;
-    const dup = email && !validEmail(email) ? "E-Mail ungültig" : email && emails.has(email) ? "Schon in der Liste" : h === HUB_DOWN ? HUB_DOWN : hit?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : known && !email ? "Firma bekannt" : "";
-    const extra = !dup && known ? "Weiterer Kontakt" : "";
+    /* a broken address is dropped, the contact stays */
+    const raw = (r.email || "").trim(), bad = !!raw && !validEmail(raw), email = bad ? "" : raw.toLowerCase(), known = companies.has(norm(r.co)) || !!hit;
+    const dup = email && emails.has(email) ? "Schon in der Liste" : h === HUB_DOWN ? HUB_DOWN : hit?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : known && !email ? "Firma bekannt" : "";
+    const extra = dup ? "" : bad ? "E-Mail ungültig" : known ? "Weiterer Kontakt" : "";
     companies.add(norm(r.co)); if (email) emails.add(email);
-    return { ...r, sal: salutationOf(r.sal || ""), dup, extra };
+    return { ...r, email: bad ? "" : r.email, sal: salutationOf(r.sal || ""), dup, extra };
   });
   /* No Herr/Frau in the source: Jev guesses from name and role, a title found in the text is kept */
   const open = out.map((r, i) => i).filter(i => out[i].p && !out[i].sal);
@@ -50,7 +51,7 @@ export async function insertLeads(tenantId: number, rows: LeadRow[], source: str
   if (!rows.length) return [];
   const vals = rows.map(r => {
     const [first, ...rest] = (r.p || "").trim().split(/\s+/);
-    const email = (r.email || "").trim();
+    const email = validEmail((r.email || "").trim()) ? (r.email || "").trim() : "";
     return { tenantId, company: r.co.trim(), first: r.p ? first : "", last: r.p ? rest.join(" ") : "", role: r.role || "",
       email, emailType: emailTypeOf(email, !!r.p?.trim()), website: httpUrl(r.web || ""),
       city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: httpUrl(r.li || ""), hook: r.hook || "", sourceUrl: httpUrl(r.url || ""), source: source || "Import", status: "neu" };

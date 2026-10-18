@@ -6,7 +6,7 @@ import { OPENROUTER_MODELS } from "@/lib/integ-meta";
 import type { SetupLead, SetupStep, SetupTemplate } from "@/db/schema";
 import type { Setup } from "@/lib/setup";
 import { httpUrl } from "@/lib/lead-fields";
-import { Icon, Top, api, useEscape } from "../ui";
+import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx } from "../types";
 
 /* Setup inside the portal: the steps on the left, everything else happens in a chat in the claude.ai look (assistant-ui's unstyled primitives).
@@ -186,8 +186,8 @@ function PromptDialog({ step, text, label, busy, onClose, onGo, onSave }: {
   const re = label ? new RegExp(`^${label}:[ \\t]*(.*)$`, "m") : null;
   const keys = re ? v.match(re)?.[1] ?? "" : "";
   const setKeys = (k: string) => setV(re!.test(v) ? v.replace(re!, () => `${label}: ${k}`) : `${label}: ${k}\n${v}`);
-  useEscape(onClose);
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg" role="dialog" aria-modal="true" aria-label={NAME[step]}>
+  const ref = useDialog(onClose);
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg" ref={ref} role="dialog" aria-modal="true" aria-label={NAME[step]}>
     <div className="dlg-h">{NAME[step]}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
     {label && <label className="fld"><span>{label}</span><textarea className="inp ta keys" rows={2} value={keys} onChange={e => setKeys(e.target.value.replace(/\s*\n\s*/g, " "))} /></label>}
     <label className="fld"><span>Prompt</span><textarea className="prompt" value={v} onChange={e => setV(e.target.value)} /></label>

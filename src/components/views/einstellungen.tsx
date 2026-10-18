@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { INTEG } from "@/lib/integ-meta";
-import { Icon, Top, api, useEscape } from "../ui";
+import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx, MailSync } from "../types";
 
 const FIELDS = ["Rollen", "Branchen", "Regionen", "Größe"];
@@ -89,7 +89,7 @@ function Integ({ ctx }: { ctx: Ctx }) {
     catch (e2) { setErr((e2 as Error).message); }
     setBusy(false);
   }
-  useEscape(() => setDlg(null));
+  const ref = useDialog(() => setDlg(null));
   async function disconnect(k: string) {
     try { await api(`/api/integrations?t=${t.slug}&kind=${k}`, { method: "DELETE" }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
@@ -97,11 +97,11 @@ function Integ({ ctx }: { ctx: Ctx }) {
     <div className="list-box">{INTEG.filter(i => i.k !== "vergabehero" || t.tenders).map(i => { const s = st.integ[i.k];
       return <div key={i.k} className="row2 int"><span className="nm"><Icon n={i.ico} />{i.name}{s?.on ? <span className="pill g">Verbunden</span> : i.auth === "pending" ? <span className="pill">Demnächst</span> : null}
 </span>
-        {s?.on ? <button className="btn gh act" onClick={() => disconnect(i.k)}>Trennen</button> : i.auth === "pending" ? null : <button className="btn sec" onClick={() => open(i.k)}>Verbinden</button>}</div>; })}</div>
+        {s?.on ? <button className="btn gh act" onClick={() => disconnect(i.k)}>Trennen</button> : i.auth === "pending" ? null : <button className="btn sec" onClick={() => open(i.k)} aria-label={`${i.name} verbinden`}>Verbinden</button>}</div>; })}</div>
     <AiPick ctx={ctx} />
     {(st.integ.outlook?.on || st.integ.imap?.on) && <Contacts ctx={ctx} />}
     <Connector ctx={ctx} />
-    {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" role="dialog" aria-modal="true" aria-label={`${x.name} verbinden`} onSubmit={connect}>
+    {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label={`${x.name} verbinden`} onSubmit={connect}>
       <div className="dlg-h">{x.name} verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
       {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
         ? <select className="inp" value={vals[f.id] || ""} onChange={e => setVals({ ...vals, [f.id]: e.target.value })}>{f.options.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>

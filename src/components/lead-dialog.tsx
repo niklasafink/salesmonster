@@ -2,7 +2,7 @@
 import { useState } from "react";
 import type { Tender } from "@/db/schema";
 import { SALUTATIONS, httpUrl } from "@/lib/lead-fields";
-import { Icon, api, useEscape } from "./ui";
+import { Icon, api, useDialog } from "./ui";
 
 export type EditLead = {
   id?: number; company: string; salutation: string; first: string; last: string; role: string; email: string; emailType: string; phone: string;
@@ -25,7 +25,7 @@ export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, o
 }) {
   const [f, setF] = useState(lead), [tt, setTt] = useState(tendersText(lead.tenders)), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const set = (k: keyof EditLead) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
-  useEscape(onClose);
+  const ref = useDialog(onClose);
 
   async function save() {
     setBusy(true); setErr("");
@@ -42,7 +42,7 @@ export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, o
     try { await api(`/api/leads/${f.id}`, { method: "DELETE" }); onDeleted?.(f.id); } catch (e) { setErr((e as Error).message); }
   }
 
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg" role="dialog" aria-modal="true" aria-label={f.id ? "Kontakt bearbeiten" : "Kontakt hinzufügen"}>
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg" ref={ref} role="dialog" aria-modal="true" aria-label={f.id ? "Kontakt bearbeiten" : "Kontakt hinzufügen"}>
     <div className="dlg-h">{f.id ? [f.first, f.last].filter(Boolean).join(" ") || f.company : "Kontakt hinzufügen"}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
     <div className="fgrid">
       <label className="fld s1"><span>Anrede</span><select className="inp sel" value={f.salutation} onChange={set("salutation")}><option value="">–</option>{SALUTATIONS.map(s => <option key={s}>{s}</option>)}</select></label>
