@@ -5,6 +5,8 @@ import { parseImport } from "@/lib/claude";
 import { aiFor } from "@/lib/ai";
 import { hubspotKnown, hubspotToken } from "@/lib/hubspot";
 import { norm } from "@/lib/outreach";
+import { getInteg } from "@/lib/integrations";
+import { guessSalutations } from "@/lib/jev";
 
 export const maxDuration = 120;
 
@@ -46,5 +48,12 @@ export const POST = route(async (req, _c, me) => {
     companies.add(norm(r.co)); if (email) emails.add(email);
     return { ...r, sal: salutationOf(r.sal), dup, extra };
   });
+  /* No Herr/Frau in the source: Jev guesses from name and role, a title found in the text is kept */
+  const open = out.map((r, i) => i).filter(i => out[i].p && !out[i].sal);
+  const jev = open.length ? await getInteg(t.id, "jev") : null;
+  if (jev) {
+    const g = await guessSalutations(jev.key || "", open.map(i => { const [first, ...rest] = out[i].p.trim().split(/\s+/); return { first, last: rest.join(" "), role: out[i].role }; })).catch(() => []);
+    open.forEach((i, k) => { if (g[k]) out[i].sal = salutationOf(`${g[k]} ${rows[i].sal}`); });
+  }
   return { rows: out };
 });

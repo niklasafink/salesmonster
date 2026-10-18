@@ -73,3 +73,26 @@ export async function scoreMail(key: string, m: Mail, { wait = true } = {}): Pro
     subjectLen: m.subject.length,
   };
 }
+
+const SAL = { herr: "A man, addressed as Herr", frau: "A woman, addressed as Frau", unklar: "Cannot tell from name and role" } as const;
+
+/* Herr or Frau from first name and role (e.g. "Geschäftsführerin"), up to 25 people per call.
+   Only answers Jev is at least 90 % sure of; everything else stays "". */
+export async function guessSalutations(key: string, people: { first: string; last: string; role: string }[]): Promise<("" | "Herr" | "Frau")[]> {
+  const model = (key ? createGateway({ apiKey: key }) : gateway).decisionModel(JEV);
+  const out: ("" | "Herr" | "Frau")[] = people.map(() => "");
+  for (let i = 0; i < people.length; i += 25) {
+    const chunk = people.slice(i, i + 25);
+    const questions = Object.fromEntries(chunk.map((p, k) => [`p${k}`, {
+      type: "choice" as const, criteria: SAL,
+      instructions: `German business contact: ${[p.first, p.last].filter(Boolean).join(" ")}${p.role ? `, role "${p.role}"` : ""}. How is this person addressed in a German business letter?`,
+    }]));
+    const r = await decide({ model, state: "Salutation of German business contacts for a cold email.", questions, maxRetries: 1 });
+    chunk.forEach((_, k) => {
+      const a = r.answers[`p${k}`];
+      const sure = a.probabilities ? (a.probabilities[a.choice] ?? 0) >= 0.9 : false;
+      if (sure && a.choice !== "unklar") out[i + k] = a.choice === "frau" ? "Frau" : "Herr";
+    });
+  }
+  return out;
+}
