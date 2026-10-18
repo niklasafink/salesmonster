@@ -7,15 +7,9 @@ import { hubspotKnown, hubspotToken } from "@/lib/hubspot";
 import { norm } from "@/lib/outreach";
 import { getInteg } from "@/lib/integrations";
 import { guessSalutations } from "@/lib/jev";
+import { salutationOf } from "@/lib/lead-fields";
 
 export const maxDuration = 120;
-
-/* "Frau Dr." style salutation for {{anrede}}, or "" when neither Herr nor Frau is known */
-function salutationOf(raw: string) {
-  const g = /\bfrau\b/i.test(raw) ? "Frau" : /\bherr\b/i.test(raw) ? "Herr" : "";
-  if (!g) return "";
-  return [g, /prof/i.test(raw) && "Prof.", /\bdr\b/i.test(raw) && "Dr."].filter(Boolean).join(" ");
-}
 
 /* Fallback when Claude is not connected: the pattern parser from the wireframe */
 function regexParse(txt: string) {

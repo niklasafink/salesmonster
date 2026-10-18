@@ -3,13 +3,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fill } from "@/lib/fill";
 import { Icon, Top, api, useAutosize } from "../ui";
 import type { Ctx, Draft, State, Tpl } from "../types";
+import { LeadDialog, emptyLead, type EditLead } from "../lead-dialog";
 
 const ST: Record<string, [string, string]> = { entwurf: ["Entwurf", ""], freigegeben: ["Freigegeben", "g"], uebersprungen: ["Übersprungen", ""] };
 
 export function msgOf(d: Draft, tpls: Tpl[], sender: string) {
   const t = tpls.find(x => x.key === d.variant) || tpls[0];
   if (!t) return { subject: d.subject || "", body: d.body || "" };
-  return { subject: d.subject ?? fill(t.subject, d.lead, t, sender), body: d.body ?? fill(t.body, d.lead, t, sender) };
+  const l = { ...d.lead, people: d.people };
+  return { subject: d.subject ?? fill(t.subject, l, t, sender), body: d.body ?? fill(t.body, l, t, sender) };
 }
 
 export async function approveAllDrafts(st: State) {
@@ -33,6 +35,7 @@ function nextSend() {
 export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | null; onFocused: () => void }) {
   const { st, toast, reload } = ctx;
   const [L, setL] = useState<Draft[]>(st.drafts);
+  const [edit, setEdit] = useState<EditLead | null>(null);
   const [sel, setSel] = useState(0), [det, setDet] = useState(false), [done, setDone] = useState(false), [busy, setBusy] = useState(false);
   const fit = useAutosize(), bodyRef = useRef<HTMLTextAreaElement>(null);
   const timers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
@@ -107,6 +110,17 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
 
   const from = st.mailbox[st.me.id];
   const d = cur, m = msgOf(d, tpls, sender), ch = d.channel || "mail", edited = d.subject !== null || d.body !== null;
+  /* the template asks for something this lead does not have */
+  const tplNow = tpls.find(x => x.key === d.variant), uses = (p: string) => !!tplNow && (tplNow.subject + tplNow.body).includes(p);
+  const gap = d.subject === null && d.body === null && (uses("{{aufhaenger}}") && !d.lead.hook ? "Anlass fehlt, der Satz mit {{aufhaenger}} bleibt leer."
+    : uses("{{ausschreibungen}}") && !d.lead.tenders.length ? "Keine Ausschreibungen, {{ausschreibungen}} bleibt leer." : "");
+  const openLead = () => setEdit({ ...emptyLead(), ...d.lead, status: "freigabe" });
+  const onLeadSaved = (l: EditLead) => {
+    setEdit(null);
+    const lead = { ...d.lead, ...Object.fromEntries(Object.keys(d.lead).map(k => [k, (l as Record<string, unknown>)[k] ?? (d.lead as Record<string, unknown>)[k]])) } as Draft["lead"];
+    patch(d.id, { lead, people: d.people.length > 1 ? d.people : [{ first: lead.first, last: lead.last, salutation: lead.salutation, role: lead.role, email: lead.email }], to: d.people.length > 1 ? d.to : lead.email });
+    toast("Gespeichert");
+  };
 
   return <>
     <Top title="Freigabe" onMenu={ctx.openSidebar}>
@@ -141,8 +155,9 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
             {ch === "linkedin" && <div className="warn"><Icon n="triangle-alert" />SendPilot ist noch nicht verbunden. Die Nachricht wird erst verschickt, wenn die Verbindung steht.</div>}
             {ch === "mail" && !from && <div className="warn"><Icon n="triangle-alert" />Für dich ist kein Postfach verbunden. Ohne Postfach bleibt die Nachricht nach der Freigabe liegen.</div>}
             {d.error && <div className="warn"><Icon n="triangle-alert" />{d.error}</div>}
+            {gap && <div className="warn"><Icon n="triangle-alert" />{gap}<button className="btn gh" style={{ marginLeft: "auto" }} onClick={openLead}>Ergänzen</button></div>}
             <div className="doc">
-              <div className="doc-meta"><span>An</span><span className="mono">{ch === "mail" ? d.lead.email || "Keine Adresse" : d.lead.linkedin || (d.lead.last ? `${d.lead.first} ${d.lead.last} (LinkedIn)` : "Kein LinkedIn-Profil gefunden")}</span>
+              <div className="doc-meta"><span>An</span><span className="mono">{ch === "mail" ? d.to || "Keine Adresse" : d.lead.linkedin || (d.lead.last ? `${d.lead.first} ${d.lead.last} (LinkedIn)` : "Kein LinkedIn-Profil gefunden")}</span>
                 <span>Von</span><span className="mono">{from || "–"}</span></div>
               {ch === "mail" && <input className="subj" value={m.subject} aria-label="Betreff" onChange={e => { patch(d.id, { subject: e.target.value, body: d.body ?? m.body }); save(d.id, { subject: e.target.value, body: d.body ?? m.body }, 600); }} />}
               <textarea ref={bodyRef} className="body" value={m.body} aria-label="Nachricht" onChange={e => { fit(e.target); patch(d.id, { body: e.target.value, subject: d.subject ?? m.subject }); save(d.id, { body: e.target.value, subject: d.subject ?? m.subject }, 600); }} />
@@ -150,10 +165,11 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
           </div>
           <div className="props">
             <div className="prop"><div className="l">Status</div><div className="v"><span className={`pill ${ST[d.status]?.[1] || ""}`}>{ST[d.status]?.[0]}</span></div></div>
-            <div className="prop"><div className="l">Kontakt</div><div className="v">{d.lead.last ? `${d.lead.first} ${d.lead.last}${d.lead.role ? `, ${d.lead.role}` : ""}` : "Kein Name gefunden"}</div></div>
+            <div className="prop"><div className="l">{d.people.length > 1 ? "Kontakte" : "Kontakt"}</div><div className="v">{d.people.length > 1 ? d.people.filter(p => p.last).map((p, k) => <div key={k}>{`${p.first} ${p.last}${p.role ? `, ${p.role}` : ""}`}</div>)
+              : <button className="lnk" onClick={openLead}>{d.lead.last ? `${[d.lead.salutation, d.lead.first, d.lead.last].filter(Boolean).join(" ")}${d.lead.role ? `, ${d.lead.role}` : ""}` : "Kein Name gefunden"}</button>}</div></div>
             {d.lead.city && <div className="prop"><div className="l">Ort</div><div className="v">{d.lead.city}</div></div>}
-            <div className="prop"><div className="l">Quelle</div><div className="v">{d.lead.source}</div></div>
-            <div className="prop"><div className="l">E-Mail</div><div className="v"><span className="mono" style={{ overflowWrap: "anywhere" }}>{d.lead.email || "–"}</span>{d.lead.emailType === "info" && <span className="pill a">Sammeladresse</span>}</div></div>
+            <div className="prop"><div className="l">Quelle</div><div className="v">{d.lead.sourceUrl ? <a href={d.lead.sourceUrl} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{d.lead.source}</a> : d.lead.source}</div></div>
+            <div className="prop"><div className="l">E-Mail</div><div className="v"><span className="mono" style={{ overflowWrap: "anywhere" }}>{d.to || "–"}</span>{d.lead.emailType === "info" && <span className="pill a">Sammeladresse</span>}</div></div>
             {d.lead.website && <div className="prop"><div className="l">Website</div><div className="v"><a className="mono" style={{ overflowWrap: "anywhere", color: "inherit" }} href={d.lead.website} target="_blank" rel="noreferrer">{d.lead.website.replace(/^https?:\/\/(www\.)?/, "")}</a></div></div>}
             {t.tenders ? <div className="prop"><div className="l">Ausschreibungen</div><div className="v">{d.lead.tenders.length ? d.lead.tenders.map((x, k) => <div className="tender" key={k}><span><span className="t">{x.t}</span> <span className="s">({x.s}{x.f ? `, Frist ${x.f}` : ""})</span></span></div>) : "Keine gefunden"}</div></div>
               : <div className="prop"><div className="l">Anlass</div><div className="v">{d.lead.hook || "–"}</div></div>}
@@ -167,5 +183,6 @@ export function Freigabe({ ctx, focus, onFocused }: { ctx: Ctx; focus: number | 
         </div>
       </div>}
     </div>
+    {edit && <LeadDialog lead={edit} slug={t.slug} tenders={t.tenders} onClose={() => setEdit(null)} onSaved={onLeadSaved} />}
   </>;
 }

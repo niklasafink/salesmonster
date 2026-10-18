@@ -1,18 +1,25 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
-import { claims, db, leads, members, messages, runs, templates, tenants, users } from "@/db";
+import { and, asc, desc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { claims, companies, db, leads, members, messages, runs, templates, tenants, users } from "@/db";
+import { attachCompanies, norm, plan, type Unit } from "./companies";
+import { salutationOf } from "./lead-fields";
 import { berlinDate } from "./dates";
 import { getInteg } from "./integrations";
 import { enrichLead, researchLeads, type LeadOut } from "./claude";
 import { aiFor } from "./ai";
 import { HubSpotError, domainOf, hubspotAddContact, hubspotCreateContact, hubspotKnown, hubspotPortal, hubspotReserve, hubspotToken, type Known } from "./hubspot";
 import { hasReply, sendAs, sendSystem } from "./mail";
-import { JevLimit, scoreMail } from "./jev";
+import { JevLimit, guessSalutations, scoreMail } from "./jev";
 
 type Tenant = typeof tenants.$inferSelect;
 type Lead = typeof leads.$inferSelect;
 type Hub = { token: string; portal: string };
 
-export const norm = (s: string) => s.toLowerCase().replace(/gmbh\s*&\s*co\.?\s*kg|gmbh|ag|kg|se|e\.k\.|ug|\(haftungsbeschränkt\)|[^a-z0-9äöüß]/g, "");
+export { norm };
+
+type Msg = typeof messages.$inferSelect;
+/* Leads a message covers and where it goes; older messages cover just their lead */
+export const idsOf = (m: Pick<Msg, "leadId" | "leadIds">) => m.leadIds?.length ? m.leadIds : [m.leadId];
+const recipients = (m: Pick<Msg, "to">, l: Pick<Lead, "email">) => (m.to || l.email).split(/[,;]\s*/).map(x => x.trim()).filter(Boolean);
 
 async function log(tenantId: number, kind: string, ok: boolean, info: string) {
   await db.insert(runs).values({ tenantId, kind, ok, info: info.slice(0, 500) });
@@ -88,7 +95,7 @@ async function reserve(t: Tenant, hub: Hub | null, l: Lead): Promise<Known | nul
   return null;
 }
 
-/* One person per company is written to. Further addresses at that company go into HubSpot next to it. */
+/* A company that is taken elsewhere: its contacts go into HubSpot next to it and are not written to */
 async function keepAsContact(t: Tenant, hub: Hub | null, row: Lead, companyId: string | undefined, note: string) {
   let stored = false;
   if (hub && companyId && row.email) {
@@ -98,7 +105,8 @@ async function keepAsContact(t: Tenant, hub: Hub | null, row: Lead, companyId: s
   await db.update(leads).set({ status: "dublette", note, hubspotId: stored ? companyId! : row.hubspotId }).where(eq(leads.id, row.id));
 }
 
-/* Evening job: fill today's batch with drafts */
+/* Evening job: fill today's batch with drafts. Works per company: its open contacts become
+   one or several messages, depending on how the company is set to be written to. */
 export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
   const today = berlinDate();
   const key = await aiFor(t.id);
@@ -114,47 +122,67 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
     catch (e) { await log(t.id, "hubspot", false, (e as Error).message); }
   }
   const nextVariant = await pickVariant(t.id);
+  const jevKey = (await getInteg(t.id, "jev"))?.key as string | undefined;
+  await attachCompanies(t.id);
   const known = await db.select({ company: leads.company }).from(leads).where(eq(leads.tenantId, t.id)).orderBy(desc(leads.createdAt)).limit(2000);
   const seen = new Set(known.map(k => norm(k.company)));
-  const ready: Lead[] = [];
+  const units: Unit[] = [];
+  const done = new Set<number>();
 
-  /* Companies this tenant already writes to, by name and domain */
-  const taken = new Map<string, Lead>();
-  const busy = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), inArray(leads.status, ["freigabe", "angeschrieben", "beantwortet", "unzustellbar"])));
-  const take = (l: Lead) => { for (const k of claimKeys(l)) if (!taken.has(k)) taken.set(k, l); };
-  busy.forEach(take);
-  const ownedBy = (l: Lead) => claimKeys(l).map(k => taken.get(k)).find(Boolean);
-
-  /* Takes the lead into the batch, or marks why not. Runs one at a time so the batch never overshoots. */
-  const admit = async (row: Lead) => {
-    const first = ownedBy(row);
-    if (first) { await keepAsContact(t, hub, row, first.hubspotId || undefined, `Weiterer Kontakt, angeschrieben wird ${[first.first, first.last].filter(Boolean).join(" ") || first.email}`); return; }
-    if (!row.email && !row.linkedin) { await db.update(leads).set({ note: "E-Mail fehlt" }).where(eq(leads.id, row.id)); return; }
-    const known = await reserve(t, hub, row);
-    if (known) { await keepAsContact(t, hub, row, known.companyId, known.why); return; }
-    ready.push(row); take(row);
+  /* Fills a lead's gaps from the web, unless it already has what the draft needs */
+  const enrich = async (l: Lead) => {
+    const hasHook = t.tenders ? l.tenders.length > 0 : !!l.hook;
+    if (l.email && hasHook) return l;
+    try {
+      const e = await enrichLead(key, t.settings.prompt, { company: l.company, city: l.city, website: l.website, first: l.first, last: l.last, role: l.role, email: l.email }, t.tenders);
+      if (!e) return l;
+      const patch = { city: l.city || e.city, website: l.website || e.website, first: l.first || e.first, last: l.last || e.last, salutation: l.salutation || salutationOf(e.salutation),
+        role: l.role || e.role, email: l.email || e.email, emailType: l.email ? l.emailType : e.emailType, linkedin: l.linkedin || e.linkedin, hook: l.hook || e.hook, tenders: l.tenders.length ? l.tenders : e.tenders, sourceUrl: l.sourceUrl || e.sourceUrl };
+      return (await db.update(leads).set(patch).where(eq(leads.id, l.id)).returning())[0];
+    } catch (err) { await log(t.id, "enrich", false, `${l.company}: ${(err as Error).message}`); return l; }
   };
 
-  /* 1. imported leads first, in list order; a duplicate makes room for the next one */
-  const queue = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"))).orderBy(asc(leads.createdAt), asc(leads.id));
-  for (let next = 0; ready.length < n && next < queue.length;) {
-    const chunk = queue.slice(next, next += n - ready.length);
-    const rows = await pool(chunk, 4, async l => {
-      if (ownedBy(l) || (l.email && (!t.tenders || l.tenders.length))) return l;
-      try {
-        const e = await enrichLead(key, t.settings.prompt, { company: l.company, city: l.city, website: l.website, first: l.first, last: l.last, role: l.role, email: l.email }, t.tenders);
-        if (!e) return l;
-        const patch = { city: l.city || e.city, website: l.website || e.website, first: l.first || e.first, last: l.last || e.last, salutation: l.salutation || e.salutation,
-          role: l.role || e.role, email: l.email || e.email, emailType: l.email ? l.emailType : e.emailType, linkedin: l.linkedin || e.linkedin, hook: l.hook || e.hook, tenders: l.tenders.length ? l.tenders : e.tenders };
-        return (await db.update(leads).set(patch).where(eq(leads.id, l.id)).returning())[0];
-      } catch (err) { await log(t.id, "enrich", false, `${l.company}: ${(err as Error).message}`); return l; }
-    });
-    for (const row of rows) await admit(row);
-  }
+  /* All open contacts of one company: reserve it once, then plan its messages */
+  const admit = async (companyId: number) => {
+    if (done.has(companyId)) return;
+    done.add(companyId);
+    const [c] = await db.select().from(companies).where(eq(companies.id, companyId));
+    const all = await db.select().from(leads).where(and(eq(leads.companyId, companyId), eq(leads.tenantId, t.id))).orderBy(asc(leads.id));
+    let rows = await pool(all.filter(l => l.status === "neu"), 4, enrich);
+    for (const l of rows.filter(l => !l.email && !l.linkedin)) await db.update(leads).set({ note: l.note || "E-Mail fehlt" }).where(eq(leads.id, l.id));
+    rows = rows.filter(l => l.email || l.linkedin);
+    if (!rows.length) return;
+    /* salutation from first name and role where Jev is sure, so {{anrede}} can name the person */
+    const unsure = rows.filter(l => l.last && !l.salutation);
+    if (jevKey && unsure.length) {
+      const g = await guessSalutations(jevKey, unsure.map(l => ({ first: l.first, last: l.last, role: l.role }))).catch(() => []);
+      for (const [k, l] of unsure.entries()) if (g[k]) { l.salutation = g[k]; await db.update(leads).set({ salutation: g[k] }).where(eq(leads.id, l.id)); }
+    }
+    /* a company this tenant already works with is in HubSpot already; new contacts are added there */
+    const ours = all.find(l => l.hubspotId && l.status !== "dublette");
+    if (hub && ours) {
+      for (const l of rows.filter(l => !l.hubspotId && l.email)) {
+        try { await hubspotAddContact(hub.token, ours.hubspotId, l); await db.update(leads).set({ hubspotId: ours.hubspotId }).where(eq(leads.id, l.id)); }
+        catch (e) { if (!(e instanceof HubSpotError && e.status === 409)) await log(t.id, "hubspot", false, `${l.company}: ${(e as Error).message}`); }
+      }
+    } else if (hub) {
+      const taken = await reserve(t, hub, rows[0]);
+      if (taken) { for (const l of rows) await keepAsContact(t, hub, l, taken.companyId, taken.why); return; }
+      for (const l of rows.slice(1).filter(l => l.email && rows[0].hubspotId)) {
+        try { await hubspotAddContact(hub.token, rows[0].hubspotId, l); await db.update(leads).set({ hubspotId: rows[0].hubspotId }).where(eq(leads.id, l.id)); }
+        catch (e) { if (!(e instanceof HubSpotError && e.status === 409)) await log(t.id, "hubspot", false, `${l.company}: ${(e as Error).message}`); }
+      }
+    }
+    units.push(...plan(c, rows));
+  };
+
+  /* 1. imported leads first, company by company in list order */
+  const queue = await db.select({ companyId: leads.companyId }).from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"))).orderBy(asc(leads.createdAt), asc(leads.id));
+  for (const q of queue) { if (units.length >= n) break; if (q.companyId) await admit(q.companyId); }
 
   /* 2. new research for the rest; asks for a few extra so duplicates can be replaced,
      and whatever is left over waits in the list for the next evening */
-  const rest = n - ready.length;
+  const rest = n - units.length;
   if (rest > 0) {
     const want = rest + Math.ceil(rest / 2);
     const groups = focusGroups(t.settings.prompt, want >= 6 ? 3 : want >= 3 ? 2 : 1);
@@ -165,23 +193,27 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
       if (r.status === "fulfilled") found.push(...r.value);
       else await log(t.id, "research", false, r.reason?.message || String(r.reason));
     }
+    /* several people of one company arrive as several entries with the same company name */
+    const fresh = new Set<string>();
     for (const f of found) {
       const k = norm(f.company);
-      if (!k || seen.has(k)) continue;
-      seen.add(k);
-      const sal = /^frau/i.test(f.salutation) ? "Frau" : /^herr/i.test(f.salutation) ? "Herr" : "";
-      const [row] = await db.insert(leads).values({ tenantId: t.id, ...f, salutation: sal, source: "Claude-Recherche", status: "neu" }).returning();
-      if (ready.length < n) await admit(row);
+      if (!k || (seen.has(k) && !fresh.has(k))) continue;
+      seen.add(k); fresh.add(k);
+      await db.insert(leads).values({ tenantId: t.id, ...f, salutation: salutationOf(f.salutation), source: "Claude-Recherche", status: "neu" });
     }
+    await attachCompanies(t.id);
+    const added = await db.select({ companyId: leads.companyId }).from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"))).orderBy(asc(leads.createdAt), asc(leads.id));
+    for (const q of added) { if (units.length >= n) break; if (q.companyId) await admit(q.companyId); }
   }
 
   /* 3. drafts */
-  for (const l of ready) {
-    await db.insert(messages).values({ tenantId: t.id, leadId: l.id, batchDate: today, variant: nextVariant(), channel: l.email ? "mail" : "linkedin" });
-    await db.update(leads).set({ status: "freigabe" }).where(eq(leads.id, l.id));
+  for (const u of units) {
+    const ids = u.leads.map(l => l.id);
+    await db.insert(messages).values({ tenantId: t.id, leadId: ids[0], leadIds: ids, to: u.to.join(", "), batchDate: today, variant: nextVariant(), channel: u.to.length ? "mail" : "linkedin" });
+    await db.update(leads).set({ status: "freigabe" }).where(inArray(leads.id, ids));
   }
-  await log(t.id, "research", true, `${ready.length} Entwürfe`);
-  return { created: ready.length };
+  await log(t.id, "research", true, `${units.length} Entwürfe`);
+  return { created: units.length };
 }
 
 export async function approvalMail(t: Tenant) {
@@ -203,12 +235,17 @@ export async function sendApproved(t: Tenant) {
   let sent = 0, failed = 0;
   for (const { m, l } of rows) {
     try {
-      if (!l.email) throw new Error("E-Mail fehlt");
-      await sendAs(t.id, m.senderId!, { to: l.email, subject: m.finalSubject || "", text: m.finalBody || "" });
-      let hs = !!l.hubspotId;
-      if (hub && !hs) { try { await hubspotCreateContact(hub, l); hs = true; } catch { /* already there or no scope */ } }
+      const to = recipients(m, l);
+      if (!to.length) throw new Error("E-Mail fehlt");
+      await sendAs(t.id, m.senderId!, { to: to.join(", "), subject: m.finalSubject || "", text: m.finalBody || "" });
+      const covered = await db.select().from(leads).where(inArray(leads.id, idsOf(m)));
+      let hs = covered.every(x => !!x.hubspotId);
+      if (hub && !hs) {
+        for (const x of covered.filter(x => !x.hubspotId && x.email)) { try { await hubspotCreateContact(hub, x); } catch { /* already there or no scope */ } }
+        hs = true;
+      }
       await db.update(messages).set({ status: "gesendet", sentAt: new Date(), error: "", hubspot: hs }).where(eq(messages.id, m.id));
-      await db.update(leads).set({ status: "angeschrieben" }).where(eq(leads.id, l.id));
+      await db.update(leads).set({ status: "angeschrieben" }).where(inArray(leads.id, idsOf(m)));
       sent++;
     } catch (e) {
       failed++;
@@ -236,10 +273,11 @@ export async function checkReplies(t: Tenant) {
     .where(and(eq(messages.tenantId, t.id), eq(messages.status, "gesendet"), gte(messages.sentAt, since)));
   let found = 0;
   for (const { m, l } of rows) {
-    const r = await hasReply(t.id, m.senderId!, l.email, m.sentAt!).catch(() => null);
+    let r = false;
+    for (const a of recipients(m, l)) if (await hasReply(t.id, m.senderId!, a, m.sentAt!).catch(() => null)) { r = true; break; }
     if (r) {
       await db.update(messages).set({ status: "beantwortet", repliedAt: new Date() }).where(eq(messages.id, m.id));
-      await db.update(leads).set({ status: "beantwortet" }).where(eq(leads.id, l.id));
+      await db.update(leads).set({ status: "beantwortet" }).where(inArray(leads.id, idsOf(m)));
       found++;
     }
   }
@@ -248,7 +286,7 @@ export async function checkReplies(t: Tenant) {
 
 export async function setLeadStatus(tenantId: number, leadId: number, status: string) {
   await db.update(leads).set({ status }).where(and(eq(leads.id, leadId), eq(leads.tenantId, tenantId)));
-  const [m] = await db.select().from(messages).where(and(eq(messages.leadId, leadId), inArray(messages.status, ["gesendet", "beantwortet", "unzustellbar"]))).orderBy(desc(messages.sentAt)).limit(1);
+  const [m] = await db.select().from(messages).where(and(or(eq(messages.leadId, leadId), sql`${messages.leadIds} @> ${JSON.stringify([leadId])}::jsonb`), inArray(messages.status, ["gesendet", "beantwortet", "unzustellbar"]))).orderBy(desc(messages.sentAt)).limit(1);
   if (!m) return;
   if (status === "beantwortet") await db.update(messages).set({ status, repliedAt: m.repliedAt || new Date() }).where(eq(messages.id, m.id));
   else if (status === "unzustellbar") await db.update(messages).set({ status, bouncedAt: new Date(), repliedAt: null }).where(eq(messages.id, m.id));

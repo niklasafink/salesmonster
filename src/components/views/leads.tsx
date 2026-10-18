@@ -1,27 +1,44 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import type { Tender } from "@/db/schema";
+import { addrsOf, modeOf } from "@/lib/company-mode";
 import { Icon, Top, api } from "../ui";
+import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import type { Ctx } from "../types";
 
-type Lead = { id: number; company: string; first: string; last: string; role: string; email: string; city: string; source: string; status: string; note: string };
-type Parsed = { co: string; p: string; role: string; email: string; web: string; city: string; dup: string; extra: string };
-const LS: Record<string, [string, string]> = { neu: ["Neu", "b"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", ""], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", ""] };
-const FILTERS: [string, string][] = [["alle", "Alle"], ["neu", "Neu"], ["freigabe", "In Freigabe"], ["angeschrieben", "Angeschrieben"], ["beantwortet", "Beantwortet"], ["dublette", "Dublette"]];
+type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[] };
+type Company = { id: number; name: string; mode: string; email: string };
+type Parsed = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; dup: string; extra: string };
+const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette"];
+
+export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?.[1] || "n"}`} title={STATUS[s]?.[0] || s} />;
 
 export function Leads({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
-  const [rows, setRows] = useState<Lead[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
+  const [rows, setRows] = useState<Lead[]>([]), [cos, setCos] = useState<Company[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
   const [imp, setImp] = useState<null | { text: string; src: string; rows: Parsed[] | null; busy: boolean }>(null);
-  const load = useCallback(() => api<{ rows: Lead[] }>(`/api/leads?t=${t.slug}`).then(r => setRows(r.rows)).catch(e => ctx.toast(e.message)), [t.slug, ctx]);
+  const [edit, setEdit] = useState<EditLead | null>(null);
+  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message)), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
 
   const srcs = [...new Set(rows.map(r => r.source))], ql = q.toLowerCase();
   const cnt = (s: string) => rows.filter(r => s === "alle" || r.status === s).length;
   const vis = rows.filter(r => (filter === "alle" || r.status === filter) && (src === "alle" || r.source === src) && (!ql || `${r.company} ${r.first} ${r.last} ${r.email}`.toLowerCase().includes(ql)));
 
-  async function setStatus(r: Lead, status: string) {
-    setRows(rs => rs.map(x => x.id === r.id ? { ...x, status } : x));
-    try { await api(`/api/leads/${r.id}`, { method: "PATCH", body: { status } }); } catch (e) { ctx.toast((e as Error).message); load(); }
+  /* contacts grouped by company, in list order */
+  const byCo = new Map<string, Lead[]>();
+  for (const r of rows) { const k = r.companyId ? `c${r.companyId}` : `l${r.id}`; byCo.set(k, [...(byCo.get(k) || []), r]); }
+  const groups: { key: string; all: Lead[]; shown: Lead[] }[] = [];
+  for (const r of vis) {
+    const key = r.companyId ? `c${r.companyId}` : `l${r.id}`;
+    const g = groups.find(x => x.key === key);
+    if (g) g.shown.push(r); else groups.push({ key, all: byCo.get(key)!, shown: [r] });
+  }
+
+  async function setMode(c: Company, v: string) {
+    const [mode, email = ""] = v.split(":");
+    setCos(cs => cs.map(x => x.id === c.id ? { ...x, mode, email: mode === "eine" ? email : x.email } : x));
+    try { await api(`/api/companies/${c.id}`, { method: "PATCH", body: { mode, email } }); } catch (e) { ctx.toast((e as Error).message); load(); }
   }
   async function parse() {
     if (!imp) return; setImp({ ...imp, busy: true });
@@ -35,29 +52,55 @@ export function Leads({ ctx }: { ctx: Ctx }) {
     catch (e) { ctx.toast((e as Error).message); }
   }
 
+  const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : "";
+  const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
+  const row = (r: Lead, showCo: boolean) => <tr key={r.id} className="click" onClick={() => setEdit(r)}>
+    <td className="dotc"><Dot s={r.status} /></td>
+    <td className="co" style={{ fontWeight: 500 }} title={showCo ? r.company : undefined}>{showCo ? r.company : ""}</td>
+    <td>{person(r) || <span className="f3">–</span>}</td>
+    <td className="hide-m hide-l f2 clip" title={r.role}>{r.role || <span className="f3">–</span>}</td>
+    <td className="mono" style={{ fontSize: 12.5 }}>{r.email || <span className="f3">fehlt</span>}</td>
+    <td className="hide-m f2 clip" title={t.tenders ? undefined : r.hook}>{hookCell(r)}</td>
+    <td className="f2">{r.sourceUrl ? <a className="srcl" href={r.sourceUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{r.source}<Icon n="external-link" /></a> : r.source}</td>
+  </tr>;
+
   const ok = imp?.rows?.filter(r => !r.dup).length || 0;
   return <>
-    <Top title="Leads" onMenu={ctx.openSidebar}><button className="btn pri" onClick={() => setImp({ text: "", src: "", rows: null, busy: false })}><Icon n="upload" />Importieren</button></Top>
+    <Top title="Leads" onMenu={ctx.openSidebar}>
+      <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
+      <button className="btn pri" onClick={() => setImp({ text: "", src: "", rows: null, busy: false })}><Icon n="upload" />Importieren</button>
+    </Top>
     <div className="scroll"><div className="wrap wide">
       <div className="toolbar">
-        <div className="filters">{FILTERS.map(([k, n]) => <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{n}<span className="c">{cnt(k)}</span></button>)}</div>
+        <div className="filters">{FILTERS.map(k => <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></button>)}</div>
         <div className="row3">
           <select className="inp sel" value={src} onChange={e => setSrc(e.target.value)} aria-label="Quelle"><option value="alle">Alle Quellen</option>{srcs.map(s => <option key={s}>{s}</option>)}</select>
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th className="hide-m">Rolle</th><th>E-Mail</th><th>Quelle</th><th>Status</th></tr></thead><tbody>
-        {vis.length ? vis.map(r => <tr key={r.id}>
-          <td style={{ fontWeight: 500 }}>{r.company}</td>
-          <td>{r.last ? `${r.first} ${r.last}` : <span className="f3">–</span>}</td>
-          <td className="hide-m f2">{r.role || <span className="f3">–</span>}</td>
-          <td className="mono" style={{ fontSize: 12.5 }}>{r.email || <span className="f3">fehlt</span>}</td>
-          <td className="f2">{r.source}</td>
-          <td><span className={`pill lst ${LS[r.status]?.[1] || ""}`} title={r.note || undefined}>
-            <select value={r.status} onChange={e => setStatus(r, e.target.value)} aria-label="Status">{Object.entries(LS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></span></td>
-        </tr>) : <tr><td colSpan={6} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+      <div className="tbl"><table className="leads"><thead><tr><th className="dotc"></th><th>Firma</th><th>Ansprechpartner</th><th className="hide-m hide-l">Rolle</th><th>E-Mail</th><th className="hide-m">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th>Quelle</th></tr></thead><tbody>
+        {groups.length ? groups.map(g => {
+          if (g.all.length < 2) return row(g.shown[0], true);
+          const c = cos.find(x => `c${x.id}` === g.key);
+          const mailable = g.all.filter(r => r.email), addrs = addrsOf(mailable);
+          const m = c && modeOf(c, mailable), val = m ? (m.mode === "eine" ? `eine:${m.to[0] || ""}` : m.mode) : "";
+          return <Fragment key={g.key}>
+            <tr className="grp"><td className="dotc"></td><td colSpan={2} style={{ fontWeight: 500 }}>{g.all[0].company}</td>
+              <td colSpan={4} className="modec">{c && mailable.length > 1 && <select className="inp sel modesel" value={val} onChange={e => setMode(c, e.target.value)} aria-label="Wie anschreiben">
+                <option value="einzeln">Getrennt anschreiben</option>
+                {addrs.length > 1 && <option value="alle">Eine Mail an alle Adressen</option>}
+                {addrs.map(a => <option key={a} value={`eine:${a}`}>Eine Mail an {a}</option>)}
+              </select>}</td></tr>
+            {g.shown.map(r => row(r, false))}
+          </Fragment>;
+        }) : <tr><td colSpan={7} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
     </div></div>
+
+    {edit && <LeadDialog key={edit.id ?? `new-${edit.company}`} lead={edit} slug={t.slug} tenders={t.tenders} onClose={() => setEdit(null)}
+      onSaved={() => { setEdit(null); ctx.toast("Gespeichert"); load(); }}
+      onDeleted={() => { setEdit(null); ctx.toast("Gelöscht"); load(); }}
+      onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }} />}
 
     {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg">
       {!imp.rows ? <>
@@ -66,9 +109,9 @@ export function Leads({ ctx }: { ctx: Ctx }) {
         <label className="fld"><span>Quelle</span><input className="inp" value={imp.src} placeholder="z. B. DTVP Oktober" onChange={e => setImp({ ...imp, src: e.target.value })} /></label>
         <button className="btn pri wide" onClick={parse} disabled={imp.busy || !imp.text.trim()}>{imp.busy && <Icon n="loader" />}Daten erkennen</button>
       </> : <>
-        <div className="dlg-h">{imp.rows.length} Firmen erkannt<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+        <div className="dlg-h">{imp.rows.length} Kontakte erkannt<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         <div className="tbl"><table><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>E-Mail</th><th></th></tr></thead><tbody>
-          {imp.rows.map((r, i) => <tr key={i}><td style={{ fontWeight: 500 }}>{r.co}</td><td>{r.p ? <>{r.p}{r.role && <span className="f3"> ({r.role})</span>}</> : <span className="f3">–</span>}</td>
+          {imp.rows.map((r, i) => <tr key={i}><td style={{ fontWeight: 500 }}>{r.co}</td><td>{r.p ? <>{[r.sal, r.p].filter(Boolean).join(" ")}{r.role && <span className="f3"> ({r.role})</span>}</> : <span className="f3">–</span>}</td>
             <td className="mono" style={{ fontSize: 12.5 }}>{r.email || (r.web ? <span className="f3">{r.web}</span> : <span className="f3">fehlt</span>)}</td>
             <td>{r.dup ? <span className="pill">{r.dup}</span> : r.extra ? <span className="pill">{r.extra}</span> : null}</td></tr>)}
         </tbody></table></div>

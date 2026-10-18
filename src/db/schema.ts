@@ -76,9 +76,22 @@ export const templates = pgTable("templates", {
   score: jsonb("score").$type<TemplateScore>(),
 }, t => [uniqueIndex("templates_key").on(t.tenantId, t.key)]);
 
+/* A company with one or more contacts. mode decides how they are written to:
+   "einzeln" one mail per person, "alle" one mail to all addresses, "eine" one mail to `email`; "" picks by the addresses */
+export const companies = pgTable("companies", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
+  name: text("name").notNull(),
+  mode: text("mode").notNull().default(""),
+  email: text("email").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex("companies_key").on(t.tenantId, t.key)]);
+
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "set null" }),
   company: text("company").notNull(),
   city: text("city").notNull().default(""),
   website: text("website").notNull().default(""),
@@ -92,6 +105,9 @@ export const leads = pgTable("leads", {
   hook: text("hook").notNull().default(""),
   tenders: jsonb("tenders").$type<Tender[]>().notNull().default([]),
   source: text("source").notNull().default("Claude-Recherche"),
+  /* where the data was found, and the research text as it came in */
+  sourceUrl: text("source_url").notNull().default(""),
+  research: text("research").notNull().default(""),
   status: text("status").notNull().default("neu"),
   note: text("note").notNull().default(""),
   hubspotId: text("hubspot_id").notNull().default(""),
@@ -102,6 +118,9 @@ export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  /* every lead this message covers (leadId first) and the addresses it goes to; empty for older single mails */
+  leadIds: jsonb("lead_ids").$type<number[]>().notNull().default([]),
+  to: text("to").notNull().default(""),
   batchDate: date("batch_date").notNull(),
   variant: text("variant").notNull(),
   channel: text("channel").notNull().default("mail"),

@@ -43,13 +43,14 @@ const Tender = z.object({ t: s(), s: s(), f: s() });
 export const LeadOut = z.object({
   company: z.string().min(2), city: s(), website: s(), first: s(), last: s(), salutation: s(), role: s(),
   email: s(), emailType: z.enum(["person", "info"]).catch("person"), linkedin: s(), hook: s(),
-  tenders: z.array(Tender).catch([]),
+  tenders: z.array(Tender).catch([]), sourceUrl: s(),
 });
 export type LeadOut = z.infer<typeof LeadOut>;
 
 const LEAD_FORMAT = `Antworte am Ende mit genau einem JSON-Block in \`\`\`json, Form:
-{"leads":[{"company":"Firma GmbH","city":"Ort","website":"https://…","first":"Vorname","last":"Nachname","salutation":"Herr|Frau","role":"Rolle","email":"adresse","emailType":"person|info","linkedin":"URL oder leer","hook":"Anlass als Substantivgruppe im Nominativ oder leer","tenders":[{"t":"Titel","s":"Vergabestelle","f":"Frist TT.MM."}]}]}
-Leere Felder als "". Erfinde keine Namen oder Adressen: nur, was du auf einer Quelle gesehen hast.`;
+{"leads":[{"company":"Firma GmbH","city":"Ort","website":"https://…","first":"Vorname","last":"Nachname","salutation":"Herr|Frau","role":"Rolle","email":"adresse","emailType":"person|info","linkedin":"URL oder leer","hook":"Anlass als Substantivgruppe im Nominativ oder leer","tenders":[{"t":"Titel","s":"Vergabestelle","f":"Frist TT.MM."}],"sourceUrl":"Seite, auf der du Person und Adresse gefunden hast"}]}
+Leere Felder als "". Erfinde keine Namen oder Adressen: nur, was du auf einer Quelle gesehen hast.
+Findest du mehrere passende Ansprechpartner in einer Firma, gib jeden als eigenen Eintrag mit genau demselben Firmennamen zurück.`;
 
 export async function researchLeads(key: Ai, prompt: string, n: number, exclude: string[], focus: string, tenders: boolean) {
   const text = await ask({
