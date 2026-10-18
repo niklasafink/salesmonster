@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { and, eq } from "drizzle-orm";
 import { db, members, tenants, users } from "@/db";
+import { AiMissing } from "./ai";
 import { COOKIE, readSession } from "./session";
 
 export class HttpError extends Error {
@@ -47,10 +48,28 @@ export function route<C = unknown>(fn: (req: Request, ctx: C, user: Awaited<Retu
   };
 }
 
+/* Request body as an object; malformed JSON or a non-object body is the caller's fault */
+export async function body(req: Request): Promise<Record<string, unknown>> {
+  const b = await req.json().catch(() => { throw new HttpError(400, "Ungültige Anfrage"); });
+  if (!b || typeof b !== "object" || Array.isArray(b)) throw new HttpError(400, "Ungültige Anfrage");
+  return b;
+}
+
+/* Numeric route id; anything else cannot exist */
+export async function idOf(params: Promise<{ id: string }>, what = "Eintrag") {
+  const id = Number((await params).id);
+  if (!Number.isSafeInteger(id) || id < 1) throw new HttpError(404, `${what} nicht gefunden`);
+  return id;
+}
+
 export function fail(e: unknown) {
   if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status });
+  if (e instanceof SyntaxError) return Response.json({ error: "Ungültige Anfrage" }, { status: 400 });
+  if (e instanceof AiMissing) return Response.json({ error: e.message }, { status: 400 });
   console.error(e);
-  return Response.json({ error: e instanceof Error ? e.message : "Fehler" }, { status: 500 });
+  /* Our own messages are meant for the user; runtime and database errors would leak SQL and parameters */
+  const own = e instanceof Error && e.constructor === Error && !e.cause && !/^Failed query/.test(e.message);
+  return Response.json({ error: own ? (e as Error).message : "Interner Fehler" }, { status: 500 });
 }
 
 export const qp = (req: Request, k: string) => new URL(req.url).searchParams.get(k);

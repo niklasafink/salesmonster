@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, leads } from "@/db";
-import { HttpError, assertMember, route } from "@/lib/api";
+import { HttpError, assertMember, body, idOf, route } from "@/lib/api";
 import { attachCompanies } from "@/lib/companies";
 import { cleanLead } from "@/lib/lead-fields";
 import { setLeadStatus } from "@/lib/outreach";
@@ -10,7 +10,7 @@ const OK = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "
 
 /* Status change and/or edited fields; a new company name moves the contact to that company */
 export const PATCH = route<Ctx>(async (req, { params }, me) => {
-  const id = Number((await params).id), b = await req.json();
+  const id = await idOf(params, "Lead"), b = await body(req);
   const [l] = await db.select().from(leads).where(eq(leads.id, id));
   if (!l) throw new HttpError(404, "Lead nicht gefunden");
   await assertMember(me, l.tenantId, "Lead");
@@ -26,13 +26,13 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
     await db.update(leads).set({ tenders }).where(eq(leads.id, id));
   }
   if (b.status !== undefined && b.status !== l.status) {
-    if (!OK.includes(b.status)) throw new HttpError(400, "Unbekannter Status");
+    if (typeof b.status !== "string" || !OK.includes(b.status)) throw new HttpError(400, "Unbekannter Status");
     await setLeadStatus(l.tenantId, id, b.status);
   }
 });
 
 export const DELETE = route<Ctx>(async (_req, { params }, me) => {
-  const [l] = await db.select().from(leads).where(eq(leads.id, Number((await params).id)));
+  const [l] = await db.select().from(leads).where(eq(leads.id, await idOf(params, "Lead")));
   if (!l) throw new HttpError(404, "Lead nicht gefunden");
   await assertMember(me, l.tenantId, "Lead");
   await db.delete(leads).where(eq(leads.id, l.id));
