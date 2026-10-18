@@ -33,8 +33,11 @@ const HEAD: [Field, RegExp][] = [
   ["web", /^(website|webseite|homepage|internet|url|web|domain)$/],
   ["city", /^(ort|stadt|city|standort|location|town)$/],
   ["li", /^(linkedin|linkedinurl|linkedinprofil|linkedinprofile)$/],
+  ["url", /^(quelle|quellen|quellurl|quelllink|linkzurquelle|source|sourceurl|fundstelle|profil|profilseite|profilurl)$/],
+  ["note", /^(notiz|notizen|bemerkung|bemerkungen|kommentar|note|notes|bereich|abteilung|department|zuständigkeit.*|schwerpunkt)$/],
 ];
-const headField = (h: string): Field => HEAD.find(([, re]) => re.test(h.toLowerCase().replace(/[\s_.\-:/()]/g, "")))?.[0] ?? "";
+/* "Titel (wörtlich)" is read as "Titel" */
+const headField = (h: string): Field => HEAD.find(([, re]) => re.test(h.toLowerCase().replace(/\(.*?\)/g, "").replace(/[\s_.\-:/()]/g, "")))?.[0] ?? "";
 /* Fields by header name alone; "Name" next to "Vorname" is the family name */
 export function headFields(head: string[]): Field[] {
   const f = head.map(headField);
@@ -42,12 +45,14 @@ export function headFields(head: string[]): Field[] {
   return f;
 }
 
+/* A quote only opens a quoted cell at its start (CSV); „Partner" inside a cell is text and must not swallow the separators after it */
 const cells = (line: string, sep: string) => {
   const out: string[] = []; let cur = "", q = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
-    if (ch === '"') { if (q && line[i + 1] === '"') { cur += ch; i++; } else q = !q; }
-    else if (ch === sep && !q) { out.push(cur.trim()); cur = ""; }
+    if (q) { if (ch !== '"') cur += ch; else if (line[i + 1] === '"') { cur += ch; i++; } else q = false; }
+    else if (ch === '"' && !cur.trim()) { q = true; cur = ""; }
+    else if (ch === sep) { out.push(cur.trim()); cur = ""; }
     else cur += ch;
   }
   return [...out, cur.trim()];
@@ -76,22 +81,40 @@ export function clean(raw: string) {
 }
 /* For link fields: the target of a Markdown link, else the cleaned cell */
 const link = (raw: string) => (raw || "").match(/\]\((https?:\/\/\S+?)\)/)?.[1] || clean(raw);
-const cellOf = (raw: string, f: Field) => f === "web" || f === "url" || f === "li" ? link(raw) : clean(raw);
+/* Research lists say "nicht veröffentlicht", "kein Treffer", "nur Kontaktformular" where a value is missing */
+const MISSING = /^(nicht|kein|keine|nur|unbekannt|offen)\b/i;
+/* "+49 30 203015 0 (Standort)", "02102/1669-123, Mobil 0172/5237752": only the numbers */
+const PHONE = /\+?\(?\d[\d\s()\/.\-–]{4,}\d/g;
+const phones = (s: string) => (s.match(PHONE) || []).map(n => n.replace(/\s+/g, " ").trim()).filter(n => n.replace(/\D/g, "").length >= 5);
+function cellOf(raw: string, f: Field) {
+  if (f === "web" || f === "url" || f === "li") return link(raw);
+  const s = clean(raw);
+  if (f === "note" || f === "hook" || f === "co") return s;
+  if (MISSING.test(s)) return "";
+  /* "wp-berlin@etl.de (Sammeladresse)": the address; text without one is no address */
+  if (f === "email") return s.match(/[^\s@:;,<>()]+@[^\s@:;,<>()]+\.[a-z]{2,}/gi)?.join("; ") || (s.includes("@") ? s : "");
+  if (f === "phone") return phones(s).join(" / ");
+  /* „Partner" (im Interview: „Partner für Audit Innovation") */
+  if (f === "role") return s.replace(/[„“”"]/g, "").replace(/\s+/g, " ").trim();
+  /* "Pforzheim (Vorwahl)" */
+  if (f === "city") return s.replace(/\s*\(.*\)\s*$/, "");
+  return s;
+}
 
 /* Do the values fit the field? Header names and Jev both misjudge, e.g. "Standort" holding dates or notes. */
 const URL_RE = /^(https?:\/\/|www\.)\S+$|^[\w-]+(\.[\w-]+)+(\/\S*)?$/i;
 const FITS: Partial<Record<Field, (v: string) => boolean>> = {
   co: v => v.length <= 100,
-  sal: v => v.length <= 30,
+  sal: v => v.length <= 30 && /^(herr|frau|hr|fr|mr|mrs|ms|dr|prof|divers)\b/i.test(v),
   first: v => v.length <= 40 && !/[\d@]/.test(v),
   last: v => v.length <= 40 && !/[\d@]/.test(v),
   name: v => v.length <= 60 && !/[\d@;]/.test(v),
-  /* codes like "A" or "R1" are no role and stay out */
-  role: v => v.length <= 100 && !/@/.test(v) && !/^[A-Z]{0,2}\d{0,2}$/i.test(v),
+  /* codes like "A", "R1" or "R1 (schwach)" are no role and stay out */
+  role: v => v.length <= 160 && !/@/.test(v) && !/^[A-Z]{0,2}\d{0,2}(\s*[(/?]|$)/i.test(v),
   note: v => !/^[A-Z]{0,2}\d{0,2}$/i.test(v),
   email: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
   /* one or several numbers, e.g. "+49 69 967 65 1141 / +49 152 01 234567" */
-  phone: v => v.length <= 120 && !/[@a-z]{3}/i.test(v) && v.replace(/\D/g, "").length >= 5,
+  phone: v => v.length <= 120 && v.replace(/\D/g, "").length >= 5,
   web: v => URL_RE.test(v) && !/@/.test(v),
   url: v => URL_RE.test(v),
   li: v => /linkedin\./i.test(v),
@@ -109,7 +132,9 @@ export function columnsOf(t: { head: string[]; rows: string[][] }): Column[] {
     const seen = new Set<string>();
     for (const r of t.rows) { const v = (r[i] || "").trim().slice(0, 120); if (clean(v)) seen.add(v); if (seen.size === 5) break; }
     const samples = [...seen];
-    return { head, samples, field: fits(f[i], samples) ? f[i] : "" };
+    /* "Titel" holding job titles rather than Herr/Dr. is the role */
+    const field = fits(f[i], samples) ? f[i] : f[i] === "sal" && fits("role", samples) ? "role" : "";
+    return { head, samples, field };
   });
 }
 

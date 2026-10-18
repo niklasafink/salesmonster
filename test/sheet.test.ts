@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { mdTable, parseCsv, toTsv, tsvChunks } from "@/lib/sheet";
 
 describe("parseCsv", () => {
+  it("ein Anführungszeichen mitten in der Zelle ist Text und verschluckt keine Trenner", () => {
+    expect(parseCsv('Firma;Titel;Ort\nBDO;„Partner, IT & Controls";Hamburg')).toEqual([["Firma", "Titel", "Ort"], ["BDO", "„Partner, IT & Controls\"", "Hamburg"]]);
+  });
   it("liest Komma-CSV mit Anführungszeichen", () => {
     expect(parseCsv('Firma,Ort\n"Muster GmbH, Berlin",Köln\n')).toEqual([["Firma", "Ort"], ["Muster GmbH, Berlin", "Köln"]]);
   });
@@ -56,5 +59,11 @@ describe("mdTable", () => {
   });
   it("gibt null ohne Tabelle", () => {
     expect(mdTable("- A GmbH, a@a.de\n- B AG")).toBeNull();
+  });
+});
+
+describe("mdTable mit maskierten Pipes", () => {
+  it("\\| bleibt in der Zelle", () => {
+    expect(mdTable("| Firma | Titel | Ort |\n|---|---|---|\n| Sonntag | Partner \\| WP \\| StB | Augsburg |")).toEqual([["Firma", "Titel", "Ort"], ["Sonntag", "Partner | WP | StB", "Augsburg"]]);
   });
 });

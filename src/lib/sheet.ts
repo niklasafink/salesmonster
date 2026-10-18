@@ -20,7 +20,8 @@ export function parseCsv(text: string): string[][] {
       if (ch !== '"') cell += ch;
       else if (text[i + 1] === '"') { cell += '"'; i++; }
       else q = false;
-    } else if (ch === '"') q = true;
+    /* a quote only opens a quoted cell at its start; „so" inside a cell stays text */
+    } else if (ch === '"' && !cell.trim()) { q = true; cell = ""; }
     else if (ch === d) { row.push(cell); cell = ""; }
     else if (ch === "\n" || ch === "\r") {
       if (ch === "\r" && text[i + 1] === "\n") i++;
@@ -62,6 +63,7 @@ export function mdTable(text: string): string[][] | null {
   const lines = text.split(/\r?\n/).map(l => l.trim()), start = lines.findIndex(l => l.startsWith("|"));
   if (start < 0) return null;
   const end = lines.findIndex((l, i) => i > start && !l.startsWith("|")), block = lines.slice(start, end < 0 ? undefined : end);
-  const rows = block.filter(l => !/^\|[\s:|-]+$/.test(l)).map(l => l.replace(/^\||\|$/g, "").split("|").map(c => c.trim()));
+  /* "Partner \| Wirtschaftsprüfer" is one cell: escaped pipes are text */
+  const rows = block.filter(l => !/^\|[\s:|-]+$/.test(l)).map(l => l.replace(/^\||(?<!\\)\|$/g, "").split(/(?<!\\)\|/).map(c => c.replace(/\\\|/g, "|").trim()));
   return rows.length > 1 ? rows : null;
 }

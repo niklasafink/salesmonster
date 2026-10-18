@@ -23,14 +23,15 @@ describe("leads_add", () => {
 
     const again = await c.tool<Added>("leads_add", { tenant: t.slug, source: "Messe", rows: [
       { company: "Alpha GmbH", person: "Ida Alpha", email: "IDA@alpha.de" }, { company: "Beta AG", person: "Bo Beta" }, { company: "Beta AG", person: "Cy Beta", email: "info@beta.de" }] });
-    expect(again.skipped).toEqual([{ company: "Alpha GmbH", why: "Schon in der Liste" }, { company: "Beta AG", why: "Firma bekannt" }]);
-    expect(again.added.map(a => a.company)).toEqual(["Beta AG"]);
+    /* a named person at a known company is a further contact, also without an address */
+    expect(again.skipped).toEqual([{ company: "Alpha GmbH", why: "Schon in der Liste" }]);
+    expect(again.added.map(a => a.company)).toEqual(["Beta AG", "Beta AG"]);
 
     const { json } = await call(GET, { as: me, path: `/api/leads?t=${t.slug}` });
     const byId = new Map(json.rows.map((r: { id: number }) => [r.id, r]));
     expect(byId.get(first.added[0].id)).toMatchObject({ company: "Alpha GmbH", first: "Ida", last: "Alpha", role: "CEO", email: "ida@alpha.de", city: "Köln", source: "Claude" });
-    expect(byId.get(again.added[0].id)).toMatchObject({ company: "Beta AG", email: "info@beta.de", source: "Messe" });
-    expect(json.rows).toHaveLength(3);
+    expect(byId.get(again.added[1].id)).toMatchObject({ company: "Beta AG", email: "info@beta.de", source: "Messe" });
+    expect(json.rows).toHaveLength(4);
   });
 
   it("Kontakte derselben Firma teilen companyId, Anrede/LinkedIn/Anlass/Fundstelle bleiben", async () => {

@@ -3,7 +3,7 @@ import { companies, db, leads } from "@/db";
 import { HttpError, checkEmail, qp, route, tenantBySlug } from "@/lib/api";
 import { attachCompanies } from "@/lib/companies";
 import { LEAD_FIELDS, cleanLead } from "@/lib/lead-fields";
-import { insertLeads, type LeadRow } from "@/lib/lead-import";
+import { fillLeads, insertLeads, type LeadRow } from "@/lib/lead-import";
 import { fitPending, later, refreshRatings, rerate } from "@/lib/ratings";
 
 export const GET = route(async (req, _c, me) => {
@@ -33,7 +33,10 @@ export const POST = route(async (req, _c, me) => {
   }
   if (!Array.isArray(rows) || !rows.length) throw new HttpError(400, "Keine Zeilen");
   if (rows.some(r => !r || typeof r !== "object" || typeof r.co !== "string" || !r.co.trim())) throw new HttpError(400, "Firma fehlt in einer Zeile");
-  const added = await insertLeads(t.id, rows, source || "Import");
-  await later(() => refreshRatings(t.id, added.map(a => a.id)));
-  return { n: added.length };
+  /* rows with an id complete a lead that is already there */
+  const fill = rows.filter((r): r is LeadRow & { id: number } => Number.isInteger((r as { id?: unknown }).id));
+  const added = await insertLeads(t.id, rows.filter(r => !fill.includes(r as LeadRow & { id: number })), source || "Import");
+  const filled = await fillLeads(t.id, fill);
+  await later(() => refreshRatings(t.id, [...added.map(a => a.id), ...filled]));
+  return { n: added.length, filled: filled.length };
 });

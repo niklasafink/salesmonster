@@ -14,7 +14,7 @@ beforeAll(async () => {
     { co: "Müller Bau GmbH", p: "Hans Müller", role: "Geschäftsführung", email: "hans@mueller-bau.de", web: "www.mueller-bau.de", city: "Köln" },
     { co: "Schmidt Metall GmbH", p: "", role: "", email: "", web: "", city: "" },
   ];
-  expect(await call(POST, { as: me, body: { t: slug, rows: seed, source: "Test" } })).toEqual({ status: 200, json: { n: 2 } });
+  expect(await call(POST, { as: me, body: { t: slug, rows: seed, source: "Test" } })).toEqual({ status: 200, json: { n: 2, filled: 0 } });
 });
 afterAll(() => fx.cleanup());
 
@@ -45,7 +45,7 @@ describe("Lead-Import über die Leads-Routen", () => {
     expect(json.companies.map((c: { id: number }) => c.id)).toContain(ms[0].companyId);
   });
 
-  it("Vorschau erkennt Duplikat per Mail, bekannte Firma ohne Mail und weiteren Kontakt", async () => {
+  it("Vorschau erkennt Duplikat per Mail, bekannte Firma ohne Mail und Person, weitere Kontakte", async () => {
     const text = [
       "Müller Bau GmbH - GF: Hans Müller, HANS@mueller-bau.de",
       "Schmidt Metall GmbH - Inhaber: Karl Schmidt",
@@ -56,7 +56,7 @@ describe("Lead-Import über die Leads-Routen", () => {
     expect(status).toBe(200);
     expect(json.rows.map((r: { co: string; dup: string; extra: string }) => [r.co, r.dup, r.extra])).toEqual([
       ["Müller Bau GmbH", "Schon in der Liste", ""],
-      ["Schmidt Metall GmbH", "Firma bekannt", ""],
+      ["Schmidt Metall GmbH", "", "Weiterer Kontakt"],
       ["Schmidt Metall GmbH", "", "Weiterer Kontakt"],
       ["Neu Holz AG", "", ""],
     ]);
@@ -73,6 +73,25 @@ describe("Lead-Import über die Leads-Routen", () => {
     const { json } = await call(PARSE, { as: me, body: { t: slug, text } });
     expect(json.rows.map((r: { co: string; p: string; email: string; city: string; dup: string; extra: string }) => [r.co, r.p, r.email, r.city, r.dup, r.extra])).toEqual([
       ["Lang Glas GmbH", "Lea Lang", "lea@langglas.de", "Ulm", "", ""], ["Kurz Stahl AG", "Kai Kurz", "", "Hof", "", "E-Mail ungültig"]]);
+  });
+
+  it("bekannte Person: leere Felder werden ergänzt, nichts überschrieben, kein zweiter Lead", async () => {
+    const text = "Firma\tName\tTitel\tTelefon\tStandort\nMüller Bau GmbH\tHans Müller\tInhaber und Geschäftsführer\t0221 123456 (Zentrale)\tBonn";
+    const { json } = await call(PARSE, { as: me, body: { t: slug, text, map: ["co", "name", "role", "phone", "city"] } });
+    expect(json.rows).toHaveLength(1);
+    expect(json.rows[0]).toMatchObject({ dup: "", extra: "Wird ergänzt", id: expect.any(Number), phone: "0221 123456" });
+    expect((await call(POST, { as: me, body: { t: slug, rows: json.rows } })).json).toEqual({ n: 0, filled: 1 });
+    const all = (await call(GET, { as: me, path: `/api/leads?t=${slug}` })).json.rows.filter((r: { first: string; last: string }) => r.first === "Hans" && r.last === "Müller");
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ phone: "0221 123456", role: "Geschäftsführung", city: "Köln" });
+    const again = await call(PARSE, { as: me, body: { t: slug, text, map: ["co", "name", "role", "phone", "city"] } });
+    expect(again.json.rows[0]).toMatchObject({ dup: "Schon in der Liste" });
+  });
+
+  it("eine Sammeladresse für mehrere Personen: jede wird ein Kontakt", async () => {
+    const text = "Firma\tName\tE-Mail\nTreu Prüf GmbH\tIda Treu\tinfo@treupruef.de (Sammeladresse)\nTreu Prüf GmbH\tOle Treu\tinfo@treupruef.de (Sammeladresse)";
+    const { json } = await call(PARSE, { as: me, body: { t: slug, text, map: ["co", "name", "email"] } });
+    expect(json.rows.map((r: { p: string; email: string; dup: string }) => [r.p, r.email, r.dup])).toEqual([["Ida Treu", "info@treupruef.de", ""], ["Ole Treu", "info@treupruef.de", ""]]);
   });
 });
 

@@ -133,7 +133,11 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   async function save() {
     if (!imp?.rows) return;
     const add = imp.rows.filter(r => !r.dup);
-    try { await api("/api/leads", { body: { t: t.slug, rows: add, source: imp.src || "Import" } }); ctx.toast(`${add.length} ${add.length === 1 ? "Lead" : "Leads"} übernommen`); setImp(null); setFilter("neu"); load(); }
+    try {
+      const r = await api<{ n: number; filled: number }>("/api/leads", { body: { t: t.slug, rows: add, source: imp.src || "Import" } });
+      ctx.toast([r.n && `${r.n} ${r.n === 1 ? "Lead" : "Leads"} übernommen`, r.filled && `${r.filled} ergänzt`].filter(Boolean).join(", ") || "Nichts Neues");
+      setImp(null); setFilter(r.n ? "neu" : "alle"); load();
+    }
     catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
 
