@@ -180,7 +180,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           {imp.busy ? <Icon n="loader" /> : <Icon n="upload" />}<span>Excel- oder CSV-Datei hierher ziehen oder <u>auswählen</u></span>
           <input type="file" accept=".xlsx,.csv" className="vh" onChange={e => { pick(e.target.files?.[0]); e.target.value = ""; }} />
         </label>
-        <label className="fld"><span>Oder Text einfügen</span><textarea className="prompt" style={{ minHeight: 88 }} placeholder="Liste, Tabelle oder Text einfügen" value={imp.text}
+        <label className="fld"><span>Oder Text einfügen</span><textarea className="prompt" style={{ minHeight: 88 }} placeholder="Liste, Tabelle oder Text einfügen" value={imp.text} autoFocus
           onChange={e => setImp({ ...imp, text: e.target.value })}
           /* a pasted table goes straight to the column view */
           onPaste={e => { const txt = e.clipboardData.getData("text"); if (!imp.text.trim() && splitTable(txt)) { e.preventDefault(); setImp({ ...imp, text: txt }); setSheets(null); analyze(txt); } }} /></label>
