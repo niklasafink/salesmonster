@@ -2,8 +2,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon, Top, api } from "../ui";
 import type { Ctx } from "../types";
+import { parseCsv, toTsv } from "@/lib/sheet";
 
 type Lead = { id: number; company: string; first: string; last: string; role: string; email: string; city: string; source: string; status: string; note: string };
+type Sheet = { sheet: string; data: unknown[][] };
 type Parsed = { co: string; p: string; role: string; email: string; web: string; city: string; dup: string; extra: string };
 const LS: Record<string, [string, string]> = { neu: ["Neu", "b"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", ""], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", ""] };
 const FILTERS: [string, string][] = [["alle", "Alle"], ["neu", "Neu"], ["freigabe", "In Freigabe"], ["angeschrieben", "Angeschrieben"], ["beantwortet", "Beantwortet"], ["dublette", "Dublette"]];
@@ -12,6 +14,7 @@ export function Leads({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [rows, setRows] = useState<Lead[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
   const [imp, setImp] = useState<null | { text: string; src: string; rows: Parsed[] | null; busy: boolean }>(null);
+  const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null);
   const load = useCallback(() => api<{ rows: Lead[] }>(`/api/leads?t=${t.slug}`).then(r => setRows(r.rows)).catch(e => ctx.toast(e.message)), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
 
@@ -22,6 +25,26 @@ export function Leads({ ctx }: { ctx: Ctx }) {
   async function setStatus(r: Lead, status: string) {
     setRows(rs => rs.map(x => x.id === r.id ? { ...x, status } : x));
     try { await api(`/api/leads/${r.id}`, { method: "PATCH", body: { status } }); } catch (e) { ctx.toast((e as Error).message); load(); }
+  }
+  /* Files become tab-separated text with header row, then run through the normal parse */
+  async function pick(f?: File) {
+    if (!f || !imp) return;
+    const ext = f.name.split(".").pop()?.toLowerCase(), src = imp.src || f.name.replace(/\.\w+$/, "");
+    try {
+      if (ext === "csv") {
+        const buf = await f.arrayBuffer();
+        let txt; try { txt = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { txt = new TextDecoder("windows-1252").decode(buf); }
+        setImp({ ...imp, src, text: toTsv(parseCsv(txt)) }); setSheets(null);
+      } else if (ext === "xlsx") {
+        const { default: read } = await import("read-excel-file/browser");
+        const list = await read(f).catch(() => { throw new Error("Datei nicht lesbar"); });
+        setImp({ ...imp, src, text: toTsv(list[0].data) }); setSheets(list.length > 1 ? { list, i: 0 } : null);
+      } else throw new Error("Nur .xlsx und .csv");
+    } catch (e) { ctx.toast((e as Error).message); }
+  }
+  function pickSheet(i: number) {
+    if (!imp || !sheets) return; setSheets({ ...sheets, i });
+    try { setImp({ ...imp, text: toTsv(sheets.list[i].data) }); } catch (e) { ctx.toast((e as Error).message); setImp({ ...imp, text: "" }); }
   }
   async function parse() {
     if (!imp) return; setImp({ ...imp, busy: true });
@@ -37,7 +60,7 @@ export function Leads({ ctx }: { ctx: Ctx }) {
 
   const ok = imp?.rows?.filter(r => !r.dup).length || 0;
   return <>
-    <Top title="Leads" onMenu={ctx.openSidebar}><button className="btn pri" onClick={() => setImp({ text: "", src: "", rows: null, busy: false })}><Icon n="upload" />Importieren</button></Top>
+    <Top title="Leads" onMenu={ctx.openSidebar}><button className="btn pri" onClick={() => { setImp({ text: "", src: "", rows: null, busy: false }); setSheets(null); }}><Icon n="upload" />Importieren</button></Top>
     <div className="scroll"><div className="wrap wide">
       <div className="toolbar">
         <div className="filters">{FILTERS.map(([k, n]) => <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{n}<span className="c">{cnt(k)}</span></button>)}</div>
@@ -62,6 +85,10 @@ export function Leads({ ctx }: { ctx: Ctx }) {
     {imp && <div className="ov" onClick={e => e.target === e.currentTarget && setImp(null)}><div className="dlg lg">
       {!imp.rows ? <>
         <div className="dlg-h">Leads importieren<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <label className="btn sec"><Icon n="upload" />Datei wählen<input type="file" accept=".xlsx,.csv" hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = ""; }} /></label>
+          {sheets && <select className="inp" style={{ width: "auto" }} aria-label="Blatt" value={sheets.i} onChange={e => pickSheet(Number(e.target.value))}>{sheets.list.map((s, i) => <option key={i} value={i}>{s.sheet}</option>)}</select>}
+        </div>
         <label className="fld"><span>Daten</span><textarea className="prompt" style={{ minHeight: 220 }} placeholder="Liste, Tabelle oder Text einfügen" value={imp.text} onChange={e => setImp({ ...imp, text: e.target.value })} autoFocus /></label>
         <label className="fld"><span>Quelle</span><input className="inp" value={imp.src} placeholder="z. B. DTVP Oktober" onChange={e => setImp({ ...imp, src: e.target.value })} /></label>
         <button className="btn pri wide" onClick={parse} disabled={imp.busy || !imp.text.trim()}>{imp.busy && <Icon n="loader" />}Daten erkennen</button>
