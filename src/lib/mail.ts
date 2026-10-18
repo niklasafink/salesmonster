@@ -39,7 +39,7 @@ export async function sendAs(tenantId: number, userId: number, m: Mail): Promise
       method: "POST", headers: { authorization: `Bearer ${g.token}`, "content-type": "application/json" },
       body: JSON.stringify({ saveToSentItems: true, message: {
         subject: m.subject, body: { contentType: "Text", content: m.text },
-        toRecipients: [{ emailAddress: { address: m.to } }],
+        toRecipients: m.to.split(/,\s*/).filter(Boolean).map(address => ({ emailAddress: { address } })),
         attachments: (m.attachments || []).map(a => ({ "@odata.type": "#microsoft.graph.fileAttachment", name: a.filename, contentType: a.contentType, contentBytes: a.content.toString("base64") })),
       } }),
     });

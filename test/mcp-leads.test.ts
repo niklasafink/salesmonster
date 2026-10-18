@@ -12,7 +12,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { await c?.close(); await fx.cleanup(); });
 
-type Added = { added: { id: number; company: string }[]; skipped: { company: string; why: string }[] };
+type Added = { added: { id: number; company: string; companyId: number }[]; skipped: { company: string; why: string }[] };
 
 describe("leads_add", () => {
   it("legt neue an, überspringt Duplikate mit Grund, Quelle Standard Claude", async () => {
@@ -33,6 +33,22 @@ describe("leads_add", () => {
     expect(json.rows).toHaveLength(3);
   });
 
+  it("Kontakte derselben Firma teilen companyId, Anrede/LinkedIn/Anlass/Fundstelle bleiben", async () => {
+    const u = await fx.tenant(me);
+    const r = await c.tool<Added>("leads_add", { tenant: u.slug, rows: [
+      { company: "Kappa GmbH", salutation: "frau dr.", person: "Kim Kappa", email: "kim@kappa.de", linkedin: "https://linkedin.com/in/kim", hook: "die neue Halle", sourceUrl: "https://kappa.de/team" },
+      { company: "Kappa GmbH", person: "Kai Kappa", email: "kai@kappa.de" }, { company: "Lambda AG" }] });
+    const [kim, kai, lam] = r.added;
+    expect(kim.companyId).toEqual(expect.any(Number));
+    expect(kai.companyId).toBe(kim.companyId);
+    expect(lam.companyId).not.toBe(kim.companyId);
+    const later = await c.tool<Added>("leads_add", { tenant: u.slug, rows: [{ company: "Kappa", person: "Kurt Kappa", email: "kurt@kappa.de" }] });
+    expect(later.added[0].companyId).toBe(kim.companyId);
+    const list = await c.tool<List>("leads_list", { tenant: u.slug, companyId: kim.companyId });
+    expect(list.rows.map(l => l.first).sort()).toEqual(["Kai", "Kim", "Kurt"]);
+    expect(list.rows.find(l => l.id === kim.id)).toMatchObject({ companyId: kim.companyId, salutation: "Frau Dr.", linkedin: "https://linkedin.com/in/kim", hook: "die neue Halle", sourceUrl: "https://kappa.de/team" });
+  });
+
   it("mehr als 200 Zeilen werden abgelehnt", async () => {
     const rows = Array.from({ length: 201 }, (_, i) => ({ company: `X${i}` }));
     await expect(c.tool("leads_add", { tenant: t.slug, rows })).rejects.toThrow();
@@ -43,7 +59,7 @@ describe("leads_add", () => {
   });
 });
 
-type Lead = { id: number; company: string; first: string; last: string; email: string; status: string; note: string; hook: string; linkedin: string; website: string; city: string; role: string; source: string };
+type Lead = { id: number; companyId: number; company: string; salutation: string; sourceUrl: string; first: string; last: string; email: string; status: string; note: string; hook: string; linkedin: string; website: string; city: string; role: string; source: string };
 type List = { total: number; rows: Lead[] };
 
 describe("leads_list", () => {
@@ -90,6 +106,14 @@ describe("leads_update", () => {
     expect(byId.get(a.id)).toMatchObject({ hook: "Neue Ausschreibung", note: "", city: "Bonn", linkedin: "https://linkedin.com/in/zoe", status: "beantwortet", email: "zoe@zeta.de", first: "Zoe" });
     expect(byId.get(b.id)).toMatchObject({ first: "Eli", last: "Eta", role: "Inhaber", email: "eli@eta.de", emailType: "person", website: "https://eta.de", status: "neu" });
     expect((await c.tool<List>("leads_list", { tenant: v.slug })).rows[0].note).toBe("");
+  });
+
+  it("Anrede wird vereinheitlicht, neuer Firmenname ordnet der Firma zu", async () => {
+    const u = await fx.tenant(me);
+    const { added: [a, b] } = await c.tool<Added>("leads_add", { tenant: u.slug, rows: [{ company: "My GmbH", person: "Mo My", email: "mo@my.de" }, { company: "Ny AG", person: "Nu Ny", email: "nu@ny.de" }] });
+    await c.tool("leads_update", { tenant: u.slug, updates: [{ id: b.id, company: "My GmbH", salutation: "herr prof. dr.", sourceUrl: "https://my.de", research: "Recherche" }] });
+    const l = (await c.tool<List>("leads_list", { tenant: u.slug, companyId: a.companyId })).rows.find(x => x.id === b.id);
+    expect(l).toMatchObject({ company: "My GmbH", companyId: a.companyId, salutation: "Herr Prof. Dr.", sourceUrl: "https://my.de" });
   });
 
   it("fremder Mandant → Mandant nicht gefunden", async () => {

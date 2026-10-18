@@ -43,13 +43,14 @@ const Tender = z.object({ t: s(), s: s(), f: s() });
 export const LeadOut = z.object({
   company: z.string().min(2), city: s(), website: s(), first: s(), last: s(), salutation: s(), role: s(),
   email: s(), emailType: z.enum(["person", "info"]).catch("person"), linkedin: s(), hook: s(),
-  tenders: z.array(Tender).catch([]),
+  tenders: z.array(Tender).catch([]), sourceUrl: s(),
 });
 export type LeadOut = z.infer<typeof LeadOut>;
 
 const LEAD_FORMAT = `Antworte am Ende mit genau einem JSON-Block in \`\`\`json, Form:
-{"leads":[{"company":"Firma GmbH","city":"Ort","website":"https://…","first":"Vorname","last":"Nachname","salutation":"Herr|Frau","role":"Rolle","email":"adresse","emailType":"person|info","linkedin":"URL oder leer","hook":"Anlass als Substantivgruppe im Nominativ oder leer","tenders":[{"t":"Titel","s":"Vergabestelle","f":"Frist TT.MM."}]}]}
-Leere Felder als "". Erfinde keine Namen oder Adressen: nur, was du auf einer Quelle gesehen hast.`;
+{"leads":[{"company":"Firma GmbH","city":"Ort","website":"https://…","first":"Vorname","last":"Nachname","salutation":"Herr|Frau","role":"Rolle","email":"adresse","emailType":"person|info","linkedin":"URL oder leer","hook":"Anlass als Substantivgruppe im Nominativ oder leer","tenders":[{"t":"Titel","s":"Vergabestelle","f":"Frist TT.MM."}],"sourceUrl":"Seite, auf der du Person und Adresse gefunden hast"}]}
+Leere Felder als "". Erfinde keine Namen oder Adressen: nur, was du auf einer Quelle gesehen hast.
+Findest du mehrere passende Ansprechpartner in einer Firma, gib jeden als eigenen Eintrag mit genau demselben Firmennamen zurück.`;
 
 export async function researchLeads(key: Ai, prompt: string, n: number, exclude: string[], focus: string, tenders: boolean) {
   const text = await ask({
@@ -73,13 +74,14 @@ ${JSON.stringify(lead)}`,
   return json(text, z.object({ leads: z.array(LeadOut) })).leads[0] ?? null;
 }
 
-const ImportRow = z.object({ co: z.string().min(2), p: s(), role: s(), email: s(), web: s(), city: s() });
+const ImportRow = z.object({ co: z.string().min(2), sal: s(), p: s(), role: s(), email: s(), web: s(), city: s(), li: s(), hook: s() });
 export async function parseImport(key: Ai, raw: string) {
   const text = await ask({
     key, effort: "low",
     system: "Du liest unstrukturierte Listen (Bieterlisten, Tabellen, Freitext) und gibst Firmen als JSON zurück.",
-    prompt: `Erkenne alle Firmen in diesem Text. Je Firma: co (Firmenname mit Rechtsform), p (Ansprechpartner Vor- und Nachname), role (Rolle wie Geschäftsführung, Inhaber), email, web (Website), city (Ort).
-Hat der Text eine Kopfzeile (z. B. Tabulator-getrennte Spalten aus Excel), ordne die Felder anhand der Spaltennamen zu und lies jede weitere Zeile als eine Firma; Vor- und Nachname aus getrennten Spalten zusammensetzen.
+    prompt: `Erkenne alle Ansprechpartner und Firmen in diesem Text. Mehrere Personen derselben Firma sind je eine eigene Zeile mit gleichem Firmennamen.
+Je Zeile: co (Firmenname mit Rechtsform), sal (Anrede mit Titel, nur "Herr", "Frau", "Herr Dr.", "Frau Dr.", "Herr Prof. Dr." oder "Frau Prof. Dr."; nur wenn Anrede, Titel oder Geschlecht im Text stehen, sonst ""), p (Vor- und Nachname ohne Anrede und Titel), role (Rolle wie Geschäftsführung, Inhaber), email, web (Website), city (Ort), li (LinkedIn-URL), hook (Anlass für die Ansprache als Substantivgruppe im Nominativ, z. B. „die neue Niederlassung in Halle“, nur wenn der Text einen nennt).
+Hat der Text eine Kopfzeile (z. B. Tabulator-getrennte Spalten aus Excel), ordne die Felder anhand der Spaltennamen zu und lies jede weitere Zeile als einen Kontakt; Vor- und Nachname aus getrennten Spalten zusammensetzen.
 Nichts erfinden. Antworte nur mit \`\`\`json {"rows":[…]}\`\`\`.
 
 ${raw.slice(0, 40000)}`,

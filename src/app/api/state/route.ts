@@ -22,6 +22,10 @@ export const GET = route(async (req, _c, me) => {
     .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben", "uebersprungen"])))
     .orderBy(asc(messages.batchDate), asc(messages.id));
 
+  /* the people a group mail covers, for the salutation and the review screen */
+  const extra = [...new Set(drafts.flatMap(({ m }) => m.leadIds.length > 1 ? m.leadIds : []))];
+  const covered = new Map((extra.length ? await db.select().from(leads).where(inArray(leads.id, extra)) : []).map(l => [l.id, l]));
+
   const [su] = await db.select({ step: setups.step, doneAt: setups.doneAt }).from(setups).where(eq(setups.tenantId, t.id));
 
   const mailbox: Record<number, string | null> = {};
@@ -32,9 +36,11 @@ export const GET = route(async (req, _c, me) => {
     tenant: { slug: t.slug, name: t.name, initials: t.initials, domain: t.domain, tenders: t.tenders, settings: t.settings, invoice: t.invoice },
     templates: tpl.map(x => ({ ...x, ...(tstats.find(s => s.v === x.key) || { sent: 0, replies: 0, bounced: 0 }) })),
     drafts: drafts.map(({ m, l }) => ({
+      to: m.to || l.email,
+      people: (m.leadIds.length > 1 ? m.leadIds : [l.id]).map(id => covered.get(id) || l).map(p => ({ first: p.first, last: p.last, salutation: p.salutation, role: p.role, email: p.email })),
       id: m.id, batchDate: m.batchDate, variant: m.variant, channel: m.channel, subject: m.subject, body: m.body, status: m.status, error: m.error, senderId: m.senderId,
       lead: { id: l.id, company: l.company, city: l.city, first: l.first, last: l.last, salutation: l.salutation, role: l.role, email: l.email, emailType: l.emailType,
-        linkedin: l.linkedin, hook: l.hook, tenders: l.tenders, source: l.source, website: l.website },
+        linkedin: l.linkedin, hook: l.hook, tenders: l.tenders, source: l.source, website: l.website, sourceUrl: l.sourceUrl },
     })),
     integ: await integStatus(t.id, me.id),
     msConfigured: msConfigured(),

@@ -1,6 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, leads, messages } from "@/db";
 import { HttpError, assertMember, route } from "@/lib/api";
+import { idsOf } from "@/lib/outreach";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -21,5 +22,5 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
   }
   if (b.action === "skip") set.status = m.status === "uebersprungen" ? "entwurf" : "uebersprungen";
   await db.update(messages).set(set).where(and(eq(messages.id, id)));
-  if (b.action === "skip") await db.update(leads).set({ status: set.status === "uebersprungen" ? "neu" : "freigabe" }).where(eq(leads.id, m.leadId));
+  if (b.action === "skip") await db.update(leads).set({ status: set.status === "uebersprungen" ? "neu" : "freigabe" }).where(inArray(leads.id, idsOf(m)));
 });
