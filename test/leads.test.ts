@@ -1,0 +1,52 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { GET, POST } from "@/app/api/leads/route";
+import { POST as PARSE } from "@/app/api/leads/parse/route";
+import { call, fixtures } from "./helpers";
+
+const fx = fixtures();
+let me: { id: number }, slug: string;
+
+beforeAll(async () => {
+  me = await fx.user();
+  slug = (await fx.tenant(me)).slug;
+  const seed = [
+    { co: "Müller Bau GmbH", p: "Hans Müller", role: "Geschäftsführung", email: "hans@mueller-bau.de", web: "www.mueller-bau.de", city: "Köln" },
+    { co: "Schmidt Metall GmbH", p: "", role: "", email: "", web: "", city: "" },
+  ];
+  expect(await call(POST, { as: me, body: { t: slug, rows: seed, source: "Test" } })).toEqual({ status: 200, json: { n: 2 } });
+});
+afterAll(() => fx.cleanup());
+
+describe("Lead-Import über die Leads-Routen", () => {
+  it("ohne Session-Cookie 401", async () => {
+    expect((await call(GET, { path: `/api/leads?t=${slug}` })).status).toBe(401);
+  });
+
+  it("fremder Mandant antwortet wie ein fehlender", async () => {
+    const other = await fx.user();
+    expect((await call(GET, { as: other, path: `/api/leads?t=${slug}` })).status).toBe(404);
+  });
+
+  it("legt Leads an mit Name, Rolle, Quelle und Status", async () => {
+    const { json } = await call(GET, { as: me, path: `/api/leads?t=${slug}` });
+    const m = json.rows.find((r: { company: string }) => r.company === "Müller Bau GmbH");
+    expect(m).toMatchObject({ first: "Hans", last: "Müller", role: "Geschäftsführung", email: "hans@mueller-bau.de", city: "Köln", source: "Test", status: "neu" });
+  });
+
+  it("Vorschau erkennt Duplikat per Mail, bekannte Firma ohne Mail und weiteren Kontakt", async () => {
+    const text = [
+      "Müller Bau GmbH - GF: Hans Müller, HANS@mueller-bau.de",
+      "Schmidt Metall GmbH - Inhaber: Karl Schmidt",
+      "Schmidt Metall GmbH - Ansprechpartner: Eva Schmidt, eva@schmidt-metall.de",
+      "Neu Holz AG - GF: Anna Neu, anna@neuholz.de www.neuholz.de",
+    ].join("\n");
+    const { status, json } = await call(PARSE, { as: me, body: { t: slug, text } });
+    expect(status).toBe(200);
+    expect(json.rows.map((r: { co: string; dup: string; extra: string }) => [r.co, r.dup, r.extra])).toEqual([
+      ["Müller Bau GmbH", "Schon in der Liste", ""],
+      ["Schmidt Metall GmbH", "Firma bekannt", ""],
+      ["Schmidt Metall GmbH", "", "Weiterer Kontakt"],
+      ["Neu Holz AG", "", ""],
+    ]);
+  });
+});
