@@ -116,8 +116,9 @@ export type MappedRow = { co: string; sal: string; p: string; role: string; emai
    columns on Notiz are collected as "Spalte: Wert", so side facts sit in one short text instead of fields of their own. */
 export function applyMap(t: { head: string[]; rows: string[][] }, map: Field[]): MappedRow[] {
   return t.rows.map(c => {
-    /* a cell that does not fit its field (a code as role, a date as city) is left out, the rest of the row stays */
-    const cell = (i: number, f: Field) => { const x = cellOf(c[i] || "", f); return f === "co" || !FITS[f] || FITS[f]!(x) ? x : ""; };
+    /* a cell that does not fit its field (a code as role, a date as city) is left out, the rest of the row stays;
+       a broken address goes on, so the review can flag it */
+    const cell = (i: number, f: Field) => { const x = cellOf(c[i] || "", f); return f === "co" || f === "email" || !FITS[f] || FITS[f]!(x) ? x : ""; };
     const v = (f: Field) => map.reduce<string>((acc, m, i) => acc || (m === f ? cell(i, f) : ""), "");
     /* "Herr Dr. Max Muster" in one cell: the title goes to the salutation */
     const [, title, p] = (v("name") || [v("first"), v("last")].filter(Boolean).join(" ")).match(/^((?:(?:Herr|Frau|Prof\.|Dr\.)\s+)*)(.*)$/)!;
