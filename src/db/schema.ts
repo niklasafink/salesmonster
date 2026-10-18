@@ -14,6 +14,10 @@ export type TenantSettings = {
   /* research rounds per day besides the evening run (0 = off), and whether grade-A leads wait for Tuesday/Wednesday */
   roundsPerDay?: number;
   holdTop?: boolean;
+  /* when mails go out (lib/schedule.ts): weekdays 1 = Monday … 7 = Sunday, hours [sendFrom, sendTo) Berlin; default Mo–Fr 8–10 */
+  sendDays?: number[];
+  sendFrom?: number;
+  sendTo?: number;
   /* SendPilot campaign the evening run hands LinkedIn leads to; unset = they wait for the LinkedIn button */
   sendpilotCampaign?: string;
   /* notes from reading the tenant's website once in the setup; read again only when the domain changes */
@@ -116,7 +120,8 @@ export const companies = pgTable("companies", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [uniqueIndex("companies_key").on(t.tenantId, t.key)]);
 
-export type EnrichField = "email" | "phone";
+/* what a web search can fill in; person = salutation, first and last name (with the role when it is empty too) */
+export type EnrichField = "person" | "role" | "email" | "phone" | "linkedin" | "website" | "city";
 
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),

@@ -5,12 +5,14 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from "@dnd-kit/utilities";
 import type { EnrichField, RatingInfo, Tender } from "@/db/schema";
 import { Icon, Top, api, useDialog } from "../ui";
-import { httpUrl } from "@/lib/lead-fields";
-import { LeadDialog, RatingBar, STATUS, emptyLead, type EditLead } from "../lead-dialog";
+import { hasField, httpUrl } from "@/lib/lead-fields";
+import { ENRICH, LeadDialog, RatingBar, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import { AnglesDialog } from "../angles-dialog";
 import type { Ctx } from "../types";
 import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
+import { addDaysIso, berlinDate } from "@/lib/dates";
+import { DAY_NAMES, isoWeekday } from "@/lib/schedule";
 
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number; enrichMiss: Partial<Record<EnrichField, string>>;
   channelRec: { ch: "mail" | "linkedin" | "none"; text: string }; sendpilotAt: string | null };
@@ -18,7 +20,6 @@ type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
 type Campaign = { id: string; name: string; status: string; totalLeads: number };
 type Parsed = { co: string; sal?: string; p: string; role: string; email: string; phone?: string; web: string; city: string; note?: string; dup: string; extra: string };
-const ENRICH: [EnrichField, string][] = [["email", "E-Mail"], ["phone", "Telefon"]];
 const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
 
 /* we already had contact: a mail went out, an answer came in, or the mailbox knows them */
@@ -40,6 +41,13 @@ export const reasonText = (r: { pts: number; text: string; learned?: boolean }) 
 /* the channel a lead is written on: set by hand, else as recommended */
 const chOf = (r: Lead) => r.sendpilotAt ? "linkedin" : (r.channel === "mail" && r.email) || (r.channel === "linkedin" && r.linkedin) ? r.channel : r.channelRec.ch;
 
+/* the day a lead is written to: the weekday within the coming week, with the date after that */
+function dayCell(iso?: string) {
+  if (!iso) return <span className="f3">–</span>;
+  const today = berlinDate(), wd = DAY_NAMES[isoWeekday(iso) - 1], long = new Date(`${iso}T12:00:00Z`).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+  return <span title={long}>{iso === today ? "Heute" : iso < addDaysIso(today, 7) ? wd : `${wd} ${iso.slice(8)}.${iso.slice(5, 7)}.`}</span>;
+}
+
 /* A row of the send queue, dragged by its handle so a click still opens the lead */
 function QueueRow({ id, children, ...p }: { id: number; children: (handle: ReactNode) => ReactNode } & Omit<React.HTMLAttributes<HTMLTableRowElement>, "id" | "children">) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -60,19 +68,19 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; cols?: Column[] | null; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null), [drag, setDrag] = useState(false);
   const [edit, setEdit] = useState<EditLead | null>(null), [allCols, setAllCols] = useState(false);
-  const [order, setOrder] = useState<number[]>([]), [next, setNext] = useState<number[]>([]);
+  const [order, setOrder] = useState<number[]>([]), [next, setNext] = useState<number[]>([]), [days, setDays] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   const [sort, setSortState] = useState("versand"), [angles, setAngles] = useState(false);
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
   const liRef = useDialog(() => setLi(null));
-  const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean }>(null);
+  const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean; picked: boolean }>(null), [sel, setSel] = useState<Set<number>>(new Set());
   const [job, setJob] = useState<null | { total: number; done: number; found: number }>(null);
   const stop = useRef(false);
   const enrRef = useDialog(() => setEnr(null));
   useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
   const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
   const impRef = useDialog(() => setImp(null));
-  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[]; order: number[]; next: number[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); setOrder(r.order); setNext(r.next); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
+  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string> }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); setOrder(r.order); setNext(r.next); setDays(r.days || {}); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
   /* opened from the command palette */
   useEffect(() => { const r = focus != null && rows.find(x => x.id === focus); if (r) { setEdit(r); onFocused?.(); } }, [focus, rows, onFocused]);
@@ -189,20 +197,30 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     } catch (e) { ctx.toast((e as Error).message, { error: true }); setLi(cur => cur && { ...cur, busy: false }); }
   }
 
-  /* the leads in view that lack a chosen field; ones a search already came back empty for only when asked again */
+  /* the ticked leads, or all in view, that lack a chosen field; ones a search already came back empty for only when asked again */
   const open = (r: Lead) => !["papierkorb", "dublette"].includes(r.status);
-  const enrichable = (fields: EnrichField[], again: boolean) => vis.filter(r => open(r) && fields.some(f => !r[f] && (again || !r.enrichMiss?.[f])));
-  const missedBefore = (fields: EnrichField[]) => vis.filter(r => open(r) && fields.some(f => !r[f] && r.enrichMiss?.[f])).length;
+  const picked = rows.filter(r => sel.has(r.id));
+  const scope = (all: boolean) => all ? vis : picked;
+  const enrichable = (e: NonNullable<typeof enr>) => scope(!e.picked).filter(r => open(r) && e.fields.some(f => !hasField(r, f) && (e.again || !r.enrichMiss?.[f])));
+  const missedBefore = (e: NonNullable<typeof enr>) => scope(!e.picked).filter(r => open(r) && e.fields.some(f => !hasField(r, f) && r.enrichMiss?.[f])).length;
+  const openEnrich = () => {
+    let fields: EnrichField[] = ["email", "phone", "linkedin"];
+    try { const v = JSON.parse(keep.get("enrich-fields") || "null"); if (Array.isArray(v)) fields = ENRICH.map(([k]) => k).filter(k => v.includes(k)); } catch { /* keep default */ }
+    setEnr({ fields, again: false, picked: picked.length > 0 });
+  };
+  const toggle = (id: number) => setSel(s => { const n = new Set(s); if (!n.delete(id)) n.add(id); return n; });
+  const allOn = vis.length > 0 && vis.every(r => sel.has(r.id));
   async function runEnrich() {
     if (!enr) return;
-    const { fields } = enr, list = enrichable(fields, enr.again);
+    const { fields } = enr, list = enrichable(enr);
+    keep.set("enrich-fields", JSON.stringify(fields));
     setEnr(null); stop.current = false; setJob({ total: list.length, done: 0, found: 0 });
     let i = 0, fail = "", found = 0, done = 0;
     await Promise.all(Array.from({ length: Math.min(3, list.length) }, async () => {
       while (i < list.length && !stop.current && !fail) {
         const l = list[i++];
         try {
-          const { results: [r] } = await api<{ results: { id: number; found: Partial<Record<EnrichField, string>> }[] }>("/api/leads/enrich", { body: { t: t.slug, ids: [l.id], fields } });
+          const { results: [r] } = await api<{ results: { id: number; found: Partial<Lead> }[] }>("/api/leads/enrich", { body: { t: t.slug, ids: [l.id], fields } });
           const hit = !!r && Object.keys(r.found).length > 0;
           if (hit) { found++; setRows(rs => rs.map(x => x.id === r.id ? { ...x, ...r.found } : x)); }
         } catch (e) { fail = (e as Error).message; }
@@ -228,6 +246,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     return <td className={`c-ch${r.sendpilotAt ? " on" : ""}`} title={title}>{ch === "none" ? <span className="f3">–</span> : <Icon n={ch === "mail" ? "mail" : "linkedin"} />}</td>;
   };
   const cells = (r: Lead, handle: ReactNode) => <>
+    <td className="c-sel" onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.company} auswählen`} /></td>
     <td className="c-q">{handle}{next.includes(r.id) && <span className="num">{next.indexOf(r.id) + 1}</span>}</td>
     <td className="c-rt">{r.rating !== null && r.ratingInfo ? <RatingBar value={r.rating} title={[`${r.rating} von 100`, ...r.ratingInfo.reasons.slice(0, 3).map(reasonText)].join("\n")} /> : <span className="f3">–</span>}</td>
     <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
@@ -239,6 +258,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td>
     <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
     <td className="c-src f2">{srcCell(r)}</td>
+    <td className="c-day f2">{dayCell(days[r.id])}</td>
     <td className="act">{r.status !== "papierkorb" && r.rating !== null && <>
       <button className={`btn gh ic${r.vote > 0 ? " on" : ""}`} title="Guter Lead" aria-label="Guter Lead" aria-pressed={r.vote > 0} onClick={e => { e.stopPropagation(); vote(r, 1); }}><Icon n="thumbs-up" /></button>
       <button className={`btn gh ic${r.vote < 0 ? " on" : ""}`} title="Schlechter Lead" aria-label="Schlechter Lead" aria-pressed={r.vote < 0} onClick={e => { e.stopPropagation(); vote(r, -1); }}><Icon n="thumbs-down" /></button>
@@ -261,7 +281,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         <div className="bar"><i style={{ width: `${job.total ? job.done / job.total * 100 : 0}%` }} /></div>
         <span className="num">{job.done}/{job.total}</span><span className="f3 num">{job.found} gefunden</span>
         <button className="btn gh ic" title="Stoppen" aria-label="Stoppen" onClick={() => { stop.current = true; }}><Icon n="square" /></button>
-      </div> : <button className="btn sec" onClick={() => setEnr({ fields: ["email", "phone"], again: false })}><Icon n="sparkles" />Anreichern</button>}
+      </div> : <button className="btn sec" onClick={openEnrich}><Icon n="sparkles" />Anreichern{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>}
       <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
       <button className="btn pri" onClick={() => { setImp({ text: "", src: "", rows: null, busy: false }); setSheets(null); }}><Icon n="upload" />Importieren</button>
@@ -275,15 +295,16 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads"><thead><tr><th className="c-q" aria-label="Versand"></th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-ch" aria-label="Kanal"></th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="act"></th></tr></thead><tbody>
+      <div className="tbl"><table className="leads"><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Versand"></th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-ch" aria-label="Kanal"></th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="c-day">Versand</th><th className="act"></th></tr></thead><tbody>
         {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved}>
           <SortableContext items={canDrag ? vis.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{vis.map(row)}</SortableContext>
-        </DndContext> : <tr><td colSpan={12} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+        </DndContext> : <tr><td colSpan={13} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
     </div></div>
 
     {edit && <LeadDialog key={edit.id ?? `new-${edit.company}`} lead={edit} slug={t.slug} tenders={t.tenders}
-      rating={"ratingInfo" in edit ? rows.find(x => x.id === edit.id) : undefined} onVote={v => { const r = rows.find(x => x.id === edit.id); if (r) vote(r, v); }}
+      rating={"ratingInfo" in edit ? rows.find(x => x.id === edit.id) : undefined} miss={rows.find(x => x.id === edit.id)?.enrichMiss}
+      onEnriched={(id, found) => { setRows(rs => rs.map(x => x.id === id ? { ...x, ...found } : x)); load(); }} onVote={v => { const r = rows.find(x => x.id === edit.id); if (r) vote(r, v); }}
       co={"companyId" in edit ? coOf(edit as Lead) : undefined} contacts={"companyId" in edit ? contactsOf(edit as Lead) : []} onClose={() => setEdit(null)}
       onSaved={() => { setEdit(null); ctx.toast("Gespeichert"); load(); }}
       onDeleted={() => { setEdit(null); ctx.toast("Gelöscht"); load(); }}
@@ -299,10 +320,14 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       <button className="btn pri wide" onClick={pushLi} disabled={li.busy || !li.id || !liLeads.length}>{li.busy && <Icon n="loader" />}{liLeads.length} {liLeads.length === 1 ? "Lead" : "Leads"} mit LinkedIn übergeben</button>
     </div></div>}
 
-    {enr && (() => { const n = enrichable(enr.fields, enr.again).length, before = missedBefore(enr.fields);
+    {enr && (() => { const n = enrichable(enr).length, before = missedBefore(enr);
       return <div className="ov" onClick={e => e.target === e.currentTarget && setEnr(null)}><div className="dlg" ref={enrRef} role="dialog" aria-modal="true" aria-label="Kontakte anreichern">
         <div className="dlg-h">Kontakte anreichern<button className="btn gh ic" onClick={() => setEnr(null)} aria-label="Schließen"><Icon n="x" /></button></div>
-        <div className="fld"><span>Im Web suchen nach</span><div className="row3">
+        {picked.length > 0 && <div className="fld"><span>Leads</span><div className="row3">
+          <label className="ck"><input type="radio" name="enr-scope" checked={enr.picked} onChange={() => setEnr({ ...enr, picked: true })} />Ausgewählte ({picked.length})</label>
+          <label className="ck"><input type="radio" name="enr-scope" checked={!enr.picked} onChange={() => setEnr({ ...enr, picked: false })} />Alle in der Ansicht ({vis.length})</label>
+        </div></div>}
+        <div className="fld"><span>Im Web suchen nach</span><div className="ckg">
           {ENRICH.map(([k, l]) => <label key={k} className="ck"><input type="checkbox" checked={enr.fields.includes(k)}
             onChange={() => setEnr({ ...enr, fields: enr.fields.includes(k) ? enr.fields.filter(f => f !== k) : [...enr.fields, k] })} />{l}</label>)}
         </div></div>

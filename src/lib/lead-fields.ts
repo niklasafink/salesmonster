@@ -16,6 +16,10 @@ export const INFO_MAIL = /^(info|kontakt|office|mail|post|service|vertrieb|hallo
 /* info = a company mailbox or no person to address; the rule for every place that writes email or name */
 export const emailTypeOf = (email: string, person: boolean) => INFO_MAIL.test(email) || !person ? "info" : "person";
 
+/* a field a web search can fill counts as there when the lead has it (lib/enrich.ts); person = a first or last name */
+export const hasField = (l: Record<"first" | "last" | "role" | "email" | "phone" | "linkedin" | "website" | "city", string>, f: "person" | "role" | "email" | "phone" | "linkedin" | "website" | "city") =>
+  f === "person" ? !!(l.first || l.last) : !!l[f];
+
 export const validEmail = (s: string) => /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(s);
 
 /* Only http(s) links; a bare domain gets https://, any other scheme is dropped */

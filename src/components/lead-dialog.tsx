@@ -1,8 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
-import type { Tender } from "@/db/schema";
+import { useEffect, useRef, useState } from "react";
+import type { EnrichField, Tender } from "@/db/schema";
 import { addrsOf, modeOf } from "@/lib/company-mode";
-import { SALUTATIONS, httpUrl } from "@/lib/lead-fields";
+import { SALUTATIONS, hasField, httpUrl } from "@/lib/lead-fields";
 import { Icon, api, useDialog } from "./ui";
 
 export type EditLead = {
@@ -11,6 +11,11 @@ export type EditLead = {
   /* mail | linkedin set by hand, "" = as recommended */
   channel?: string; channelRec?: { ch: string; text: string };
 };
+
+/* what the web search can fill in, in the order the form shows it */
+export const ENRICH: [EnrichField, string][] = [["person", "Ansprechpartner"], ["role", "Rolle"], ["email", "E-Mail"], ["phone", "Telefon"], ["linkedin", "LinkedIn"], ["website", "Website"], ["city", "Ort"]];
+
+type Found = Partial<Pick<EditLead, "salutation" | "first" | "last" | "role" | "email" | "phone" | "linkedin" | "website" | "city">>;
 
 export const STATUS: Record<string, [string, string]> = {
   neu: ["Neu", "n"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", "b"], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", "x"], kontakt: ["Kontakt", "k"], papierkorb: ["Papierkorb", "t"],
@@ -44,6 +49,39 @@ const Prop = ({ l, link, children }: { l: string; link?: string; children: React
   {link && <a className="pa" href={link} target={link.startsWith("http") ? "_blank" : undefined} rel="noreferrer" aria-label={`${l} öffnen`}><Icon n="external-link" /></a>}
 </div>;
 
+/* Web search for the empty fields of one saved lead; what it finds is saved right away and goes into the form */
+function EnrichMenu({ lead, slug, miss = {}, onFound }: { lead: EditLead; slug: string; miss?: Partial<Record<EnrichField, string>>; onFound: (found: Found) => void }) {
+  const empty = ENRICH.filter(([k]) => !hasField(lead, k)).map(([k]) => k);
+  const [open, setOpen] = useState(false), [fields, setFields] = useState<EnrichField[]>([]), [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", off);
+    return () => document.removeEventListener("mousedown", off);
+  }, [open]);
+  async function run() {
+    setBusy(true); setMsg("");
+    try {
+      const { results: [r] } = await api<{ results: { found: Found; error?: string }[] }>("/api/leads/enrich", { body: { t: slug, ids: [lead.id], fields } });
+      if (r?.error) setMsg(r.error);
+      else if (r && Object.keys(r.found).length) { onFound(r.found); setOpen(false); }
+      else setMsg("Nichts gefunden");
+    } catch (e) { setMsg((e as Error).message); }
+    setBusy(false);
+  }
+  return <span className="enr-at" ref={ref}>
+    <button className="btn sec" onClick={() => { setOpen(!open); setFields(empty); setMsg(""); }} aria-expanded={open}><Icon n="sparkles" />Anreichern</button>
+    {open && <div className="pop enr-pop" role="dialog" aria-label="Anreichern">
+      {ENRICH.map(([k, l]) => { const has = !empty.includes(k);
+        return <label key={k} className={`ck${has ? " f3" : ""}`} title={has ? "Schon ausgefüllt" : miss[k] ? `Websuche am ${new Date(miss[k]!).toLocaleDateString("de-DE")} ohne Treffer` : undefined}>
+          <input type="checkbox" disabled={has || busy} checked={fields.includes(k)} onChange={() => setFields(fields.includes(k) ? fields.filter(f => f !== k) : [...fields, k])} />{l}</label>; })}
+      {msg && <div className="f3">{msg}</div>}
+      <button className="btn pri wide" onClick={run} disabled={busy || !fields.length}>{busy && <Icon n="loader" />}Im Web suchen</button>
+    </div>}
+  </span>;
+}
+
 function Activity({ id }: { id: number }) {
   const [items, setItems] = useState<Act[] | null>(null), [err, setErr] = useState(""), [open, setOpen] = useState<number | null>(null);
   useEffect(() => { api<{ items: Act[] }>(`/api/leads/${id}`).then(r => setItems(r.items)).catch(e => setErr((e as Error).message)); }, [id]);
@@ -62,9 +100,12 @@ function Activity({ id }: { id: number }) {
 /* Edit one contact, or add a new one: person left, what happened in the middle, company right */
 type Rated = { rating: number | null; vote: number; ratingInfo: { grade: string; reasons: { pts: number; text: string; learned?: boolean }[] } | null };
 
-export function LeadDialog({ lead, slug, tenders, co, contacts = [], rating, onVote, onClose, onSaved, onDeleted, onTrash, onAdd, onOpen }: {
-  lead: EditLead; slug: string; tenders: boolean; co?: Co; contacts?: Mate[]; rating?: Rated; onVote?: (v: number) => void; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onTrash?: () => void; onAdd?: (company: string) => void; onOpen?: (id: number) => void;
+export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rating, miss, onVote, onClose, onSaved, onDeleted, onTrash, onAdd, onOpen, onEnriched }: {
+  lead: EditLead; slug: string; tenders: boolean; co?: Co; contacts?: Mate[]; rating?: Rated; miss?: Partial<Record<EnrichField, string>>; onVote?: (v: number) => void; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onTrash?: () => void; onAdd?: (company: string) => void; onOpen?: (id: number) => void;
+  onEnriched?: (id: number, found: Found) => void;
 }) {
+  /* what is saved; a search writes to it, so its finds do not count as unsaved changes */
+  const [lead, setLead] = useState(lead0);
   const [f, setF] = useState(lead), [tt, setTt] = useState(tendersText(lead.tenders)), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const set = (k: keyof EditLead) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const ref = useDialog(onClose);
@@ -96,7 +137,14 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], rating, onV
   const web = httpUrl(f.website.includes(".") && !/^https?:/i.test(f.website) ? `https://${f.website}` : f.website);
 
   return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className={`dlg ${f.id ? "xl" : "lg2"}`} ref={ref} role="dialog" aria-modal="true" aria-label={f.id ? "Kontakt bearbeiten" : "Kontakt hinzufügen"}>
-    <div className="dlg-h">{f.id ? nameOf(f) || f.company : "Kontakt hinzufügen"}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
+    <div className="dlg-h">{f.id ? nameOf(f) || f.company : "Kontakt hinzufügen"}<span className="dlg-ha">
+      {f.id && <EnrichMenu lead={lead} slug={slug} miss={miss} onFound={found => {
+        setLead(l => ({ ...l, ...found }));
+        /* fields typed meanwhile stay */
+        setF(x => ({ ...x, ...Object.fromEntries(Object.entries(found).filter(([k]) => !x[k as keyof EditLead] || x[k as keyof EditLead] === lead[k as keyof EditLead])) }));
+        onEnriched?.(f.id!, found);
+      }} />}
+      <button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></span></div>
     <div className="rec">
       <section className="props">
         <h3>Person</h3>
