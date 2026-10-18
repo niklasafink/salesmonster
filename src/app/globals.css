@@ -537,13 +537,13 @@ table.leads td{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 table.leads th.warm{width:46px} table.leads td.warm{font-size:12.5px; padding-right:0}
 /* Firma and Ansprechpartner share whatever the other columns leave */
 table.leads td.co{font-weight:500}
-table.leads th.c-role{width:15%} table.leads th.c-em{width:21%} table.leads th.c-hook{width:15%} table.leads th.c-src{width:130px}
+table.leads th.c-role{width:15%} table.leads th.c-em{width:21%} table.leads th.c-hook{width:15%} table.leads th.c-src{width:150px}
 table.leads td.c-em{font-size:12.5px}
 table.leads td.act,table.leads th.act{width:34px; padding:0; text-align:right}
 @media (max-width:1500px){ table.leads .c-hook{display:none} }
 @media (max-width:1200px){ table.leads .c-role{display:none} }
 @media (max-width:960px){ table.leads .c-src{display:none} }
-@media (max-width:640px){ table.leads .c-em{display:none} table.leads td,table.leads th{padding-left:6px; padding-right:6px} table.leads th.warm{width:40px} }
+@media (max-width:640px){ table.leads .c-em{display:none} table.leads td,table.leads th{padding-left:6px; padding-right:6px} table.leads th.warm{width:40px} table.leads th.dotc{width:22px} }
 table.leads td.act .btn{width:26px; height:26px; color:var(--fg-3); opacity:0}
 table.leads tr:hover td.act .btn,table.leads td.act .btn:focus-visible{opacity:1}
 table.leads td.act .btn:hover{color:var(--fg)}
