@@ -105,16 +105,23 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
 
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
   const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
+  /* the page the lead was found on, shown as its domain; leads from the mailbox say E-Mail */
+  const srcCell = (r: Lead) => {
+    if (r.source === "Postfach") return "E-Mail";
+    const u = httpUrl(r.sourceUrl);
+    let host = ""; try { host = u ? new URL(u).hostname.replace(/^www\./, "") : ""; } catch {}
+    return host ? <a className="srcl" href={u!} target="_blank" rel="noreferrer" title={u!} onClick={e => e.stopPropagation()}>{host}</a> : <span title={r.source}>{r.source}</span>;
+  };
   const row = (r: Lead) => <tr key={r.id} className="click" tabIndex={0} onClick={() => setEdit(r)}
     onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } }}>
     <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
     <td className="dotc"><Dot s={r.status} /></td>
-    <td className="co" style={{ fontWeight: 500 }} title={r.company}>{r.company}</td>
-    <td className="pn" title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
-    <td className="hide-m hide-l f2 clip" title={r.role}>{r.role || <span className="f3">–</span>}</td>
-    <td className="mono em" style={{ fontSize: 12.5 }} title={r.email || undefined}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : "fehlt"}</span>}</td>
-    <td className="hide-m f2 clip" title={t.tenders ? undefined : r.hook}>{hookCell(r)}</td>
-    <td className="hide-m f2 src">{r.sourceUrl ? <a className="srcl" href={httpUrl(r.sourceUrl) || undefined} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{r.source}<Icon n="external-link" /></a> : r.source}</td>
+    <td className="co" title={r.company}>{r.company}</td>
+    <td title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
+    <td className="c-role f2" title={r.role || undefined}>{r.role || <span className="f3">–</span>}</td>
+    <td className="c-em mono" title={r.email || undefined}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : "fehlt"}</span>}</td>
+    <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
+    <td className="c-src f2">{srcCell(r)}</td>
     <td className="act">{r.status === "papierkorb"
       ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
       : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td>
@@ -135,7 +142,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads"><thead><tr><th className="warm"></th><th className="dotc"></th><th>Firma</th><th>Ansprechpartner</th><th className="hide-m hide-l">Rolle</th><th>E-Mail</th><th className="hide-m">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="hide-m">Quelle</th><th className="act"></th></tr></thead><tbody>
+      <div className="tbl"><table className="leads"><thead><tr><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="act"></th></tr></thead><tbody>
         {vis.length ? vis.map(row) : <tr><td colSpan={9} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
     </div></div>
