@@ -163,8 +163,9 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
             {busy && !typing && <div className="cl-col cl-run"><Spark spin />{ai ? BUSY[su.step] : "Prüfe den Schlüssel"}{ai && su.step === "website" ? ` ${t.domain}` : ""}</div>}
             {quiet && ai && su.step === "liste" && su.leads.length > 0 && <div className="cl-col cl-inl"><LeadList su={su} busy={busy} post={post} send={send} /></div>}
             {quiet && ai && su.step === "ansprache" && su.templates.length > 0 && <div className="cl-col cl-inl"><Mails xs={su.templates} /></div>}
+            {/* answer options belong to the last AI turn, directly below it and its lists */}
+            {quiet && last?.role === "ai" && last.chips?.length ? <div className="cl-col cl-chips">{last.chips.map(c => <button key={c} onClick={() => last.id === "pick" ? pick(c) : su.step === "fertig" ? finish() : send(c)}>{c}</button>)}</div> : null}
             <ThreadPrimitive.ViewportFooter className="cl-foot">
-              {quiet && last?.role === "ai" && last.chips?.length ? <div className="cl-chips">{last.chips.map(c => <button key={c} onClick={() => last.id === "pick" ? pick(c) : su.step === "fertig" ? finish() : send(c)}>{c}</button>)}</div> : null}
               <ComposerPrimitive.Root className="cl-comp">
                 <ComposerPrimitive.Input rows={1} autoFocus placeholder={ai ? "Antworten" : "API-Schlüssel einfügen"} aria-label="Antwort" className="cl-in" />
                 <div className="cl-cbar"><span className="sp" /><ComposerPrimitive.Send className="cl-send" aria-label="Senden"><Icon n="arrow-up" /></ComposerPrimitive.Send></div>

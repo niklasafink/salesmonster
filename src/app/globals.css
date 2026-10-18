@@ -480,7 +480,7 @@ a.btn{text-decoration:none}
 .cl-spark.spin{animation:spin 2.4s linear infinite}
 .cl-foot{position:sticky; bottom:0; margin-top:auto; width:100%; max-width:752px; margin-left:auto; margin-right:auto; padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));
   background:linear-gradient(to bottom, transparent, var(--cl-bg) 24px); display:flex; flex-direction:column; gap:10px}
-.cl-chips{display:flex; flex-wrap:wrap; gap:6px}
+.cl-chips{display:flex; flex-wrap:wrap; gap:6px; padding:2px 0 16px}
 .cl-chips button{border:1px solid var(--cl-line-2); background:var(--cl-bg); border-radius:10px; min-height:32px; padding:5px 12px; color:var(--cl-fg-2); text-align:left; line-height:1.35}
 .cl-chips button:hover{background:var(--cl-comp); color:var(--cl-fg)}
 .cl-comp{display:flex; flex-direction:column; gap:8px; border:1px solid var(--cl-line-2); border-radius:20px; background:var(--cl-comp); padding:14px 12px 10px 16px;
