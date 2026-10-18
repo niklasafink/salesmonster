@@ -11,6 +11,8 @@ export type TenantSettings = {
   leadsPerDay: number;
   cooldownDays: number;
   ai?: AiChoice;
+  /* notes from reading the tenant's website once in the setup; read again only when the domain changes */
+  site?: { domain: string; notes: string; at: string };
 };
 
 /* Jev's judgement of one rendered mail; see lib/jev.ts */

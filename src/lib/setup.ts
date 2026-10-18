@@ -1,4 +1,4 @@
-import { and, count, desc, eq, like, ne } from "drizzle-orm";
+import { and, count, desc, eq, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, leads, setups, templates, tenants, SETUP_STEPS, type ChatMsg, type SetupLead, type SetupStep, type StepSource } from "@/db";
 import { ask, json } from "./claude";
@@ -26,7 +26,7 @@ const Lead = z.object({ company: z.string().min(2), website: s(), city: s(), seg
   vote: z.union([z.literal(1), z.literal(-1)]).nullish().transform(v => v ?? undefined), reason: s() });
 const Tpl = z.object({ key: z.string().min(1), name: s(), tone: s(), subject: z.string().min(2), body: z.string().min(20) });
 const Out = z.object({
-  reply: z.string(), chips: z.array(z.string()).catch([]), advance: z.boolean().catch(false),
+  reply: z.string(), chips: z.array(z.string()).catch([]), advance: z.boolean().catch(false), site: s().catch(""),
   profile: Profile.nullish().catch(null), segments: z.array(Segment).nullish().catch(null), personas: z.array(Persona).nullish().catch(null),
   leads: z.array(Lead).nullish().catch(null), templates: z.array(Tpl).nullish().catch(null),
 });
@@ -67,9 +67,21 @@ async function save(id: number, set: Partial<typeof setups.$inferInsert>) {
 
 const nextStep = (step: SetupStep) => SETUP_STEPS[Math.min(SETUP_STEPS.indexOf(step) + 1, SETUP_STEPS.length - 1)];
 
+/* The website is read once; the notes stand in for it in every later answer, in every chat of the tenant */
+const siteNotes = (t: Tenant) => t.settings.site?.domain === t.domain ? t.settings.site.notes : "";
+const mustRead = (t: Tenant, step: SetupStep) => !!t.domain && !siteNotes(t) && !!WEB[step];
+
+/* The question an answer belongs to: the heading of the AI message before it */
+const askedBefore = (chat: ChatMsg[], i: number) => {
+  for (let j = i - 1; j >= 0; j--) if (chat[j].role === "ai") return chat[j].text.match(/^###[ \t]+(.+)$/m)?.[1] ?? "";
+  return "";
+};
+
 /* What the model sees besides the skill: the results so far, compact */
 function context(t: Tenant, su: Setup) {
-  const parts = [`Unternehmen: ${t.name}\nWebsite: https://${t.domain}`];
+  const parts = [`Unternehmen: ${t.name}\nWebsite: ${t.domain ? `https://${t.domain}` : "keine"}`];
+  const notes = siteNotes(t);
+  if (notes) parts.push(`Website-Notizen (die Website ist bereits gelesen, rufe sie nicht noch einmal ab):\n${notes}`);
   if (su.profile) parts.push(`Profil:\n${JSON.stringify(su.profile)}`);
   if (su.step !== "website" && su.segments.length) parts.push(`Segmente:\n${JSON.stringify(su.segments)}`);
   if (["liste", "ansprache", "fertig"].includes(su.step) && su.personas.length) parts.push(`Ansprechpartner:\n${JSON.stringify(su.personas)}`);
@@ -77,8 +89,8 @@ function context(t: Tenant, su: Setup) {
   if (su.step === "ansprache" && su.templates.length) parts.push(`Aktuelle Mails:\n${JSON.stringify(su.templates.map(({ score, ...x }) => ({ ...x, jev: score?.weakness })))}`);
   if (su.skipped.length) parts.push(`Übersprungen: ${su.skipped.join(", ")}`);
   /* what the user said in other steps, so nothing has to be asked twice */
-  const said = su.chat.filter(m => m.role === "me" && m.step !== su.step).slice(-20);
-  if (said.length) parts.push(`Aussagen des Nutzers aus früheren Schritten:\n${said.map(m => `- (${m.step}) ${m.text}`).join("\n")}`);
+  const said = su.chat.map((m, i) => ({ m, q: askedBefore(su.chat, i) })).filter(({ m }) => m.role === "me" && m.step !== su.step).slice(-20);
+  if (said.length) parts.push(`Aussagen des Nutzers aus früheren Schritten:\n${said.map(({ m, q }) => `- (${m.step}) ${q ? `auf „${q}“: ` : ""}${m.text}`).join("\n")}`);
   return parts.join("\n\n");
 }
 
@@ -87,12 +99,18 @@ const EFFORT: Record<SetupStep, "low" | "medium" | "high"> = { website: "medium"
 
 /* One model call for the current step. text = what the user wrote; auto = decide alone */
 async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean, signal?: AbortSignal) {
-  const history = su.chat.filter(m => m.step === su.step).slice(-12).map(m => `${m.role === "ai" ? "Du" : "Nutzer"}: ${m.text}`).join("\n");
+  /* the buttons shown with each question go along, so the model knows which options the user did not pick */
+  const history = su.chat.filter(m => m.step === su.step).slice(-12)
+    .map(m => `${m.role === "ai" ? "Du" : "Nutzer"}: ${m.text}${m.role === "ai" && m.chips?.length ? `\n(Antwort-Buttons: ${m.chips.join(" | ")})` : ""}`).join("\n");
   const ask_ = auto ? "Der Nutzer möchte, dass du diesen Schritt ohne Rückfragen selbst erledigst. Triff alle Entscheidungen selbst, fülle die Felder vollständig und setze advance auf true."
     : text ? `Nutzer: ${text}` : "Beginne diesen Schritt: erledige die Recherche bzw. den Entwurf und stelle dann deine erste Frage.";
+  const read = mustRead(t, su.step);
+  const readNote = read ? `\n\nDie Website https://${t.domain} ist noch nicht gelesen. Lies sie jetzt einmal gründlich und gib alles, was du dort gefunden hast, in "site" zurück. Diese Notizen werden gespeichert und ersetzen das Lesen der Website in allen folgenden Antworten.` : "";
+  /* step 1 needs the web only to read the website; other steps search the market and get the notes instead of the site */
+  const web = su.step === "website" ? read : !!WEB[su.step];
   const raw = await ask({
-    key: ai, system: skillFor(su.step), web: !!WEB[su.step], maxSearches: WEB[su.step] ?? 0, effort: EFFORT[su.step], signal,
-    prompt: `${context(t, su)}${history ? `\n\nBisheriger Verlauf in diesem Schritt:\n${history}` : ""}\n\n${ask_}`,
+    key: ai, system: skillFor(su.step), web, maxSearches: web ? WEB[su.step] ?? 0 : 0, effort: EFFORT[su.step], signal,
+    prompt: `${context(t, su)}${history ? `\n\nBisheriger Verlauf in diesem Schritt:\n${history}` : ""}${readNote}\n\n${ask_}`,
   });
   return json(raw, Out);
 }
@@ -147,6 +165,10 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
 
   const o = await think(t, ai, { ...su, chat }, text, a.action === "auto", signal);
   if (signal?.aborted) return su;
+  if (o.site && mustRead(t, su.step)) {
+    const site = { domain: t.domain, notes: o.site.slice(0, 20000), at: new Date().toISOString() };
+    await db.update(tenants).set({ settings: sql`${tenants.settings} || ${JSON.stringify({ site })}::jsonb` }).where(eq(tenants.id, t.id));
+  }
   const set: Partial<typeof setups.$inferInsert> = {};
   if (o.profile) set.profile = mergeProfile(su.profile, o.profile);
   if (o.segments?.length) set.segments = o.segments;
