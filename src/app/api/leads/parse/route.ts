@@ -8,15 +8,22 @@ import { norm } from "@/lib/outreach";
 
 export const maxDuration = 120;
 
+/* "Frau Dr." style salutation for {{anrede}}, or "" when neither Herr nor Frau is known */
+function salutationOf(raw: string) {
+  const g = /\bfrau\b/i.test(raw) ? "Frau" : /\bherr\b/i.test(raw) ? "Herr" : "";
+  if (!g) return "";
+  return [g, /prof/i.test(raw) && "Prof.", /\bdr\b/i.test(raw) && "Dr."].filter(Boolean).join(" ");
+}
+
 /* Fallback when Claude is not connected: the pattern parser from the wireframe */
 function regexParse(txt: string) {
   const coRe = /([A-ZÄÖÜ][\wÄÖÜäöüß&.\- ]*?\b(?:GmbH & Co\. KG|GmbH|AG|KG|SE|e\.K\.|UG))/;
-  const pRe = /(?:GF|Geschäftsführer(?:in)?|Inhaber(?:in)?|Ansprechpartner(?:in)?)[:\s]+([A-ZÄÖÜ][a-zäöüß]+ [A-ZÄÖÜ][a-zäöüß]+)/;
+  const pRe = /(?:GF|Geschäftsführer(?:in)?|Inhaber(?:in)?|Ansprechpartner(?:in)?)[:\s]+((?:(?:Herr|Frau|Prof\.|Dr\.)\s+)*)([A-ZÄÖÜ][a-zäöüß]+ [A-ZÄÖÜ][a-zäöüß]+)/;
   const roleOf = (s: string) => /GF|Geschäftsführ/.test(s) ? "Geschäftsführung" : /Inhaber/.test(s) ? "Inhaber" : /Ansprech/.test(s) ? "Ansprechpartner" : "";
   return txt.split(/\n/).map(line => {
     const c = line.match(coRe); if (!c) return null;
     const co = c[1].split(/\s[-–]\s/).pop()!.trim(), pm = line.match(pRe), em = line.match(/[\w.+-]+@[\w-]+\.[\w.]+/), web = line.match(/www\.[\w.-]+/);
-    return { co, p: pm ? pm[1] : "", role: pm ? roleOf(pm[0]) : "", email: em ? em[0] : "", web: web ? web[0] : "", city: "" };
+    return { co, sal: pm ? pm[1] : "", p: pm ? pm[2] : "", role: pm ? roleOf(pm[0]) : "", email: em ? em[0] : "", web: web ? web[0] : "", city: "", li: "", hook: "" };
   }).filter((x): x is NonNullable<typeof x> => !!x);
 }
 
@@ -37,7 +44,7 @@ export const POST = route(async (req, _c, me) => {
     const dup = email && emails.has(email) ? "Schon in der Liste" : inHub[i]?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : known && !email ? "Firma bekannt" : "";
     const extra = !dup && known ? "Weiterer Kontakt" : "";
     companies.add(norm(r.co)); if (email) emails.add(email);
-    return { ...r, dup, extra };
+    return { ...r, sal: salutationOf(r.sal), dup, extra };
   });
   return { rows: out };
 });

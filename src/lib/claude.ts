@@ -73,13 +73,14 @@ ${JSON.stringify(lead)}`,
   return json(text, z.object({ leads: z.array(LeadOut) })).leads[0] ?? null;
 }
 
-const ImportRow = z.object({ co: z.string().min(2), p: s(), role: s(), email: s(), web: s(), city: s() });
+const ImportRow = z.object({ co: z.string().min(2), sal: s(), p: s(), role: s(), email: s(), web: s(), city: s(), li: s(), hook: s() });
 export async function parseImport(key: Ai, raw: string) {
   const text = await ask({
     key, effort: "low",
     system: "Du liest unstrukturierte Listen (Bieterlisten, Tabellen, Freitext) und gibst Firmen als JSON zurück.",
-    prompt: `Erkenne alle Firmen in diesem Text. Je Firma: co (Firmenname mit Rechtsform), p (Ansprechpartner Vor- und Nachname), role (Rolle wie Geschäftsführung, Inhaber), email, web (Website), city (Ort).
-Nichts erfinden. Antworte nur mit \`\`\`json {"rows":[…]}\`\`\`.
+    prompt: `Erkenne alle Ansprechpartner und Firmen in diesem Text. Mehrere Personen derselben Firma sind je eine eigene Zeile mit gleichem Firmennamen.
+Je Zeile: co (Firmenname mit Rechtsform), sal (Anrede mit Titel, nur "Herr", "Frau", "Herr Dr.", "Frau Dr.", "Herr Prof. Dr." oder "Frau Prof. Dr."; nur wenn Anrede, Titel oder Geschlecht im Text stehen, sonst ""), p (Vor- und Nachname ohne Anrede und Titel), role (Rolle wie Geschäftsführung, Inhaber), email, web (Website), city (Ort), li (LinkedIn-URL), hook (Anlass für die Ansprache als Substantivgruppe im Nominativ, z. B. „die neue Niederlassung in Halle“, nur wenn der Text einen nennt).
+Hat die Liste eine Kopfzeile, ordne die Spalten danach zu. Nichts erfinden. Antworte nur mit \`\`\`json {"rows":[…]}\`\`\`.
 
 ${raw.slice(0, 40000)}`,
   });
