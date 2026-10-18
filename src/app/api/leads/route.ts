@@ -24,6 +24,7 @@ export const POST = route(async (req, _c, me) => {
     await attachCompanies(t.id);
     return { id: r.id };
   }
-  if (!rows?.length) throw new HttpError(400, "Keine Zeilen");
+  if (!Array.isArray(rows) || !rows.length) throw new HttpError(400, "Keine Zeilen");
+  if (rows.some(r => !r || typeof r !== "object" || typeof r.co !== "string" || !r.co.trim())) throw new HttpError(400, "Firma fehlt in einer Zeile");
   return { n: (await insertLeads(t.id, rows, source || "Import")).length };
 });

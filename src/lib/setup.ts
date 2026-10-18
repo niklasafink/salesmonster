@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, leads, setups, templates, tenants, SETUP_STEPS, type ChatMsg, type SetupLead, type SetupStep } from "@/db";
 import { ask, json } from "./claude";
-import type { Ai } from "./ai";
+import { AiMissing, type Ai } from "./ai";
 import { getInteg } from "./integrations";
 import { scoreMail } from "./jev";
 import { lint } from "./playbook";
@@ -94,7 +94,7 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promi
   if (a.action === "skip") return save(su.id, { step: nextStep(su.step), skipped: [...new Set([...su.skipped, su.step])] });
   if (a.action === "next") return save(su.id, { step: nextStep(su.step), skipped: su.skipped.filter(x => x !== su.step) });
   if (su.step === "fertig") return su;
-  if (!ai) throw new Error("Keine KI verbunden");
+  if (!ai) throw new AiMissing();
 
   const text = (a.text || "").trim().slice(0, 4000);
   if (a.action === "message" && !text) return su;

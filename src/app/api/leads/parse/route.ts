@@ -20,7 +20,7 @@ function regexParse(txt: string) {
 export const POST = route(async (req, _c, me) => {
   const { t: slug, text } = await req.json();
   const t = await tenantBySlug(slug, me);
-  if (!String(text || "").trim()) throw new HttpError(400, "Keine Daten");
+  if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Keine Daten");
   const key = await aiFor(t.id, me.id);
   const rows = key ? await parseImport(key, text) : regexParse(text);
   return { rows: await checkLeads(t.id, rows) };

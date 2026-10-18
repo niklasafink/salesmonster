@@ -278,7 +278,7 @@ td.wfr{white-space:normal; padding:12px 0 16px; line-height:1.6}
 .tl .end{margin-left:auto; flex:none}
 .tl .lucide.end{width:15px; height:15px; color:var(--fg-2)}
 /* Palette, toast */
-.ov{position:fixed; inset:0; background:var(--overlay); z-index:90; display:flex; justify-content:center; align-items:flex-start; padding:12vh 16px 16px; animation:fade .12s ease}
+.ov{position:fixed; inset:0; background:var(--overlay); z-index:90; display:flex; justify-content:center; align-items:flex-start; padding:12vh 16px 16px; overflow-y:auto; overscroll-behavior:contain; animation:fade .12s ease}
 .pal{width:min(560px,100%); background:var(--panel); border-radius:14px; box-shadow:var(--shadow-lg); overflow:hidden; animation:pop .14s ease}
 .pal input{width:100%; height:48px; border:0; border-bottom:1px solid var(--line); padding:0 16px; font-size:15px; background:none; outline:none}
 .pal .items{max-height:340px; overflow:auto; padding:6px}
@@ -544,6 +544,7 @@ table.leads .co{max-width:300px; overflow:hidden; text-overflow:ellipsis}
 .fld .src{display:inline-flex; color:var(--fg-3)}
 .fld .src .lucide{width:13px; height:13px}
 .fld .inp.ta{height:auto; padding:7px 10px; resize:vertical; font:inherit; line-height:1.45}
+.fld .inp.keys{field-sizing:content; min-height:52px; max-height:160px}
 .dlg-f{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
 .dlg-f .sp{flex:1}
 .prop .v .lnk{background:none; border:0; padding:0; color:inherit; text-align:left; cursor:pointer; text-decoration:underline; text-decoration-color:var(--line-2); text-underline-offset:3px}

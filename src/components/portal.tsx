@@ -175,7 +175,7 @@ function TenantIcon({ t }: { t: { slug: string; initials: string } }) {
 
 function TenantDialog({ onClose, onDone }: { onClose: () => void; onDone: (slug: string) => void }) {
   const [name, setName] = useState(""), [domain, setDomain] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><form className="dlg" onSubmit={async e => {
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><form className="dlg" role="dialog" aria-label="Unternehmen hinzufügen" onSubmit={async e => {
     e.preventDefault(); setBusy(true); setErr("");
     try { const r = await api<{ slug: string }>("/api/tenants", { body: { name, domain } }); onDone(r.slug); } catch (x) { setErr((x as Error).message); setBusy(false); }
   }}>
@@ -189,7 +189,7 @@ function TenantDialog({ onClose, onDone }: { onClose: () => void; onDone: (slug:
 
 function PwDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [cur, setCur] = useState(""), [next, setNext] = useState(""), [err, setErr] = useState("");
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><form className="dlg" onSubmit={async e => {
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><form className="dlg" role="dialog" aria-label="Passwort ändern" onSubmit={async e => {
     e.preventDefault(); setErr("");
     try { await api("/api/auth/password", { body: { current: cur, next } }); onDone(); } catch (x) { setErr((x as Error).message); }
   }}>
