@@ -72,10 +72,10 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
 
   /* Typewriter: what was there on first load counts as read, every later AI turn is typed out in order */
   const [read, setRead] = useState<Set<string> | null>(null), [tp, setTp] = useState({ id: "", n: 0 }), [cut, setCut] = useState<Record<string, number>>({});
-  useEffect(() => { if (su && !read) setRead(new Set(lines.filter(l => l.id !== "connect" && l.id !== "fertig" && l.id !== "pick").map(l => l.id))); }, [su, read, lines]);
-  /* another chat opened: its history counts as read like on first load */
+  /* another chat opened: its history counts as read like on first load. Runs before the effect below, otherwise the first load ends with read reset to null and nothing shown */
   const suId = su?.id;
   useEffect(() => setRead(null), [suId]);
+  useEffect(() => { if (su && !read) setRead(new Set(lines.filter(l => l.id !== "connect" && l.id !== "fertig" && l.id !== "pick").map(l => l.id))); }, [su, read, lines]);
   const next = read ? lines.find(l => l.role === "ai" && !read.has(l.id)) : undefined;
   const typed = next && tp.id === next.id ? tp.n : 0;
   useEffect(() => {
