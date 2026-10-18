@@ -96,6 +96,7 @@ function Integ({ ctx }: { ctx: Ctx }) {
       {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
         ? <select className="inp" value={vals[f.id] || ""} onChange={e => setVals({ ...vals, [f.id]: e.target.value })}>{f.options.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>
         : <input className="inp" type={f.type || "text"} value={vals[f.id] || ""} placeholder={f.placeholder} autoFocus={i === 0} autoComplete="off" onChange={e => setVals({ ...vals, [f.id]: e.target.value })} />}</label>)}
+      {x.k === "sendpilot" && <label className="fld"><span>Webhook-URL für SendPilot</span><input className="inp mono" readOnly value={`${location.origin}/api/sendpilot/webhook/${t.slug}`} onFocus={e => e.target.select()} /></label>}
       {err && <div className="warn">{err}</div>}
       <button className="btn pri wide" disabled={busy}>{busy ? <Icon n="loader" /> : null}Verbinden</button>
     </form></div>}

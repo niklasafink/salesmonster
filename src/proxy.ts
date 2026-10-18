@@ -19,7 +19,7 @@ export async function proxy(req: NextRequest) {
   return NextResponse.redirect(login);
 }
 
-/* api/mcp, api/oauth and .well-known authenticate themselves (bearer token or own session check) */
+/* api/mcp, api/oauth, .well-known and the SendPilot webhook authenticate themselves (bearer token, own session check or signature) */
 export const config = {
-  matcher: ["/((?!api/auth/login|api/auth/register|api/cron|api/abmelden|api/integrations/microsoft/callback|api/mcp|api/oauth|.well-known|_next/static|_next/image|icon.svg|favicon.ico|apple-icon|manifest.webmanifest).*)"],
+  matcher: ["/((?!api/auth/login|api/auth/register|api/cron|api/abmelden|api/integrations/microsoft/callback|api/mcp|api/oauth|api/sendpilot/webhook|.well-known|_next/static|_next/image|icon.svg|favicon.ico|apple-icon|manifest.webmanifest).*)"],
 };

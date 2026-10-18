@@ -12,6 +12,7 @@ import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number };
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
+type Campaign = { id: string; name: string; status: string; totalLeads: number };
 type Parsed = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; note?: string; dup: string; extra: string };
 const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
 
@@ -44,6 +45,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null), [drag, setDrag] = useState(false);
   const [edit, setEdit] = useState<EditLead | null>(null), [allCols, setAllCols] = useState(false);
   const [sort, setSortState] = useState("bewertung"), [angles, setAngles] = useState(false);
+  const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
+  const liRef = useDialog(() => setLi(null));
   useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
   const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
   const impRef = useDialog(() => setImp(null));
@@ -129,6 +132,22 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
 
+  /* the leads in view that have a LinkedIn profile go into a SendPilot campaign */
+  const liLeads = vis.filter(r => /linkedin\.com\/in\//i.test(r.linkedin));
+  async function openLi() {
+    setLi({ campaigns: null, id: "", busy: false });
+    try { const { campaigns } = await api<{ campaigns: Campaign[] }>(`/api/sendpilot?t=${t.slug}`); setLi(cur => cur && { ...cur, campaigns, id: campaigns[0]?.id || "" }); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); setLi(null); }
+  }
+  async function pushLi() {
+    if (!li?.id) return;
+    setLi({ ...li, busy: true });
+    try {
+      const r = await api<{ added: number; duplicates: number }>("/api/sendpilot", { body: { t: t.slug, campaignId: li.id, leadIds: liLeads.map(r => r.id) } });
+      ctx.toast(`${r.added} ${r.added === 1 ? "Lead" : "Leads"} in SendPilot${r.duplicates ? `, ${r.duplicates} schon drin` : ""}`); setLi(null);
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); setLi(cur => cur && { ...cur, busy: false }); }
+  }
+
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
   const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
   /* the page the lead was found on, shown as its domain; leads from the mailbox say E-Mail */
@@ -161,6 +180,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const table = imp?.cols && !imp.rows ? splitTable(imp.text) : null;
   return <>
     <Top title="Leads" onMenu={ctx.openSidebar}>
+      {ctx.st.integ.sendpilot?.on && <button className="btn sec" onClick={openLi}><Icon n="linkedin" />LinkedIn</button>}
       <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
       <button className="btn pri" onClick={() => { setImp({ text: "", src: "", rows: null, busy: false }); setSheets(null); }}><Icon n="upload" />Importieren</button>
@@ -187,6 +207,14 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       onTrash={() => { const r = edit as Lead; setEdit(null); trash(r); }}
       onAdd={co => { const r = edit; setEdit({ ...emptyLead(co), city: r.city, website: r.website }); }}
       onOpen={id => { const r = rows.find(x => x.id === id); if (r) setEdit(r); }} />}
+
+    {li && <div className="ov" onClick={e => e.target === e.currentTarget && setLi(null)}><div className="dlg" ref={liRef} role="dialog" aria-modal="true" aria-label="An SendPilot geben">
+      <div className="dlg-h">An SendPilot geben<button className="btn gh ic" onClick={() => setLi(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+      {!li.campaigns ? <Icon n="loader" /> : li.campaigns.length ? <label className="fld"><span>Kampagne</span>
+        <select className="inp" value={li.id} onChange={e => setLi({ ...li, id: e.target.value })}>{li.campaigns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.totalLeads})</option>)}</select></label>
+        : <div className="warn">In SendPilot gibt es keine offene Kampagne.</div>}
+      <button className="btn pri wide" onClick={pushLi} disabled={li.busy || !li.id || !liLeads.length}>{li.busy && <Icon n="loader" />}{liLeads.length} {liLeads.length === 1 ? "Lead" : "Leads"} mit LinkedIn übergeben</button>
+    </div></div>}
 
     {angles && <AnglesDialog slug={t.slug} toast={ctx.toast} onClose={() => setAngles(false)} />}
 

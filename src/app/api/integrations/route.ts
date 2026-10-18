@@ -5,6 +5,7 @@ import { HttpError, qp, route, tenantBySlug } from "@/lib/api";
 import { INTEG, type IntegKind } from "@/lib/integ-meta";
 import { removeInteg, setInteg } from "@/lib/integrations";
 import { hubspotVerify } from "@/lib/hubspot";
+import { sendpilotMe } from "@/lib/sendpilot";
 import { MODEL } from "@/lib/claude";
 import { OPENROUTER_MODELS, openrouterVerify } from "@/lib/ai";
 import { Microsoft365, imapClient, imapHost } from "@/lib/mail-source";
@@ -24,6 +25,11 @@ async function verify(kind: IntegKind, v: Record<string, string>): Promise<strin
       return [OPENROUTER_MODELS.find(([id]) => id === v.model)![1], credit].filter(Boolean).join(", ");
     }
     case "hubspot": return hubspotVerify(v.token).catch(() => { throw new HttpError(400, "Token ungültig oder ohne CRM-Rechte"); });
+    case "sendpilot": {
+      const ws = await sendpilotMe(v.key);
+      v.workspace = ws.id;
+      return ws.name;
+    }
     case "resend": {
       if (!v.from) throw new HttpError(400, "Absender fehlt");
       const r = await new Resend(v.key).domains.list();
