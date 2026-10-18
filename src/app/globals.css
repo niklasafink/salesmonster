@@ -419,8 +419,8 @@ body{margin:0}
 .btn .lucide{width:15px; height:15px}
 a.btn{text-decoration:none}
 
-/* Einrichtung inside the portal panel: second sidebar (what gets stored), chat in the claude.ai look, panel for lists and mails */
-.cl{position:relative; flex:1; min-height:0; display:grid; grid-template-columns:272px minmax(0,1fr)}
+/* Einrichtung inside the portal panel: the steps on the left, chat in the claude.ai look */
+.cl{position:relative; flex:1; min-height:0; display:grid; grid-template-columns:220px minmax(0,1fr)}
 .cl-main{
   --cl-bg:#ffffff; --cl-comp:#ffffff; --cl-bubble:#f4f4f5; --cl-line:#e4e4e7; --cl-line-2:#d8d8de;
   --cl-fg:#141413; --cl-fg-2:#5e5d59; --cl-fg-3:#8f8d86; --cl-hover:rgb(20 20 19 / .05); --cl-accent:#c6613f; --cl-accent-h:#b4552f;
@@ -433,13 +433,11 @@ a.btn{text-decoration:none}
 :root[data-theme="dark"] .cl-main{
   --cl-bg:#262624; --cl-comp:#30302e; --cl-bubble:#141413; --cl-line:#3a3936; --cl-line-2:#4a4944;
   --cl-fg:#faf9f5; --cl-fg-2:#c2c0b6; --cl-fg-3:#9c9a92; --cl-hover:rgb(250 249 245 / .06); --cl-accent:#d97757; --cl-accent-h:#c6613f}
-.cl.art{grid-template-columns:272px minmax(0,1fr) minmax(360px,42%)}
 .cl .sp{flex:1}
 .cl-ib{display:inline-grid; place-items:center; width:32px; height:32px; border:0; border-radius:8px; background:none; color:var(--cl-fg-2); flex-shrink:0}
 .cl-ib:hover{background:var(--cl-hover); color:var(--cl-fg)}
 .cl-ib .lucide{width:16px; height:16px}
 .cl-mob{display:none}
-.cl-step{white-space:nowrap}
 
 /* Rail */
 .cl-rail{display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--line)}
@@ -453,19 +451,6 @@ a.btn{text-decoration:none}
 .cl-dot{width:7px; height:7px; margin:0 3.5px; border-radius:50%; background:var(--accent); flex-shrink:0}
 .cl-dot.off{background:none; box-shadow:inset 0 0 0 1.5px var(--line-2)}
 .cl-skip{margin-left:auto; font-weight:400; font-size:12px; color:var(--fg-3)}
-.cl-sb{padding:0 10px 10px 29px; display:flex; flex-direction:column; gap:8px; font-size:12.5px; line-height:1.5; color:var(--fg-2); animation:cl-new 1.2s ease}
-@keyframes cl-new{from{background:var(--sel)} to{background:transparent}}
-.cl-sb p{margin:0}
-.cl-f{display:flex; flex-direction:column; gap:2px}
-.cl-f > span{font-size:12px; color:var(--fg-3)}
-.cl-f ul{margin:0; padding-left:16px}
-.cl-item{display:flex; flex-direction:column; gap:1px; text-align:left}
-.cl-item b{color:var(--fg); font-weight:500}
-.cl-item p{margin-top:3px}
-.cl-link{border:0; background:none; padding:0; color:inherit; text-align:left; font:inherit}
-.cl-link:hover,.cl-link:hover b{color:var(--accent)}
-.cl-rf{display:flex; flex-direction:column; gap:6px; padding:10px 8px}
-.cl-rf .btn{justify-content:center}
 
 /* Thread */
 .cl-main{display:flex; flex-direction:column; min-width:0; min-height:0}
@@ -487,13 +472,6 @@ a.btn{text-decoration:none}
 .cl-run{display:flex; align-items:center; gap:10px; padding:12px 0; color:var(--cl-fg-3); font-family:var(--cl-serif); font-size:15px}
 .cl-spark{width:20px; height:20px; fill:var(--cl-accent); flex-shrink:0}
 .cl-spark.spin{animation:spin 2.4s linear infinite}
-.cl-card{display:flex; align-items:center; gap:12px; width:100%; max-width:420px; margin:8px 0 4px; padding:10px; border:1px solid var(--cl-line-2); border-radius:12px; background:var(--cl-comp); text-align:left; transition:border-color .12s}
-.cl-card:hover,.cl-card.on{border-color:var(--cl-fg-3)}
-.cl-ct{display:grid; place-items:center; width:44px; height:44px; border-radius:8px; background:var(--cl-bubble); color:var(--cl-fg-2)}
-.cl-ct .lucide{width:18px; height:18px}
-.cl-cn{display:flex; flex-direction:column; gap:1px; min-width:0}
-.cl-cn b{font-weight:500}
-.cl-cn span{font-size:12.5px; color:var(--cl-fg-3)}
 .cl-foot{position:sticky; bottom:0; margin-top:auto; width:100%; max-width:752px; margin-left:auto; margin-right:auto; padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));
   background:linear-gradient(to bottom, transparent, var(--cl-bg) 24px); display:flex; flex-direction:column; gap:10px}
 .cl-chips{display:flex; flex-wrap:wrap; gap:6px}
@@ -505,21 +483,13 @@ a.btn{text-decoration:none}
 .cl-in{display:block; width:100%; max-height:240px; min-height:24px; border:0; background:none; resize:none; outline:none; font-size:15.5px; line-height:1.5; color:var(--cl-fg)}
 .cl-in::placeholder{color:var(--cl-fg-3)}
 .cl-cbar{display:flex; align-items:center; gap:4px}
-.cl-tb{height:32px; padding:0 10px; border:1px solid var(--cl-line); border-radius:8px; background:none; color:var(--cl-fg-2); font-size:13px; white-space:nowrap}
-.cl-tb:hover{background:var(--cl-hover); color:var(--cl-fg)}
-.cl-tb:disabled,.cl-send:disabled{opacity:.45; pointer-events:none}
 .cl-send{display:grid; place-items:center; width:32px; height:32px; border:0; border-radius:8px; background:var(--cl-accent); color:#fff; flex-shrink:0; transition:background .12s}
 .cl-send:hover{background:var(--cl-accent-h)}
 .cl-send .lucide{width:16px; height:16px; stroke-width:2.25}
-.cl-stop{width:10px; height:10px; border-radius:2px; background:currentColor}
-.cl-connect{display:flex; flex-direction:column; gap:12px; font-family:var(--font); font-size:13.5px; margin-top:8px; color:var(--fg)}
-.cl-connect .seg{align-self:flex-start}
+.cl-send:disabled{opacity:.45; pointer-events:none}
 
-/* Artifact */
-.cl-art{display:flex; flex-direction:column; min-height:0; min-width:0; border-left:1px solid var(--line); background:var(--panel); animation:cl-in .2s ease}
-@keyframes cl-in{from{opacity:0; transform:translateX(12px)}}
-.cl-art .top h1{font-size:13.5px}
-.cl-ab{flex:1; overflow:auto; padding:16px 20px 32px; display:flex; flex-direction:column; gap:16px}
+/* Lists and mails inline in the chat */
+.cl-inl{display:flex; flex-direction:column; gap:12px; padding:4px 0 12px}
 .cl-leads{display:flex; flex-direction:column}
 .cl-lead{display:flex; flex-direction:column; gap:4px; padding:12px 0; border-bottom:1px solid var(--line); line-height:1.5}
 .cl-lead p{margin:0; color:var(--fg-2)}
@@ -535,19 +505,14 @@ a.btn{text-decoration:none}
 .cl-mw{padding:10px 16px; border-top:1px solid var(--line); font-size:12.5px}
 .cl-scrim{display:none}
 
-@media (prefers-reduced-motion: reduce){.cl-sb,.cl-art{animation:none} .cl-spark.spin{animation:none}}
-@media (max-width: 1180px){
-  .cl.art{grid-template-columns:272px minmax(0,1fr)}
-  .cl-art{position:absolute; inset:0 0 0 auto; width:min(520px,100%); z-index:3; box-shadow:var(--shadow-lg)}
-}
+@media (prefers-reduced-motion: reduce){.cl-spark.spin{animation:none}}
 @media (max-width: 820px){
-  .cl,.cl.art{grid-template-columns:minmax(0,1fr)}
+  .cl{grid-template-columns:minmax(0,1fr)}
   .cl-mob{display:inline-grid}
   .cl-rail{position:absolute; inset:0 auto 0 0; width:min(320px,88vw); z-index:4; background:var(--panel); transform:translateX(-102%); transition:transform .2s ease}
   .cl.rail .cl-rail{transform:none}
   .cl.rail .cl-scrim{display:block; position:absolute; inset:0; background:var(--overlay); z-index:3}
   .cl-vp{padding:8px 16px 0}
   .cl-foot{padding-left:0; padding-right:0}
-  .cl-cbar .cl-tb:first-child{display:none}
   .cl-ai{font-size:16px}
 }
