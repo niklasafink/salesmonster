@@ -74,14 +74,23 @@ async function scoreTemplates(t: Tenant, su: Setup, tpls: z.infer<typeof Tpl>[])
   }));
 }
 
-export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | "goto" | "votes"; text?: string; step?: SetupStep; leads?: SetupLead[] };
+export type Action = { action: "start" | "message" | "auto" | "next" | "skip" | "goto" | "votes" | "prompt"; text?: string; step?: SetupStep; leads?: SetupLead[] };
+
+/* Which step writes which prompt section, so an AI update replaces a hand edit */
+const drop = (su: Setup, ...steps: SetupStep[]) => Object.fromEntries(Object.entries(su.prompts).filter(([k]) => !steps.includes(k as SetupStep) && k !== "fertig"));
 
 export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promise<Setup> {
   if (a.action === "goto") {
     if (!a.step || !SETUP_STEPS.includes(a.step)) return su;
     return save(su.id, { step: a.step });
   }
-  if (a.action === "votes") return save(su.id, { leads: (a.leads ?? su.leads).map(l => Lead.parse(l)) });
+  if (a.action === "prompt") {
+    if (!a.step || !SETUP_STEPS.includes(a.step)) return su;
+    const text = (a.text || "").trim().slice(0, 20000), prompts = a.step === "fertig" ? { ...su.prompts } : drop(su, a.step);
+    if (text) prompts[a.step] = text; else delete prompts[a.step];
+    return save(su.id, { prompts });
+  }
+  if (a.action === "votes") return save(su.id, { leads: (a.leads ?? su.leads).map(l => Lead.parse(l)), prompts: drop(su, "liste") });
   if (a.action === "skip") return save(su.id, { step: nextStep(su.step), skipped: [...new Set([...su.skipped, su.step])] });
   if (a.action === "next") return save(su.id, { step: nextStep(su.step), skipped: su.skipped.filter(x => x !== su.step) });
   if (su.step === "fertig") return su;
@@ -103,37 +112,52 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action): Promi
     set.leads = o.leads.map(l => { const p = prev.get(l.company.toLowerCase()); return p?.vote ? { ...l, vote: p.vote, reason: p.reason } : { ...l, vote: undefined, reason: "" }; });
   }
   if (o.templates?.length) set.templates = await scoreTemplates(t, su, o.templates.slice(0, 3));
+  const wrote = ([["website", o.profile], ["zielgruppe", o.segments?.length], ["ansprechpartner", o.personas?.length], ["liste", o.leads?.length], ["ansprache", o.templates?.length]] as const).filter(([, v]) => v).map(([k]) => k);
+  if (wrote.length) set.prompts = drop(su, ...wrote);
   chat.push({ role: "ai", text: o.reply, step: su.step, chips: o.chips.slice(0, 4) });
   set.chat = chat.slice(-80);
   if (a.action === "auto" || (o.advance && a.action === "message")) set.step = nextStep(su.step);
   return save(su.id, set);
 }
 
-/* The prompt the evening research reads. Keeps the field lines the settings form edits. */
-export function buildPrompt(t: Tenant, su: Setup) {
+/* The prompt the evening research reads, one section per step. Keeps the field lines the settings form edits. */
+export const PROMPT_KEY: Partial<Record<SetupStep, string>> = { website: "Angebot", zielgruppe: "Branchen", ansprechpartner: "Rollen", liste: "Passende Beispiele", ansprache: "Ansprache" };
+
+export function promptParts(t: Tenant, su: Setup): Record<SetupStep, string> {
   const p = su.profile, segs = su.segments, per = su.personas;
   const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))].join(", ");
   const good = su.leads.filter(l => l.vote === 1), bad = su.leads.filter(l => l.vote === -1);
-  return [
-    `Du recherchierst jeden Abend ${t.settings.leadsPerDay} Ansprechpartner für ${t.name}${p?.summary ? `. ${p.summary}` : "."}`,
-    "",
-    `Rollen: ${uniq(per.map(x => x.role))}`,
-    `Branchen: ${uniq(segs.flatMap(x => x.industries))}`,
-    `Regionen: ${uniq(segs.flatMap(x => x.regions)) || uniq(p?.regions ?? []) || "Deutschland"}`,
-    `Größe: ${uniq(segs.map(x => x.size))}`,
-    "",
-    p?.offer && `Angebot: ${p.offer}`,
-    p?.valueProps.length && `Nutzen: ${p.valueProps.join("; ")}`,
-    segs.length && `Segmente, das beste zuerst:\n${segs.map(x => `- ${x.name}: ${x.why}${x.triggers.length ? ` Anlässe: ${x.triggers.join(", ")}.` : ""}${x.exclude.length ? ` Nicht: ${x.exclude.join(", ")}.` : ""}`).join("\n")}`,
-    per.length && `Ansprechpartner:\n${per.map(x => `- ${x.role} (${x.titles.join(", ")}): ${x.pains.join("; ")}`).join("\n")}`,
-    good.length && `Passende Beispiele: ${good.map(l => l.company + (l.reason ? ` (${l.reason})` : "")).join("; ")}`,
-    bad.length && `Nicht passend: ${bad.map(l => l.company + (l.reason ? ` (${l.reason})` : "")).join("; ")}`,
-    "",
+  const lines = (...xs: (string | number | false | undefined | null)[]) => xs.filter((x): x is string => typeof x === "string").join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const gen: Record<SetupStep, string> = {
+    website: lines(
+      `Du recherchierst jeden Abend ${t.settings.leadsPerDay} Ansprechpartner für ${t.name}${p?.summary ? `. ${p.summary}` : "."}`, "",
+      p?.offer && `Angebot: ${p.offer}`,
+      p?.valueProps.length && `Nutzen: ${p.valueProps.join("; ")}`),
+    zielgruppe: lines(
+      `Branchen: ${uniq(segs.flatMap(x => x.industries))}`,
+      `Regionen: ${uniq(segs.flatMap(x => x.regions)) || uniq(p?.regions ?? []) || "Deutschland"}`,
+      `Größe: ${uniq(segs.map(x => x.size))}`, "",
+      segs.length && `Segmente, das beste zuerst:\n${segs.map(x => `- ${x.name}: ${x.why}${x.triggers.length ? ` Anlässe: ${x.triggers.join(", ")}.` : ""}${x.exclude.length ? ` Nicht: ${x.exclude.join(", ")}.` : ""}`).join("\n")}`),
+    ansprechpartner: lines(
+      `Rollen: ${uniq(per.map(x => x.role))}`, "",
+      per.length && `Ansprechpartner:\n${per.map(x => `- ${x.role} (${x.titles.join(", ")}): ${x.pains.join("; ")}`).join("\n")}`),
+    liste: lines(
+      good.length && `Passende Beispiele: ${good.map(l => l.company + (l.reason ? ` (${l.reason})` : "")).join("; ")}`,
+      bad.length && `Nicht passend: ${bad.map(l => l.company + (l.reason ? ` (${l.reason})` : "")).join("; ")}`),
+    ansprache: lines(
+      `Ansprache: ${p?.language === "du" ? "Du" : "Sie"}`,
+      "Gib den Anlass als {{aufhaenger}} zurück, und zwar als Substantivgruppe im Nominativ, zum Beispiel „die neue Niederlassung in Halle“."),
+    fertig: "",
+  };
+  const parts = { ...gen, ...su.prompts };
+  const steps = SETUP_STEPS.filter(k => k !== "fertig");
+  parts.fertig = su.prompts.fertig || lines(...steps.flatMap(k => [parts[k], ""]),
     "Personen findest du im Impressum (Geschäftsführung), auf Team- und Karriereseiten und über die Websuche nach öffentlichen LinkedIn-Profilen (site:linkedin.com/in \"Titel\" \"Firma\"). Melde dich nie bei LinkedIn an.",
-    "Gib den Anlass als {{aufhaenger}} zurück, und zwar als Substantivgruppe im Nominativ, zum Beispiel „die neue Niederlassung in Halle“.",
-    `Überspringe Unternehmen, die bereits in HubSpot stehen oder in den letzten ${t.settings.cooldownDays} Tagen angeschrieben wurden.`,
-  ].filter((x): x is string => typeof x === "string").join("\n").replace(/\n{3,}/g, "\n\n");
+    `Überspringe Unternehmen, die bereits in HubSpot stehen oder in den letzten ${t.settings.cooldownDays} Tagen angeschrieben wurden.`);
+  return parts;
 }
+
+export const buildPrompt = (t: Tenant, su: Setup) => promptParts(t, su).fertig;
 
 /* Writes the results into the tenant. Each part is opt-in on the last screen. */
 export async function applySetup(t: Tenant, su: Setup, opts: { prompt?: string; templates?: boolean; leads?: boolean }) {

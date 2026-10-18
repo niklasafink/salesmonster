@@ -12,21 +12,22 @@ import type { Ctx } from "../types";
    New AI turns are typed out one after another, lists and mails appear inline below the last turn */
 
 const STEPS: [SetupStep, string][] = [["website", "Unternehmen"], ["zielgruppe", "Zielgruppe"], ["ansprechpartner", "Ansprechpartner"], ["liste", "Erste Liste"], ["ansprache", "Ansprache"], ["fertig", "Übernehmen"]];
+const NAME = Object.fromEntries(STEPS) as Record<SetupStep, string>;
 const BUSY: Record<SetupStep, string> = { website: "Lese die Website", zielgruppe: "Leite Zielgruppen ab", ansprechpartner: "Ordne Rollen zu", liste: "Suche Firmen und Ansprechpartner", ansprache: "Schreibe Mails", fertig: "Übernehme" };
 const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier deinen API-Schlüssel ein, von [OpenRouter](https://openrouter.ai/settings/keys) oder von der [Claude-API](https://console.anthropic.com/settings/keys).";
 
-type Res = { setup: Setup; prompt: string; ai?: boolean };
+type Res = { setup: Setup; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean };
 type Line = { id: string; role: "ai" | "me"; text: string; chips?: string[] };
 
 const convert = (l: Line) => ({ id: l.id, role: l.role === "ai" ? "assistant" as const : "user" as const, content: l.text });
 
 export function Einrichtung({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
-  const [su, setSu] = useState<Setup | null>(null), [prompt, setPrompt] = useState(""), [ai, setAi] = useState(true);
-  const [busy, setBusy] = useState(false), [rail, setRail] = useState(false), [started, setStarted] = useState("");
+  const [su, setSu] = useState<Setup | null>(null), [res, setRes] = useState<Res | null>(null), [ai, setAi] = useState(true);
+  const [busy, setBusy] = useState(false), [rail, setRail] = useState(false), [started, setStarted] = useState(""), [open, setOpen] = useState<SetupStep | null>(null);
   const [local, setLocal] = useState<Line[]>([{ id: "connect", role: "ai", text: CONNECT }]);
 
-  const apply = useCallback((r: Res) => { setSu(r.setup); setPrompt(r.prompt); if (r.ai !== undefined) setAi(r.ai); }, []);
+  const apply = useCallback((r: Res) => { setSu(r.setup); setRes(r); if (r.ai !== undefined) setAi(r.ai); }, []);
   const load = useCallback(() => api<Res>(`/api/setup?t=${t.slug}`).then(apply).catch(e => ctx.toast(e.message)), [t.slug, apply, ctx]);
   useEffect(() => { load(); }, [load]);
 
@@ -103,7 +104,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     if (!su) return;
     setBusy(true);
     try {
-      const r = await api<{ applied: { prompt: boolean; templates: number; leads: number } }>("/api/setup", { body: { t: t.slug, action: "apply", prompt: su.segments.length ? prompt : "", templates: su.templates.length > 0, leads: good > 0 } });
+      const r = await api<{ applied: { prompt: boolean; templates: number; leads: number } }>("/api/setup", { body: { t: t.slug, action: "apply", prompt: su.segments.length ? res?.parts.fertig ?? "" : "", templates: su.templates.length > 0, leads: good > 0 } });
       const a = r.applied;
       ctx.toast([a.prompt && "Zielgruppe", a.templates && `${a.templates} Vorlagen`, a.leads && `${a.leads} Leads`].filter(Boolean).join(", ") + " übernommen");
       await ctx.reload(); ctx.setView(a.leads ? "leads" : "einstellungen");
@@ -128,7 +129,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   return <>
     {top}
   <div className={`cl ${rail ? "rail" : ""}`}>
-    <nav className="cl-rail"><Steps su={su} busy={busy} goto={goto} /></nav>
+    <nav className="cl-rail"><Steps su={su} busy={busy} open={k => { setRail(false); setOpen(k); }} /></nav>
     {rail && <div className="cl-scrim" onClick={() => setRail(false)} />}
 
     <main className="cl-main">
@@ -151,7 +152,32 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
       </AssistantRuntimeProvider>
     </main>
   </div>
+  {open && res && <PromptDialog key={open} step={open} text={res.parts[open]} label={res.keys[open]} busy={busy} onClose={() => setOpen(null)}
+    onGo={() => { setOpen(null); goto(open); }} onSave={async text => {
+      try { apply(await api<Res>("/api/setup", { body: { t: t.slug, action: "prompt", step: open, text } })); setOpen(null); } catch (e) { ctx.toast((e as Error).message); }
+    }} />}
   </>;
+}
+
+/* What a step contributes to the evening research: the key line as keywords on top, the whole section below. Both edit the same text */
+function PromptDialog({ step, text, label, busy, onClose, onGo, onSave }: {
+  step: SetupStep; text: string; label?: string; busy: boolean; onClose: () => void; onGo: () => void; onSave: (t: string) => Promise<void>;
+}) {
+  const [v, setV] = useState(text), [saving, setSaving] = useState(false);
+  const re = label ? new RegExp(`^${label}:[ \\t]*(.*)$`, "m") : null;
+  const keys = re ? v.match(re)?.[1] ?? "" : "";
+  const setKeys = (k: string) => setV(re!.test(v) ? v.replace(re!, () => `${label}: ${k}`) : `${label}: ${k}\n${v}`);
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg">
+    <div className="dlg-h">{NAME[step]}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
+    {label && <label className="fld"><span>{label}</span><input className="inp" value={keys} onChange={e => setKeys(e.target.value)} /></label>}
+    <label className="fld"><span>Prompt</span><textarea className="prompt" value={v} onChange={e => setV(e.target.value)} /></label>
+    <div className="dlg-f">
+      {step !== "fertig" && <button className="btn sec" onClick={onGo} disabled={busy}>Zu diesem Schritt</button>}
+      <span className="sp" />
+      <button className="btn gh" onClick={onClose}>Abbrechen</button>
+      <button className="btn pri" onClick={async () => { setSaving(true); await onSave(v); setSaving(false); }} disabled={saving || v === text}>{saving && <Icon n="loader" />}Speichern</button>
+    </div>
+  </div></div>;
 }
 
 const Link = (p: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...p} target="_blank" rel="noreferrer" />;
@@ -172,12 +198,12 @@ function Spark({ spin }: { spin?: boolean }) {
   </svg>;
 }
 
-function Steps({ su, busy, goto }: { su: Setup; busy: boolean; goto: (k: SetupStep) => void }) {
+function Steps({ su, busy, open }: { su: Setup; busy: boolean; open: (k: SetupStep) => void }) {
   const idx = STEPS.findIndex(([k]) => k === su.step);
   return <div className="cl-rs">{STEPS.map(([k, n], i) => {
     const cur = k === su.step, skipped = su.skipped.includes(k);
     return <div key={k} className={`cl-sec ${cur ? "on" : ""}`}>
-      <button className="cl-sh" onClick={() => goto(k)} disabled={busy} aria-current={cur ? "step" : undefined}>
+      <button className="cl-sh" onClick={() => open(k)} disabled={busy} aria-current={cur ? "step" : undefined}>
         {cur ? <i className="cl-dot" /> : i < idx && !skipped ? <Icon n="check" /> : <i className="cl-dot off" />}{n}{skipped && <span className="cl-skip">übersprungen</span>}
       </button>
     </div>;

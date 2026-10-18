@@ -194,6 +194,8 @@ export const setups = pgTable("setups", {
   templates: jsonb("templates").$type<SetupTemplate[]>().notNull().default([]),
   chat: jsonb("chat").$type<ChatMsg[]>().notNull().default([]),
   skipped: jsonb("skipped").$type<SetupStep[]>().notNull().default([]),
+  /* hand-edited prompt sections per step; the AI writing that step again drops the edit */
+  prompts: jsonb("prompts").$type<Partial<Record<SetupStep, string>>>().notNull().default({}),
   doneAt: timestamp("done_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
