@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MailScore, SeqConfig, SeqStep } from "@/db/schema";
 import { fill, type FillLead } from "@/lib/fill";
 import { Icon, Top, api, pct, rate, useAutosize } from "../ui";
@@ -7,18 +7,20 @@ import type { Ctx } from "../types";
 
 type V = { id: number; step: number; key: string; tone: string; subject: string; body: string; active: boolean; score: MailScore | null; sent: number; replies: number; bounced: number };
 type P = { id: number; email: string; first: string; last: string; company: string; salutation: string; startedAt: string; step: number; status: string; lastSentAt: string | null; repliedAt: string | null };
-type S = { id: number; name: string; active: boolean; steps: SeqStep[]; config: SeqConfig; templates: V[]; people: P[]; waiting: P[]; counts: Record<string, number> };
+type S = { id: number; name: string; active: boolean; steps: SeqStep[]; config: SeqConfig; templates: V[]; people: P[]; waiting: P[]; counts: Record<string, number>; flow: F[] };
+type F = { at: string; status: string; sent: number[]; replied: number[] };
 
 const PH = ["{{anrede}}", "{{vorname}}", "{{nachname}}", "{{firma}}", "{{absender}}"];
 const SAMPLE: FillLead = { company: "Muster Bau GmbH", first: "Katrin", last: "Albers", salutation: "Frau", emailType: "person", hook: "", tenders: [] };
 const STATUS: Record<string, string> = { aktiv: "Aktiv", antwort: "Antwort", beendet: "Beendet", gekauft: "Pro gekauft", abgemeldet: "Abgemeldet", unzustellbar: "Unzustellbar" };
 const day = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "";
+const PERIODS: [string, string][] = [["10", "10 Tage"], ["30", "30 Tage"], ["90", "Quartal"], ["all", "Seit Start"]];
 const who = (p: P) => [p.first, p.last].filter(Boolean).join(" ") || p.email;
 
 export function Strecken({ ctx }: { ctx: Ctx }) {
   const { st } = ctx, t = st.tenant!;
   const [s, setS] = useState<S | null | undefined>(undefined);
-  const [tab, setTab] = useState<"mails" | "kontakte" | "einstellungen">("mails");
+  const [tab, setTab] = useState<"auswertung" | "mails" | "kontakte" | "einstellungen">("auswertung");
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
@@ -32,9 +34,9 @@ export function Strecken({ ctx }: { ctx: Ctx }) {
     try { await fn(); await load(); if (done) ctx.toast(done); } catch (e) { ctx.toast((e as Error).message); } finally { setBusy(""); }
   }
 
-  if (s === undefined) return <Top title="Strecken" onMenu={ctx.openSidebar} />;
+  if (s === undefined) return <Top title="Inbound" onMenu={ctx.openSidebar} />;
   if (!s) return <>
-    <Top title="Strecken" onMenu={ctx.openSidebar} />
+    <Top title="Inbound" onMenu={ctx.openSidebar} />
     <div className="empty"><div><div className="h2">Noch keine Strecke</div>
       <button className="btn pri" disabled={!!busy} onClick={() => act("new", () => api(`/api/sequences?t=${encodeURIComponent(t.slug)}`, { method: "POST" }))}><Icon n="plus" />Strecke anlegen</button></div></div>
   </>;
@@ -44,6 +46,7 @@ export function Strecken({ ctx }: { ctx: Ctx }) {
   return <>
     <Top title={s.name} onMenu={ctx.openSidebar}>
       <div className="seg">
+        <button className={tab === "auswertung" ? "on" : ""} onClick={() => setTab("auswertung")}>Auswertung</button>
         <button className={tab === "mails" ? "on" : ""} onClick={() => setTab("mails")}>Mails</button>
         <button className={tab === "kontakte" ? "on" : ""} onClick={() => setTab("kontakte")}>Kontakte</button>
         <button className={tab === "einstellungen" ? "on" : ""} onClick={() => setTab("einstellungen")}>Einstellungen</button>
@@ -55,7 +58,8 @@ export function Strecken({ ctx }: { ctx: Ctx }) {
     </Top>
     <div className="scroll"><div className="wrap">
       {s.waiting.length > 0 && <Waiting s={s} busy={!!busy} act={act} />}
-      {tab === "mails" ? <Mails key={s.id} s={s} ctx={ctx} act={act} busy={busy} />
+      {tab === "auswertung" ? <Funnel s={s} onStep={() => setTab("mails")} />
+        : tab === "mails" ? <Mails key={s.id} s={s} ctx={ctx} act={act} busy={busy} />
         : tab === "kontakte" ? <People s={s} />
         : <Settings key={s.id} s={s} ctx={ctx} act={act} />}
     </div></div>
@@ -117,10 +121,10 @@ function Mails({ s, ctx, act, busy }: { s: S; ctx: Ctx; act: Act; busy: string }
   return <div className="tpl">
     <div className="vlist">
       {steps.map((x, n) => { const v = list.filter(y => y.step === n), sent = v.reduce((a, y) => a + y.sent, 0), replies = v.reduce((a, y) => a + y.replies, 0);
-        return <button key={n} className={`vitem ${n === step ? "on" : ""}`} onClick={() => { setI(n); setK("A"); }}>
+        return <Fragment key={n}>{n > 0 && <Gap days={x.day - steps[n - 1].day} />}<button className={`vitem ${n === step ? "on" : ""}`} onClick={() => { setI(n); setK("A"); }}>
           <span className="top2"><span className="vc">{n + 1}</span><span style={{ fontWeight: 500 }}>{x.name || `Mail ${n + 1}`}</span><span className="rate">Tag {x.day}</span></span>
           <span className="top2 f3" style={{ fontSize: 12 }}>{v.filter(y => y.active).map(y => y.key).join(" · ")}<span className="rate">{sent ? pct(rate({ sent, replies })) : ""}</span></span>
-        </button>; })}
+        </button></Fragment>; })}
       <button className="btn gh" disabled={!!busy || steps.length >= 12} onClick={addStep}><Icon n="plus" />Mail hinzufügen</button>
     </div>
     <div className="doc">
@@ -167,6 +171,44 @@ function Mails({ s, ctx, act, busy }: { s: S; ctx: Ctx; act: Act; busy: string }
       </>}
     </div>
   </div>;
+}
+
+/* The arrow between two mails: how long the sequence waits before the next one */
+function Gap({ days }: { days: number }) {
+  return <div className="sgap"><Icon n="arrow-down" /><span>{days === 1 ? "1 Tag später" : `${days} Tage später`}</span></div>;
+}
+
+/* Who registered in the period, how many each mail reached and how many answered after it */
+function Funnel({ s, onStep }: { s: S; onStep: () => void }) {
+  const [period, setPeriod] = useState("30");
+  const f = useMemo(() => {
+    const from = period === "all" ? 0 : Date.now() - Number(period) * 864e5;
+    const ppl = s.flow.filter(p => new Date(p.at).getTime() >= from);
+    const steps = s.steps.map((x, n) => ({ ...x, sent: ppl.filter(p => p.sent.includes(n)).length, replied: ppl.filter(p => p.replied.includes(n)).length }));
+    return { n: ppl.length, reached: ppl.filter(p => p.sent.length).length, replied: ppl.filter(p => p.replied.length).length, bought: ppl.filter(p => p.status === "gekauft").length, steps };
+  }, [s, period]);
+  const q = (a: number, b: number) => b ? pct(a / b * 100) : "–";
+  return <>
+    <div className="row3" style={{ marginBottom: 16 }}><div className="seg">{PERIODS.map(([k, n]) => <button key={k} className={period === k ? "on" : ""} aria-pressed={period === k} onClick={() => setPeriod(k)}>{n}</button>)}</div></div>
+    <div className="kpis" style={{ marginBottom: 16 }}>
+      <div className="kpi"><span className="l">Registriert</span><span className="v">{f.n}</span></div>
+      <div className="kpi"><span className="l">Angeschrieben</span><span className="v">{f.reached}</span></div>
+      <div className="kpi"><span className="l">Geantwortet</span><span className="v">{f.replied}<span className="f3" style={{ fontSize: 14, fontWeight: 500 }}> {q(f.replied, f.reached)}</span></span></div>
+      <div className="kpi"><span className="l">Pro gekauft</span><span className="v">{f.bought}<span className="f3" style={{ fontSize: 14, fontWeight: 500 }}> {q(f.bought, f.n)}</span></span></div>
+    </div>
+    <div className="sflow">
+      <div className="snode"><span className="l">Registriert</span><span className="v">{f.n}</span></div>
+      {f.steps.map((x, n) => <Fragment key={n}>
+        <div className="sarrow"><Icon n="arrow-right" /><span>{n === 0 ? `Tag ${x.day}` : `+${x.day - f.steps[n - 1].day} Tage`}</span></div>
+        <button className="snode" onClick={onStep}>
+          <span className="l"><span className="vc">{n + 1}</span>{x.name || `Mail ${n + 1}`}</span>
+          <span className="v">{x.sent}</span>
+          <span className="track"><i style={{ width: `${f.n ? x.sent / f.n * 100 : 0}%` }} /></span>
+          <span className="f3">{x.replied} {x.replied === 1 ? "Antwort" : "Antworten"} · {q(x.replied, x.sent)}</span>
+        </button>
+      </Fragment>)}
+    </div>
+  </>;
 }
 
 function People({ s }: { s: S }) {

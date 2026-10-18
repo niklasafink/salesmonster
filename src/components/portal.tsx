@@ -15,7 +15,7 @@ import { Strecken } from "./views/strecken";
 const VIEWS: Record<string, [string, string]> = {
   einrichtung: ["Einrichtung", "sparkles"],
   freigabe: ["Freigabe", "inbox"], statistik: ["Übersicht", "layout-dashboard"], leads: ["Leads", "users"],
-  vorlagen: ["Vorlagen", "file-text"], strecken: ["Strecken", "send"], workflows: ["Workflows", "workflow"], rechnungen: ["Rechnungen", "receipt-text"], einstellungen: ["Einstellungen", "settings-2"],
+  vorlagen: ["Vorlagen", "file-text"], strecken: ["Inbound", "send"], workflows: ["Workflows", "workflow"], rechnungen: ["Rechnungen", "receipt-text"], einstellungen: ["Einstellungen", "settings-2"],
 };
 
 const ls = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } } };

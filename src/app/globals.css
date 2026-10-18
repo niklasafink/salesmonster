@@ -218,6 +218,17 @@ td.wfr{white-space:normal; padding:12px 0 16px; line-height:1.6}
 .tname{flex:1; min-width:0; border:0; background:none; outline:none; font-size:15px; font-weight:600; padding:4px 6px; margin-left:-2px; border-radius:6px}
 .tname:hover{background:var(--hover)}
 .tname:focus{background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2)}
+.sgap{display:flex; align-items:center; gap:6px; padding:0 12px; color:var(--fg-3); font-size:12px}
+.sgap svg{width:14px; height:14px}
+.sflow{display:flex; align-items:stretch; overflow-x:auto; padding-bottom:4px}
+.snode{flex:0 0 168px; display:flex; flex-direction:column; gap:6px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); text-align:left; font-size:12.5px}
+button.snode:hover{background:var(--hover)}
+.snode .l{display:flex; align-items:center; gap:6px; color:var(--fg-2); font-weight:500; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.snode .v{font-size:22px; font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1}
+.snode .track{height:3px; border-radius:2px; background:var(--line); overflow:hidden}
+.snode .track i{display:block; height:100%; background:var(--accent)}
+.sarrow{flex:0 0 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:0 8px; color:var(--fg-3); font-size:11.5px; white-space:nowrap}
+.sarrow svg{width:16px; height:16px}
 .vitem .vn{font-weight:500; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
 /* Settings */
