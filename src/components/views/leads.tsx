@@ -1,6 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
-import type { RatingInfo, Tender } from "@/db/schema";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { EnrichField, RatingInfo, Tender } from "@/db/schema";
 import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
 import { LeadDialog, RatingBar, STATUS, emptyLead, type EditLead } from "../lead-dialog";
@@ -9,11 +9,12 @@ import type { Ctx } from "../types";
 import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
 
-type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number };
+type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number; enrichMiss: Partial<Record<EnrichField, string>> };
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
 type Campaign = { id: string; name: string; status: string; totalLeads: number };
 type Parsed = { co: string; sal?: string; p: string; role: string; email: string; phone?: string; web: string; city: string; note?: string; dup: string; extra: string };
+const ENRICH: [EnrichField, string][] = [["email", "E-Mail"], ["phone", "Telefon"]];
 const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
 
 /* we already had contact: a mail went out, an answer came in, or the mailbox knows them */
@@ -47,6 +48,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [sort, setSortState] = useState("bewertung"), [angles, setAngles] = useState(false);
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
   const liRef = useDialog(() => setLi(null));
+  const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean }>(null);
+  const [job, setJob] = useState<null | { total: number; done: number; found: number }>(null);
+  const stop = useRef(false);
+  const enrRef = useDialog(() => setEnr(null));
   useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
   const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
   const impRef = useDialog(() => setImp(null));
@@ -148,6 +153,31 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     } catch (e) { ctx.toast((e as Error).message, { error: true }); setLi(cur => cur && { ...cur, busy: false }); }
   }
 
+  /* the leads in view that lack a chosen field; ones a search already came back empty for only when asked again */
+  const open = (r: Lead) => !["papierkorb", "dublette"].includes(r.status);
+  const enrichable = (fields: EnrichField[], again: boolean) => vis.filter(r => open(r) && fields.some(f => !r[f] && (again || !r.enrichMiss?.[f])));
+  const missedBefore = (fields: EnrichField[]) => vis.filter(r => open(r) && fields.some(f => !r[f] && r.enrichMiss?.[f])).length;
+  async function runEnrich() {
+    if (!enr) return;
+    const { fields } = enr, list = enrichable(fields, enr.again);
+    setEnr(null); stop.current = false; setJob({ total: list.length, done: 0, found: 0 });
+    let i = 0, fail = "", found = 0, done = 0;
+    await Promise.all(Array.from({ length: Math.min(3, list.length) }, async () => {
+      while (i < list.length && !stop.current && !fail) {
+        const l = list[i++];
+        try {
+          const { results: [r] } = await api<{ results: { id: number; found: Partial<Record<EnrichField, string>> }[] }>("/api/leads/enrich", { body: { t: t.slug, ids: [l.id], fields } });
+          const hit = !!r && Object.keys(r.found).length > 0;
+          if (hit) { found++; setRows(rs => rs.map(x => x.id === r.id ? { ...x, ...r.found } : x)); }
+        } catch (e) { fail = (e as Error).message; }
+        done++; setJob(j => j && { ...j, done, found });
+      }
+    }));
+    setJob(null); load();
+    if (fail) ctx.toast(fail, { error: true });
+    else ctx.toast(`${found} von ${done} ${done === 1 ? "Lead" : "Leads"} ergänzt`);
+  }
+
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
   const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
   /* the page the lead was found on, shown as its domain; leads from the mailbox say E-Mail */
@@ -165,7 +195,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     <td className="co" title={r.company}>{r.company}</td>
     <td title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
     <td className="c-role f2" title={r.role || undefined}>{r.role || <span className="f3">–</span>}</td>
-    <td className="c-em mono" title={r.email || undefined}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : "fehlt"}</span>}</td>
+    <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td>
     <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
     <td className="c-src f2">{srcCell(r)}</td>
     <td className="act">{r.status !== "papierkorb" && r.rating !== null && <>
@@ -181,6 +211,11 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   return <>
     <Top title="Leads" onMenu={ctx.openSidebar}>
       {ctx.st.integ.sendpilot?.on && <button className="btn sec" onClick={openLi}><Icon n="linkedin" />LinkedIn</button>}
+      {job ? <div className="enr" role="status" aria-label="Anreichern">
+        <div className="bar"><i style={{ width: `${job.total ? job.done / job.total * 100 : 0}%` }} /></div>
+        <span className="num">{job.done}/{job.total}</span><span className="f3 num">{job.found} gefunden</span>
+        <button className="btn gh ic" title="Stoppen" aria-label="Stoppen" onClick={() => { stop.current = true; }}><Icon n="square" /></button>
+      </div> : <button className="btn sec" onClick={() => setEnr({ fields: ["email", "phone"], again: false })}><Icon n="sparkles" />Anreichern</button>}
       <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
       <button className="btn pri" onClick={() => { setImp({ text: "", src: "", rows: null, busy: false }); setSheets(null); }}><Icon n="upload" />Importieren</button>
@@ -215,6 +250,17 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         : <div className="warn">In SendPilot gibt es keine offene Kampagne.</div>}
       <button className="btn pri wide" onClick={pushLi} disabled={li.busy || !li.id || !liLeads.length}>{li.busy && <Icon n="loader" />}{liLeads.length} {liLeads.length === 1 ? "Lead" : "Leads"} mit LinkedIn übergeben</button>
     </div></div>}
+
+    {enr && (() => { const n = enrichable(enr.fields, enr.again).length, before = missedBefore(enr.fields);
+      return <div className="ov" onClick={e => e.target === e.currentTarget && setEnr(null)}><div className="dlg" ref={enrRef} role="dialog" aria-modal="true" aria-label="Kontakte anreichern">
+        <div className="dlg-h">Kontakte anreichern<button className="btn gh ic" onClick={() => setEnr(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+        <div className="fld"><span>Im Web suchen nach</span><div className="row3">
+          {ENRICH.map(([k, l]) => <label key={k} className="ck"><input type="checkbox" checked={enr.fields.includes(k)}
+            onChange={() => setEnr({ ...enr, fields: enr.fields.includes(k) ? enr.fields.filter(f => f !== k) : [...enr.fields, k] })} />{l}</label>)}
+        </div></div>
+        {before > 0 && <label className="ck"><input type="checkbox" checked={enr.again} onChange={() => setEnr({ ...enr, again: !enr.again })} />{before} {before === 1 ? "Lead" : "Leads"} ohne Treffer bei früherer Suche erneut prüfen</label>}
+        <button className="btn pri wide" onClick={runEnrich} disabled={!n}>{n} {n === 1 ? "Lead" : "Leads"} anreichern</button>
+      </div></div>; })()}
 
     {angles && <AnglesDialog slug={t.slug} toast={ctx.toast} onClose={() => setAngles(false)} />}
 

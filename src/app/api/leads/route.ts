@@ -15,7 +15,7 @@ export const GET = route(async (req, _c, me) => {
   await fitPending(t.id);
   const rows = await db.select().from(leads).where(eq(leads.tenantId, t.id)).orderBy(sql`${leads.rating} desc nulls last`, desc(leads.createdAt), asc(leads.id));
   const cos = await db.select({ id: companies.id, name: companies.name, mode: companies.mode, email: companies.email }).from(companies).where(eq(companies.tenantId, t.id));
-  return { rows: rows.map(r => ({ id: r.id, companyId: r.companyId, status: r.status, source: r.source, tenders: r.tenders, createdAt: r.createdAt, lastContactAt: r.lastContactAt, rating: r.rating, ratingInfo: r.ratingInfo, vote: r.vote, fit: r.fit, angleId: r.angleId, ...Object.fromEntries(LEAD_FIELDS.map(k => [k, r[k]])) })), companies: cos };
+  return { rows: rows.map(r => ({ id: r.id, companyId: r.companyId, status: r.status, source: r.source, tenders: r.tenders, createdAt: r.createdAt, lastContactAt: r.lastContactAt, rating: r.rating, ratingInfo: r.ratingInfo, vote: r.vote, enrichMiss: r.enrichMiss, fit: r.fit, angleId: r.angleId, ...Object.fromEntries(LEAD_FIELDS.map(k => [k, r[k]])) })), companies: cos };
 });
 
 /* Import (rows) or one new contact (lead) */

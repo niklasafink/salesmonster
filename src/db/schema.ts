@@ -114,6 +114,8 @@ export const companies = pgTable("companies", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [uniqueIndex("companies_key").on(t.tenantId, t.key)]);
 
+export type EnrichField = "email" | "phone";
+
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
@@ -147,6 +149,8 @@ export const leads = pgTable("leads", {
   fitInfo: jsonb("fit_info").$type<FitInfo | null>(),
   vote: integer("vote").notNull().default(0),
   angleId: integer("angle_id").references((): AnyPgColumn => angles.id, { onDelete: "set null" }),
+  /* fields a web search looked for and did not find, with when; the next search skips them unless asked to look again */
+  enrichMiss: jsonb("enrich_miss").$type<Partial<Record<EnrichField, string>>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("leads_tenant").on(t.tenantId, t.status), index("leads_rating").on(t.tenantId, t.rating)]);
 
