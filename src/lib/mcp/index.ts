@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { leadTools } from "./leads";
+import { mailTools } from "./mail";
 import { templateTools } from "./templates";
 import { tenantTools } from "./tenants";
 import { workflowTools } from "./workflows";
@@ -10,4 +11,5 @@ export function registerTools(server: McpServer) {
   leadTools(server);
   templateTools(server);
   workflowTools(server);
+  mailTools(server);
 }

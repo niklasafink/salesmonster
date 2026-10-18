@@ -1,5 +1,5 @@
 import { HttpError, qp, route, tenantBySlug } from "@/lib/api";
-import { aiFor } from "@/lib/ai";
+import { aiFor, aiOptions, choiceId, choiceLabel } from "@/lib/ai";
 import { act, applySetup, loadSetup, promptParts, PROMPT_KEY, type Action } from "@/lib/setup";
 
 export const maxDuration = 300;
@@ -7,7 +7,9 @@ export const maxDuration = 300;
 export const GET = route(async (req, _c, me) => {
   const t = await tenantBySlug(qp(req, "t"), me);
   const su = await loadSetup(t.id);
-  return { setup: su, parts: promptParts(t, su), keys: PROMPT_KEY, ai: !!(await aiFor(t.id, me.id)) };
+  /* keys already connected for the account: the tenant only picks one, no second setup */
+  const options = t.settings.ai ? [] : (await aiOptions(t.id, me.id)).map(c => ({ id: choiceId(c), label: choiceLabel(c) }));
+  return { setup: su, parts: promptParts(t, su), keys: PROMPT_KEY, ai: !!(await aiFor(t.id, me.id)), choose: options.length ? options : null };
 });
 
 export const POST = route(async (req, _c, me) => {

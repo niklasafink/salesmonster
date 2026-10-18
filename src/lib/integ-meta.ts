@@ -1,7 +1,7 @@
 /* Shared between client and server. perUser = one connection per person and tenant (mailboxes).
    account = one connection per person for all their tenants (AI keys); jobs without a user take the key of a member. */
-export type IntegKind = "outlook" | "smtp" | "hubspot" | "vergabehero" | "sendpilot" | "claude" | "openrouter" | "jev" | "resend";
-export type Field = { id: string; label: string; type?: string; value?: string; secret?: boolean; options?: [string, string][] };
+export type IntegKind = "outlook" | "imap" | "smtp" | "hubspot" | "vergabehero" | "sendpilot" | "claude" | "openrouter" | "jev" | "resend";
+export type Field = { id: string; label: string; type?: string; value?: string; secret?: boolean; optional?: boolean; placeholder?: string; options?: [string, string][] };
 
 export const OPENROUTER_MODELS: [string, string][] = [
   ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"],
@@ -12,6 +12,9 @@ export const OPENROUTER_MODELS: [string, string][] = [
 
 export const INTEG: { k: IntegKind; ico: string; name: string; perUser?: boolean; account?: boolean; auth: "oauth" | "fields" | "pending"; fields?: Field[] }[] = [
   { k: "outlook", ico: "mail", name: "Microsoft 365", perUser: true, auth: "oauth" },
+  { k: "imap", ico: "inbox", name: "IMAP-Postfach", perUser: true, auth: "fields", fields: [
+    { id: "user", label: "E-Mail", type: "email" }, { id: "pass", label: "Passwort", type: "password", secret: true },
+    { id: "host", label: "Server", optional: true, placeholder: "Automatisch" }, { id: "port", label: "Port", type: "number", value: "993" }] },
   { k: "smtp", ico: "server", name: "SMTP", perUser: true, auth: "fields", fields: [
     { id: "host", label: "Server", value: "smtp.office365.com" }, { id: "port", label: "Port", type: "number", value: "587" },
     { id: "user", label: "Benutzer", type: "email" }, { id: "pass", label: "App-Passwort", type: "password", secret: true }] },

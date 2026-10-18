@@ -1,5 +1,5 @@
 /* The lead fields a person may edit by hand */
-export const LEAD_FIELDS = ["company", "salutation", "first", "last", "role", "email", "emailType", "linkedin", "website", "city", "hook", "note", "sourceUrl", "research"] as const;
+export const LEAD_FIELDS = ["company", "salutation", "first", "last", "role", "email", "emailType", "phone", "linkedin", "website", "city", "hook", "note", "sourceUrl", "research"] as const;
 export type LeadField = typeof LEAD_FIELDS[number];
 
 export const SALUTATIONS = ["Herr", "Frau", "Herr Dr.", "Frau Dr.", "Herr Prof. Dr.", "Frau Prof. Dr."];

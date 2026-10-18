@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { INTEG } from "@/lib/integ-meta";
 import { Icon, Top, api } from "../ui";
-import type { Ctx } from "../types";
+import type { Ctx, MailSync } from "../types";
 
 const FIELDS = ["Rollen", "Branchen", "Regionen", "Größe"];
 const fieldRe = (f: string) => new RegExp("^" + f + ":[ \\t]*(.*)$", "m");
@@ -96,16 +96,67 @@ function Integ({ ctx }: { ctx: Ctx }) {
       return <div key={i.k} className="row2 int"><span className="nm"><Icon n={i.ico} />{i.name}{s?.on ? <span className="pill g">Verbunden</span> : i.auth === "pending" ? <span className="pill">Demnächst</span> : null}
 </span>
         {s?.on ? <button className="btn gh act" onClick={() => disconnect(i.k)}>Trennen</button> : i.auth === "pending" ? null : <button className="btn sec" onClick={() => open(i.k)}>Verbinden</button>}</div>; })}</div>
+    <AiPick ctx={ctx} />
+    {(st.integ.outlook?.on || st.integ.imap?.on) && <Contacts ctx={ctx} />}
     <Connector ctx={ctx} />
     {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" onSubmit={connect}>
       <div className="dlg-h">{x.name} verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
       {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
         ? <select className="inp" value={vals[f.id] || ""} onChange={e => setVals({ ...vals, [f.id]: e.target.value })}>{f.options.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>
-        : <input className="inp" type={f.type || "text"} value={vals[f.id] || ""} autoFocus={i === 0} autoComplete="off" onChange={e => setVals({ ...vals, [f.id]: e.target.value })} />}</label>)}
+        : <input className="inp" type={f.type || "text"} value={vals[f.id] || ""} placeholder={f.placeholder} autoFocus={i === 0} autoComplete="off" onChange={e => setVals({ ...vals, [f.id]: e.target.value })} />}</label>)}
       {err && <div className="warn">{err}</div>}
       <button className="btn pri wide" disabled={busy}>{busy ? <Icon n="loader" /> : null}Verbinden</button>
     </form></div>}
   </>;
+}
+
+/* Keys belong to the account; each tenant picks which of them answers, without connecting again */
+function AiPick({ ctx }: { ctx: Ctx }) {
+  const { st } = ctx, t = st.tenant!;
+  if (!st.ai.options.length) return null;
+  async function pick(id: string) {
+    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: id || null } } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message); }
+  }
+  return <div className="list-box">
+    <label className="row2 int"><span className="nm"><Icon n="sparkles" />KI für {t.name}</span>
+      <select className="inp sel" value={st.ai.current || ""} onChange={e => pick(e.target.value)}>
+        {!st.ai.current && <option value="">{st.ai.options[0].label}</option>}
+        {st.ai.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select></label>
+  </div>;
+}
+
+const n = (x: number) => x.toLocaleString("de-DE");
+
+/* The mailbox read into the contacts; the page drives the run step by step while it is open, the morning cron continues it */
+function Contacts({ ctx }: { ctx: Ctx }) {
+  const t = ctx.st.tenant!;
+  const [s, setS] = useState<MailSync | null>(ctx.st.mailSync), [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (s?.status !== "läuft" || busy) return;
+    let stop = false;
+    (async () => {
+      setBusy(true);
+      try {
+        let cur: MailSync | null = s;
+        while (!stop && cur?.status === "läuft") { cur = await api<MailSync | null>("/api/mail-sync", { body: { t: t.slug, action: "step" } }); if (!stop) setS(cur); }
+        if (!stop && cur?.status === "fertig") ctx.toast(`${n(cur.imported)} Kontakte im CRM`, { label: "Anzeigen", href: "#leads" });
+      } catch (e) { if (!stop) ctx.toast((e as Error).message); }
+      if (!stop) setBusy(false);
+    })();
+    return () => { stop = true; };
+  }, [s?.status, t.slug]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function start() {
+    try { setS(await api<MailSync | null>("/api/mail-sync", { body: { t: t.slug, action: "start" } })); } catch (e) { ctx.toast((e as Error).message); }
+  }
+  const run = s?.status === "läuft";
+  const what = !s ? "" : run ? s.phase === "scan" ? `${n(s.scanned)} E-Mails gelesen` : s.phase === "signatur" ? `Signaturen von ${n(s.contacts)} Kontakten` : "Übernehme Kontakte" : `${n(s.imported)} Kontakte`;
+  return <div className="list-box">
+    <div className="row2 int"><span className="nm"><Icon n="users" />Kontakte aus E-Mails{s?.status === "fehler" && <span className="pill r">Fehler</span>}</span>
+      <span className="row3">{what && <span className="f2 num">{run && <Icon n="loader" />}{what}</span>}
+        {!run && <button className="btn sec" onClick={start}>{s ? "Aktualisieren" : "Importieren"}</button>}</span></div>
+    {s?.status === "fehler" && <div className="row2"><span className="f2">{s.error}</span></div>}
+  </div>;
 }
 
 type Grant = { id: number; clientName: string; createdAt: string; lastUsedAt: string | null };

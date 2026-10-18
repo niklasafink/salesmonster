@@ -29,27 +29,27 @@ const newLead = z.object({
   sourceUrl: s("URL, unter der die Angaben gefunden wurden"),
 });
 
-const STATUS = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette"] as const;
+const STATUS = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt"] as const;
 
 const edit = z.object({
   id: z.number().int().describe("id aus leads_list"),
   company: s("Firmenname; ein anderer Name ordnet den Kontakt dieser Firma zu"), salutation: s(SAL), first: s("Vorname"), last: s("Nachname"), role: s("Funktion"), email: s("E-Mail-Adresse"),
-  linkedin: s("LinkedIn-Profil-URL"), website: s("Website"), city: s("Ort"),
+  linkedin: s("LinkedIn-Profil-URL"), website: s("Website"), phone: s("Telefon"), city: s("Ort"),
   hook: s("Aufhänger: konkreter Anlass für die erste Mail, z. B. eine passende Ausschreibung"), note: s("Notiz"),
   sourceUrl: s("URL, unter der die Angaben gefunden wurden"), research: s("Rechercheergebnis als Text"),
   status: z.enum(STATUS).optional().describe("Neuer Status"),
 });
 
 const FIELDS = { id: leads.id, companyId: leads.companyId, company: leads.company, salutation: leads.salutation, first: leads.first, last: leads.last, role: leads.role, email: leads.email, emailType: leads.emailType,
-  linkedin: leads.linkedin, website: leads.website, city: leads.city, hook: leads.hook, note: leads.note, status: leads.status, source: leads.source, sourceUrl: leads.sourceUrl, createdAt: leads.createdAt };
+  linkedin: leads.linkedin, website: leads.website, phone: leads.phone, lastContactAt: leads.lastContactAt, city: leads.city, hook: leads.hook, note: leads.note, status: leads.status, source: leads.source, sourceUrl: leads.sourceUrl, createdAt: leads.createdAt };
 const MISSING = { email: [leads.email], person: [leads.first, leads.last], role: [leads.role], website: [leads.website], salutation: [leads.salutation], linkedin: [leads.linkedin], city: [leads.city], hook: [leads.hook], note: [leads.note] };
 
 export function leadTools(server: McpServer) {
   tool(server, "leads_list", {
     description: "Liest und sucht Leads (Kontakte) des Mandanten, neueste zuerst. Jeder Lead ist ein Ansprechpartner einer Firma; companyId verbindet die Kontakte derselben Firma. "
       + "Felder: companyId, company (Firma), salutation (Anrede mit Titel, z. B. „Frau Dr.“), first/last (Vor-/Nachname), role, email, emailType (person = persönliche Adresse, info = Firmenadresse), "
-      + "linkedin, website, city (Ort), hook (Aufhänger für die erste Mail), note (Notiz), status, source (Quelle), sourceUrl (Fundstelle). "
-      + "Status: neu (noch nicht angeschrieben), freigabe (Entwurf wartet auf Freigabe), angeschrieben, beantwortet, unzustellbar, dublette. "
+      + "linkedin, website, phone (Telefon aus der Signatur), lastContactAt (letzte E-Mail), city (Ort), hook (Aufhänger für die erste Mail), note (Notiz), status, source (Quelle), sourceUrl (Fundstelle). "
+      + "Status: neu (noch nicht angeschrieben), freigabe (Entwurf wartet auf Freigabe), angeschrieben, beantwortet, unzustellbar, dublette, kontakt (bestehender Kontakt aus dem Postfach, wird nie kalt angeschrieben). "
       + "Mit missing findest du Leads, denen ein Feld fehlt (z. B. email), um sie mit leads_update anzureichern. Rückgabe: total (Treffer gesamt) und rows; mit offset weiterblättern.",
     input: z.object({
       tenant,

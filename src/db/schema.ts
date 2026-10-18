@@ -2,10 +2,14 @@ import { boolean, date, integer, jsonb, numeric, pgTable, serial, text, timestam
 
 export type Tender = { t: string; s: string; f: string };
 
+/* Which connected AI a tenant uses; the keys themselves belong to the account, so tenants can share one or differ */
+export type AiChoice = { kind: "claude" } | { kind: "openrouter"; model: string };
+
 export type TenantSettings = {
   prompt: string;
   leadsPerDay: number;
   cooldownDays: number;
+  ai?: AiChoice;
 };
 
 /* Jev's judgement of one rendered mail; see lib/jev.ts */
@@ -111,6 +115,9 @@ export const leads = pgTable("leads", {
   status: text("status").notNull().default("neu"),
   note: text("note").notNull().default(""),
   hubspotId: text("hubspot_id").notNull().default(""),
+  phone: text("phone").notNull().default(""),
+  /* last mail in either direction, for contacts that came from a mailbox */
+  lastContactAt: timestamp("last_contact_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("leads_tenant").on(t.tenantId, t.status)]);
 
@@ -249,3 +256,49 @@ export const workflowRuns = pgTable("workflow_runs", {
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
 }, t => [index("workflow_runs_wf").on(t.workflowId, t.startedAt)]);
+
+/* Reading one person's mailbox into the tenant's contacts: scan headers, then read signatures, then file them as leads.
+   cursor is the source's own position (Graph next link, IMAP uid per folder) */
+export type MailCursor = { next?: string; folders?: { path: string; sent: boolean; uid: number; max: number }[]; since?: string };
+
+export const mailSyncs = pgTable("mail_syncs", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  source: text("source").notNull(),
+  status: text("status").notNull().default("läuft"),
+  phase: text("phase").notNull().default("scan"),
+  cursor: jsonb("cursor").$type<MailCursor>().notNull().default({}),
+  scanned: integer("scanned").notNull().default(0),
+  imported: integer("imported").notNull().default(0),
+  error: text("error").notNull().default(""),
+  /* newest mail seen; the next run only reads mail after it */
+  lastMailAt: timestamp("last_mail_at", { withTimezone: true }),
+  /* one step at a time, whether the page or the cron drives it */
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, t => [uniqueIndex("mail_syncs_key").on(t.tenantId, t.userId)]);
+
+/* What a signature says about its sender */
+export type SigData = { salutation: string; first: string; last: string; role: string; company: string; phone: string; mobile: string; website: string; linkedin: string; street: string; city: string };
+
+/* Everyone the mailbox exchanged mail with. state: offen (signature not read yet), gelesen, fertig (filed as lead), aus (not a contact) */
+export const mailContacts = pgTable("mail_contacts", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  name: text("name").notNull().default(""),
+  sent: integer("sent").notNull().default(0),
+  received: integer("received").notNull().default(0),
+  /* received mails addressed to the person directly, not bulk */
+  direct: integer("direct").notNull().default(0),
+  firstAt: timestamp("first_at", { withTimezone: true }),
+  lastAt: timestamp("last_at", { withTimezone: true }),
+  signature: text("signature").notNull().default(""),
+  parsed: jsonb("parsed").$type<SigData | null>(),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  state: text("state").notNull().default("offen"),
+}, t => [uniqueIndex("mail_contacts_key").on(t.tenantId, t.userId, t.email), index("mail_contacts_state").on(t.tenantId, t.userId, t.state)]);

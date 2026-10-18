@@ -7,6 +7,8 @@ import { removeInteg, setInteg } from "@/lib/integrations";
 import { hubspotVerify } from "@/lib/hubspot";
 import { MODEL } from "@/lib/claude";
 import { OPENROUTER_MODELS, openrouterVerify } from "@/lib/ai";
+import { Microsoft365, imapClient, imapHost } from "@/lib/mail-source";
+import { startSync } from "@/lib/mail-sync";
 
 /* Checks each credential before storing it */
 async function verify(kind: IntegKind, v: Record<string, string>): Promise<string> {
@@ -33,6 +35,13 @@ async function verify(kind: IntegKind, v: Record<string, string>): Promise<strin
       await tr.verify().catch(e => { throw new HttpError(400, `SMTP: ${e.message}`); });
       return v.user;
     }
+    case "imap": {
+      if (!v.host) v.host = await imapHost(v.user).catch(e => { throw e instanceof Microsoft365 ? new HttpError(400, e.message) : e; });
+      const cl = imapClient(v as { user: string; pass: string; host: string; port: string });
+      await cl.connect().catch(e => { throw new HttpError(400, `IMAP ${v.host}: ${e.responseText || e.message}`); });
+      await cl.logout().catch(() => {});
+      return v.user;
+    }
     default: throw new HttpError(400, "Nicht verfügbar");
   }
 }
@@ -42,10 +51,12 @@ export const POST = route(async (req, _c, me) => {
   const t = await tenantBySlug(slug, me);
   const meta = INTEG.find(i => i.k === kind);
   if (!meta || meta.auth !== "fields") throw new HttpError(400, "Nicht verfügbar");
-  for (const f of meta.fields!) if (!String(values?.[f.id] || "").trim()) throw new HttpError(400, `${f.label} fehlt`);
-  const clean = Object.fromEntries(meta.fields!.map(f => [f.id, String(values[f.id]).trim()]));
+  for (const f of meta.fields!) if (!f.optional && !String(values?.[f.id] || "").trim()) throw new HttpError(400, `${f.label} fehlt`);
+  const clean = Object.fromEntries(meta.fields!.map(f => [f.id, String(values?.[f.id] ?? "").trim()]));
   const detail = await verify(kind, clean);
   await setInteg(t.id, kind, me.id, clean, detail);
+  /* a connected mailbox is read into the contacts right away, like Attio */
+  if (kind === "imap") await startSync(t.id, me.id, "imap");
 });
 
 export const DELETE = route(async (req, _c, me) => {

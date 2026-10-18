@@ -14,7 +14,11 @@ export type State = {
   tenant: TenantInfo | null; templates: Tpl[]; drafts: Draft[];
   integ: Record<string, { on: boolean; detail: string }>; msConfigured: boolean; mailbox: Record<number, string | null>; runs: Run[];
   setup: { step: string; done: boolean; started: boolean };
+  ai: { options: { id: string; label: string }[]; current: string | null };
+  mailSync: MailSync | null;
 };
+
+export type MailSync = { status: string; phase: string; scanned: number; contacts: number; imported: number; error: string; finishedAt: string | null };
 
 export type Ctx = {
   st: State; reload: () => Promise<void>; toast: (m: string, action?: { label: string; href: string }) => void;

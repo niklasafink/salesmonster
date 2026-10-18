@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db, tenants } from "@/db";
 import { HttpError, body, route, tenantBySlug } from "@/lib/api";
+import { choiceOf } from "@/lib/ai";
 
 type Ctx = { params: Promise<{ slug: string }> };
 
@@ -13,6 +14,12 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
     const s = { ...t.settings, ...b.settings };
     if (typeof s.prompt !== "string") throw new HttpError(400, "Ungültige Eingabe");
     s.leadsPerDay = Math.max(1, Math.min(30, Number(s.leadsPerDay) || 10));
+    /* "claude" or "openrouter:<model>"; null goes back to the default order */
+    if ("ai" in b.settings) {
+      const c = b.settings.ai === null ? null : choiceOf(String(b.settings.ai));
+      if (b.settings.ai !== null && !c) throw new HttpError(400, "KI unbekannt");
+      if (c) s.ai = c; else delete s.ai;
+    }
     set.settings = s as typeof t.settings;
   }
   if (obj(b.invoice)) {

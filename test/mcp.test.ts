@@ -40,7 +40,7 @@ describe("MCP-Endpunkt", () => {
     expect(c.getInstructions()).toMatch(/Schritt für Schritt/);
     const list = await c.tool<{ slug: string; name: string; domain: string }[]>("tenants_list");
     expect(list.map(t => t.slug).sort()).toEqual(mine.map(t => t.slug).sort());
-    expect(list[0]).toEqual({ slug: expect.any(String), name: expect.any(String), domain: "example.test" });
+    expect(list[0]).toEqual({ slug: expect.any(String), name: expect.any(String), domain: "example.test", hubspot: false, mailbox: null, ai: null });
     expect(list.map(t => t.slug)).not.toContain(theirs.slug);
     await c.close();
   });

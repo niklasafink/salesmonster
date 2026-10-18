@@ -2,6 +2,7 @@ import { jwtVerify } from "jose";
 import { tenantBySlug } from "@/lib/api";
 import { setInteg } from "@/lib/integrations";
 import { msToken, stateKey } from "@/lib/mail";
+import { startSync } from "@/lib/mail-sync";
 
 export async function GET(req: Request) {
   const u = new URL(req.url), back = (msg: string) => Response.redirect(new URL(`/?msg=${encodeURIComponent(msg)}#einstellungen`, req.url).toString(), 302);
@@ -14,6 +15,7 @@ export async function GET(req: Request) {
     const email = me.mail || me.userPrincipalName || "";
     const t = await tenantBySlug(String(payload.t), { id: Number(payload.uid) });
     await setInteg(t.id, "outlook", Number(payload.uid), { access: tok.access_token, refresh: tok.refresh_token, exp: Date.now() + tok.expires_in * 1000, email }, email);
+    await startSync(t.id, Number(payload.uid), "outlook");
     return back("Microsoft 365 verbunden");
   } catch (e) {
     return back(e instanceof Error ? e.message : "Anmeldung fehlgeschlagen");

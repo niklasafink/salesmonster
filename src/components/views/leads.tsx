@@ -11,7 +11,7 @@ type Lead = EditLead & { id: number; companyId: number | null; source: string; t
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
 type Parsed = { co: string; sal?: string; p: string; role: string; email: string; web: string; city: string; dup: string; extra: string };
-const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette"];
+const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt"];
 
 export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?.[1] || "n"}`} title={STATUS[s]?.[0] || s} />;
 

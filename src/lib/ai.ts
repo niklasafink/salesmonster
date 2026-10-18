@@ -1,3 +1,5 @@
+import { eq } from "drizzle-orm";
+import { db, tenants, type AiChoice } from "@/db";
 import { getInteg } from "./integrations";
 import { OPENROUTER_MODELS } from "./integ-meta";
 
@@ -6,13 +8,30 @@ export { OPENROUTER_MODELS };
 /* Which model answers for a tenant. A plain string is an Anthropic API key (older callers). */
 export type Ai = string | { provider: "anthropic" | "openrouter"; key: string; model?: string };
 
-/* Anthropic key wins when both are connected; it supports server-side fallback and pause_turn. Keys belong to the account, userId picks whose. */
+export const modelName = (id: string) => OPENROUTER_MODELS.find(([m]) => m === id)?.[1] || id;
+export const choiceId = (c: AiChoice) => c.kind === "claude" ? "claude" : `openrouter:${c.model}`;
+export const choiceLabel = (c: AiChoice) => c.kind === "claude" ? "Claude Sonnet 5.5" : `${modelName(c.model)} über OpenRouter`;
+export function choiceOf(id: string): AiChoice | null {
+  if (id === "claude") return { kind: "claude" };
+  const m = id.startsWith("openrouter:") ? id.slice(11) : "";
+  return OPENROUTER_MODELS.some(([x]) => x === m) ? { kind: "openrouter", model: m } : null;
+}
+
+/* What the account's connected keys allow: Claude, and every OpenRouter model once an OpenRouter key exists */
+export async function aiOptions(tenantId: number, userId?: number): Promise<AiChoice[]> {
+  const [c, o] = await Promise.all([getInteg(tenantId, "claude", userId), getInteg(tenantId, "openrouter", userId)]);
+  return [...(c?.key ? [{ kind: "claude" as const }] : []), ...(o?.key ? OPENROUTER_MODELS.map(([model]) => ({ kind: "openrouter" as const, model })) : [])];
+}
+
+/* The tenant's own choice when its key is still connected; otherwise Anthropic first (server-side fallback and pause_turn), then OpenRouter.
+   Keys belong to the account, userId picks whose. */
 export async function aiFor(tenantId: number, userId?: number): Promise<Ai | null> {
-  const c = await getInteg(tenantId, "claude", userId);
-  if (c?.key) return { provider: "anthropic", key: c.key };
-  const o = await getInteg(tenantId, "openrouter", userId);
-  if (o?.key) return { provider: "openrouter", key: o.key, model: o.model || OPENROUTER_MODELS[0][0] };
-  return null;
+  const [[t], c, o] = await Promise.all([db.select({ s: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId)),
+    getInteg(tenantId, "claude", userId), getInteg(tenantId, "openrouter", userId)]);
+  const pick = t?.s.ai;
+  const claude = c?.key ? { provider: "anthropic" as const, key: c.key } : null;
+  const or = o?.key ? { provider: "openrouter" as const, key: o.key, model: pick?.kind === "openrouter" ? pick.model : o.model || OPENROUTER_MODELS[0][0] } : null;
+  return pick?.kind === "openrouter" ? or ?? claude : claude ?? or;
 }
 
 export class AiMissing extends Error { constructor() { super("Keine KI verbunden. Unter Einstellungen → Integrationen OpenRouter oder Claude verbinden."); } }

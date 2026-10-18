@@ -5,15 +5,15 @@ import { SALUTATIONS } from "@/lib/lead-fields";
 import { Icon, api } from "./ui";
 
 export type EditLead = {
-  id?: number; company: string; salutation: string; first: string; last: string; role: string; email: string; emailType: string;
+  id?: number; company: string; salutation: string; first: string; last: string; role: string; email: string; emailType: string; phone: string;
   linkedin: string; website: string; city: string; hook: string; note: string; sourceUrl: string; research: string; status: string; tenders: Tender[]; source?: string;
 };
 
 export const STATUS: Record<string, [string, string]> = {
-  neu: ["Neu", "n"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", "b"], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", "x"],
+  neu: ["Neu", "n"], freigabe: ["In Freigabe", "a"], angeschrieben: ["Angeschrieben", "b"], beantwortet: ["Beantwortet", "g"], unzustellbar: ["Unzustellbar", "r"], dublette: ["Dublette", "x"], kontakt: ["Kontakt", "k"],
 };
 
-export const emptyLead = (company = ""): EditLead => ({ company, salutation: "", first: "", last: "", role: "", email: "", emailType: "person", linkedin: "", website: "",
+export const emptyLead = (company = ""): EditLead => ({ company, salutation: "", first: "", last: "", role: "", email: "", emailType: "person", phone: "", linkedin: "", website: "",
   city: "", hook: "", note: "", sourceUrl: "", research: "", status: "neu", tenders: [] });
 
 const tendersText = (ts: Tender[] = []) => ts.map(x => [x.t, x.s, x.f].filter(Boolean).join(" | ")).join("\n");
@@ -51,9 +51,10 @@ export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, o
       <label className="fld s3"><span>Rolle</span><input className="inp" value={f.role} onChange={set("role")} /></label>
       <label className="fld s4"><span>E-Mail</span><input className="inp mono" value={f.email} onChange={set("email")} /></label>
       <label className="fld s2"><span>Adresse</span><select className="inp sel" value={f.emailType} onChange={set("emailType")}><option value="person">Persönlich</option><option value="info">Sammeladresse</option></select></label>
+      <label className="fld s2"><span>Telefon</span><input className="inp num" value={f.phone} onChange={set("phone")} /></label>
       <label className="fld s2"><span>Ort</span><input className="inp" value={f.city} onChange={set("city")} /></label>
       <label className="fld s2"><span>Website</span><input className="inp" value={f.website} onChange={set("website")} /></label>
-      <label className="fld s2"><span>LinkedIn</span><input className="inp" value={f.linkedin} onChange={set("linkedin")} /></label>
+      <label className="fld s6"><span>LinkedIn</span><input className="inp" value={f.linkedin} onChange={set("linkedin")} /></label>
       {tenders
         ? <label className="fld s6"><span>Ausschreibungen</span><textarea className="inp ta" rows={3} value={tt} placeholder="Titel | Vergabestelle | Frist" onChange={e => setTt(e.target.value)} /></label>
         : <label className="fld s6"><span>Anlass</span><input className="inp" value={f.hook} onChange={set("hook")} /></label>}

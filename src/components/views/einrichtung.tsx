@@ -16,7 +16,10 @@ const NAME = Object.fromEntries(STEPS) as Record<SetupStep, string>;
 const BUSY: Record<SetupStep, string> = { website: "Lese die Website", zielgruppe: "Leite Zielgruppen ab", ansprechpartner: "Ordne Rollen zu", liste: "Suche Firmen und Ansprechpartner", ansprache: "Schreibe Mails", fertig: "Übernehme" };
 const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier deinen API-Schlüssel ein, von [OpenRouter](https://openrouter.ai/settings/keys) oder von der [Claude-API](https://console.anthropic.com/settings/keys).";
 
-type Res = { setup: Setup; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean };
+const NEW_KEY = "Anderen Schlüssel verbinden";
+
+type Opt = { id: string; label: string };
+type Res = { setup: Setup; parts: Record<SetupStep, string>; keys: Partial<Record<SetupStep, string>>; ai?: boolean; choose?: Opt[] | null };
 type Line = { id: string; role: "ai" | "me"; text: string; chips?: string[] };
 
 const convert = (l: Line) => ({ id: l.id, role: l.role === "ai" ? "assistant" as const : "user" as const, content: l.text });
@@ -26,8 +29,10 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   const [su, setSu] = useState<Setup | null>(null), [res, setRes] = useState<Res | null>(null), [ai, setAi] = useState(true);
   const [busy, setBusy] = useState(false), [rail, setRail] = useState(false), [started, setStarted] = useState(""), [open, setOpen] = useState<SetupStep | null>(null);
   const [local, setLocal] = useState<Line[]>([{ id: "connect", role: "ai", text: CONNECT }]);
+  /* the account has keys but this tenant has not picked one yet: one question instead of a new setup */
+  const [choose, setChoose] = useState<Opt[] | null>(null);
 
-  const apply = useCallback((r: Res) => { setSu(r.setup); setRes(r); if (r.ai !== undefined) setAi(r.ai); }, []);
+  const apply = useCallback((r: Res) => { setSu(r.setup); setRes(r); if (r.ai !== undefined) setAi(r.ai); if (r.choose !== undefined) setChoose(r.choose); }, []);
   const load = useCallback(() => api<Res>(`/api/setup?t=${t.slug}`).then(apply).catch(e => ctx.toast(e.message)), [t.slug, apply, ctx]);
   useEffect(() => { load(); }, [load]);
 
@@ -45,7 +50,8 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     if (!su) return [];
     const n = new Map<string, number>();
     const xs: Line[] = su.chat.map(m => { const k = `${m.role}:${m.step}:${m.text}`, c = n.get(k) ?? 0; n.set(k, c + 1); return { id: `${k}#${c}`, role: m.role, text: m.text, chips: m.chips }; });
-    if (!ai) xs.push(...local);
+    if (choose) xs.push({ id: "pick", role: "ai", text: `Welche KI soll ${t.name} nutzen?`, chips: [...choose.map(o => o.label), NEW_KEY] });
+    else if (!ai) xs.push(...local);
     if (su.step === "fertig") {
       const what = [su.segments.length > 0 && "die Zielgruppe für die Abendrecherche", su.templates.length > 0 && `${su.templates.length} Vorlagen`, good > 0 && `${good} positiv bewertete Leads`].filter(Boolean) as string[];
       xs.push(what.length
@@ -53,11 +59,11 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
         : { id: "fertig", role: "ai", text: "Es gibt noch nichts zu übernehmen. Wähle links einen Schritt, dann machen wir dort weiter." });
     }
     return xs;
-  }, [su, ai, local, good]);
+  }, [su, ai, local, good, choose, t.name]);
 
   /* Typewriter: what was there on first load counts as read, every later AI turn is typed out in order */
   const [read, setRead] = useState<Set<string> | null>(null), [tp, setTp] = useState({ id: "", n: 0 });
-  useEffect(() => { if (su && !read) setRead(new Set(lines.filter(l => l.id !== "connect" && l.id !== "fertig").map(l => l.id))); }, [su, read, lines]);
+  useEffect(() => { if (su && !read) setRead(new Set(lines.filter(l => l.id !== "connect" && l.id !== "fertig" && l.id !== "pick").map(l => l.id))); }, [su, read, lines]);
   const next = read ? lines.find(l => l.role === "ai" && !read.has(l.id)) : undefined;
   const typed = next && tp.id === next.id ? tp.n : 0;
   useEffect(() => {
@@ -77,11 +83,11 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
 
   /* Entering a step the AI has not spoken in yet starts it */
   useEffect(() => {
-    if (!su || !ai || busy || su.step === "fertig") return;
+    if (!su || !ai || choose || busy || su.step === "fertig") return;
     const key = `${su.id}:${su.step}`;
     if (started === key || su.chat.some(m => m.step === su.step && m.role === "ai")) return;
     setStarted(key); post({ action: "start" });
-  }, [su, ai, busy, started, post]);
+  }, [su, ai, choose, busy, started, post]);
 
   const send = useCallback(async (msg: string) => {
     if (!msg.trim()) return;
@@ -89,13 +95,25 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     await post({ action: "message", text: msg });
   }, [post]);
 
+  async function pick(label: string) {
+    if (label === NEW_KEY) { setChoose(null); setAi(false); return; }
+    const o = choose?.find(x => x.label === label);
+    if (!o) return;
+    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: o.id } } }); setChoose(null); ctx.reload(); }
+    catch (e) { ctx.toast((e as Error).message); }
+  }
+
   /* Without any model nothing works, so the key is the first answer in the chat */
   async function connect(raw: string) {
     const key = raw.trim(), kind = key.startsWith("sk-ant-") ? "claude" : "openrouter";
     if (!key) return;
     setLocal(l => [...l, { id: `me${l.length}`, role: "me", text: `${key.slice(0, 6)}…${key.slice(-4)}` }]);
     setBusy(true);
-    try { await api("/api/integrations", { body: { t: t.slug, kind, values: kind === "openrouter" ? { key, model: OPENROUTER_MODELS[0][0] } : { key } } }); ctx.reload(); await load(); }
+    try {
+      await api("/api/integrations", { body: { t: t.slug, kind, values: kind === "openrouter" ? { key, model: OPENROUTER_MODELS[0][0] } : { key } } });
+      await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: kind === "openrouter" ? `openrouter:${OPENROUTER_MODELS[0][0]}` : "claude" } } });
+      ctx.reload(); await load();
+    }
     catch (e) { setLocal(l => [...l, { id: `ai${l.length}`, role: "ai", text: `Das hat nicht geklappt: ${(e as Error).message}. Prüfe den Schlüssel und füge ihn noch einmal ein.` }]); }
     finally { setBusy(false); }
   }
@@ -116,7 +134,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
 
   const runtime = useExternalStoreRuntime({
     messages: shown, convertMessage: convert, isRunning: busy || typing, isDisabled: su?.step === "fertig",
-    onNew: async (m: AppendMessage) => { const p = m.content.find(c => c.type === "text"); if (p?.type !== "text") return; if (ai) await send(p.text); else await connect(p.text); },
+    onNew: async (m: AppendMessage) => { const p = m.content.find(c => c.type === "text"); if (p?.type !== "text") return; if (choose) await pick(p.text); else if (ai) await send(p.text); else await connect(p.text); },
   });
 
   const top = <Top title="Einrichtung" onMenu={ctx.openSidebar}>
@@ -141,7 +159,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
             {quiet && ai && su.step === "liste" && su.leads.length > 0 && <div className="cl-col cl-inl"><LeadList su={su} busy={busy} post={post} send={send} /></div>}
             {quiet && ai && su.step === "ansprache" && su.templates.length > 0 && <div className="cl-col cl-inl"><Mails xs={su.templates} /></div>}
             <ThreadPrimitive.ViewportFooter className="cl-foot">
-              {quiet && last?.role === "ai" && last.chips?.length ? <div className="cl-chips">{last.chips.map(c => <button key={c} onClick={() => su.step === "fertig" ? finish() : send(c)}>{c}</button>)}</div> : null}
+              {quiet && last?.role === "ai" && last.chips?.length ? <div className="cl-chips">{last.chips.map(c => <button key={c} onClick={() => last.id === "pick" ? pick(c) : su.step === "fertig" ? finish() : send(c)}>{c}</button>)}</div> : null}
               <ComposerPrimitive.Root className="cl-comp">
                 <ComposerPrimitive.Input rows={1} autoFocus placeholder={ai ? "Antworten" : "API-Schlüssel einfügen"} aria-label="Antwort" className="cl-in" />
                 <div className="cl-cbar"><span className="sp" /><ComposerPrimitive.Send className="cl-send" aria-label="Senden"><Icon n="arrow-up" /></ComposerPrimitive.Send></div>

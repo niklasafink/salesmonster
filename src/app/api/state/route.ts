@@ -4,6 +4,8 @@ import { qp, route, tenantMembers } from "@/lib/api";
 import { integStatus } from "@/lib/integrations";
 import { lastRuns } from "@/lib/outreach";
 import { mailboxOf, msConfigured } from "@/lib/mail";
+import { aiOptions, choiceId, choiceLabel } from "@/lib/ai";
+import { syncState } from "@/lib/mail-sync";
 
 export const GET = route(async (req, _c, me) => {
   const all = (await db.select({ t: tenants }).from(tenants).innerJoin(members, eq(members.tenantId, tenants.id))
@@ -43,6 +45,8 @@ export const GET = route(async (req, _c, me) => {
         linkedin: l.linkedin, hook: l.hook, tenders: l.tenders, source: l.source, website: l.website, sourceUrl: l.sourceUrl },
     })),
     integ: await integStatus(t.id, me.id),
+    ai: { options: (await aiOptions(t.id, me.id)).map(c => ({ id: choiceId(c), label: choiceLabel(c) })), current: t.settings.ai ? choiceId(t.settings.ai) : null },
+    mailSync: await syncState(t.id, me.id),
     msConfigured: msConfigured(),
     mailbox,
     runs: await lastRuns(t.id),
