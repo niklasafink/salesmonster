@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { INTEG } from "@/lib/integ-meta";
-import { Icon, Top, api } from "../ui";
+import { Icon, Top, api, useEscape } from "../ui";
 import type { Ctx, MailSync } from "../types";
 
 const FIELDS = ["Rollen", "Branchen", "Regionen", "Größe"];
@@ -27,7 +27,7 @@ function Ziel({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [p, setP] = useState(t.settings.prompt);
   async function save() {
-    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { prompt: p } } }); ctx.toast("Gespeichert"); ctx.reload(); } catch (e) { ctx.toast((e as Error).message); }
+    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { prompt: p } } }); ctx.toast("Gespeichert"); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   return <>
     <div className="form">{FIELDS.map(f => <label key={f} className="fld"><span>{f}</span><input className="inp" value={getField(p, f)} onChange={e => setP(setField(p, f, e.target.value))} /></label>)}</div>
@@ -41,9 +41,11 @@ function Ziel({ ctx }: { ctx: Ctx }) {
 function Ablauf({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [n, setN] = useState(String(t.settings.leadsPerDay)), [busy, setBusy] = useState<string | null>(null);
+  /* same bounds as the server: whole numbers 1..30 */
+  const clampN = (v: string) => v.trim() && Number.isFinite(Number(v)) ? Math.max(1, Math.min(30, Math.round(Number(v)))) : null;
   async function saveN(v: string) {
-    setN(v); if (!Number(v)) return;
-    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { leadsPerDay: Number(v) } } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message); }
+    setN(v); const c = clampN(v); if (c === null) return;
+    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { leadsPerDay: c } } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   async function run(job: "research" | "send") {
     setBusy(job);
@@ -51,12 +53,12 @@ function Ablauf({ ctx }: { ctx: Ctx }) {
       const r = await api<{ created?: number; sent?: number; failed?: number }>("/api/run", { body: { t: t.slug, job } });
       ctx.toast(job === "research" ? `${r.created ?? 0} Entwürfe erstellt` : `${r.sent ?? 0} gesendet${r.failed ? `, ${r.failed} fehlgeschlagen` : ""}`);
       ctx.reload();
-    } catch (e) { ctx.toast((e as Error).message); }
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); }
     setBusy(null);
   }
   return <>
     <div className="list-box">
-      <label className="row2"><span>Leads pro Tag</span><input className="inp num" inputMode="numeric" value={n} onChange={e => saveN(e.target.value.replace(/\D/g, ""))} /></label>
+      <label className="row2"><span>Leads pro Tag</span><input className="inp num" type="number" min={1} max={30} step={1} value={n} onChange={e => saveN(e.target.value)} onBlur={() => setN(String(clampN(n) ?? t.settings.leadsPerDay))} /></label>
       <div className="row2"><span>Recherche und Freigabe-Mail</span><span className="num f2">So–Do 20:00</span></div>
       <div className="row2"><span>Versand</span><span className="num f2">Mo–Fr 08:00</span></div>
     </div>
@@ -88,18 +90,19 @@ function Integ({ ctx }: { ctx: Ctx }) {
     catch (e2) { setErr((e2 as Error).message); }
     setBusy(false);
   }
+  useEscape(() => setDlg(null));
   async function disconnect(k: string) {
-    try { await api(`/api/integrations?t=${t.slug}&kind=${k}`, { method: "DELETE" }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message); }
+    try { await api(`/api/integrations?t=${t.slug}&kind=${k}`, { method: "DELETE" }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   return <>
-    <div className="list-box">{INTEG.map(i => { const s = st.integ[i.k];
+    <div className="list-box">{INTEG.filter(i => i.k !== "vergabehero" || t.tenders).map(i => { const s = st.integ[i.k];
       return <div key={i.k} className="row2 int"><span className="nm"><Icon n={i.ico} />{i.name}{s?.on ? <span className="pill g">Verbunden</span> : i.auth === "pending" ? <span className="pill">Demnächst</span> : null}
 </span>
         {s?.on ? <button className="btn gh act" onClick={() => disconnect(i.k)}>Trennen</button> : i.auth === "pending" ? null : <button className="btn sec" onClick={() => open(i.k)}>Verbinden</button>}</div>; })}</div>
     <AiPick ctx={ctx} />
     {(st.integ.outlook?.on || st.integ.imap?.on) && <Contacts ctx={ctx} />}
     <Connector ctx={ctx} />
-    {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" onSubmit={connect}>
+    {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" role="dialog" aria-modal="true" aria-label={`${x.name} verbinden`} onSubmit={connect}>
       <div className="dlg-h">{x.name} verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
       {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
         ? <select className="inp" value={vals[f.id] || ""} onChange={e => setVals({ ...vals, [f.id]: e.target.value })}>{f.options.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>
@@ -115,7 +118,7 @@ function AiPick({ ctx }: { ctx: Ctx }) {
   const { st } = ctx, t = st.tenant!;
   if (!st.ai.options.length) return null;
   async function pick(id: string) {
-    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: id || null } } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message); }
+    try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: id || null } } }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   return <div className="list-box">
     <label className="row2 int"><span className="nm"><Icon n="sparkles" />KI für {t.name}</span>
@@ -141,13 +144,13 @@ function Contacts({ ctx }: { ctx: Ctx }) {
         let cur: MailSync | null = s;
         while (!stop && cur?.status === "läuft") { cur = await api<MailSync | null>("/api/mail-sync", { body: { t: t.slug, action: "step" } }); if (!stop) setS(cur); }
         if (!stop && cur?.status === "fertig") ctx.toast(`${n(cur.imported)} Kontakte im CRM`, { label: "Anzeigen", href: "#leads" });
-      } catch (e) { if (!stop) ctx.toast((e as Error).message); }
+      } catch (e) { if (!stop) ctx.toast((e as Error).message, { error: true }); }
       if (!stop) setBusy(false);
     })();
     return () => { stop = true; };
   }, [s?.status, t.slug]); // eslint-disable-line react-hooks/exhaustive-deps
   async function start() {
-    try { setS(await api<MailSync | null>("/api/mail-sync", { body: { t: t.slug, action: "start" } })); } catch (e) { ctx.toast((e as Error).message); }
+    try { setS(await api<MailSync | null>("/api/mail-sync", { body: { t: t.slug, action: "start" } })); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   const run = s?.status === "läuft";
   const what = !s ? "" : run ? s.phase === "scan" ? `${n(s.scanned)} E-Mails gelesen` : s.phase === "signatur" ? `Signaturen von ${n(s.contacts)} Kontakten` : "Übernehme Kontakte" : `${n(s.imported)} Kontakte`;
@@ -164,13 +167,13 @@ type Grant = { id: number; clientName: string; createdAt: string; lastUsedAt: st
 /* Claude in claude.ai as custom connector: per person, not per tenant */
 function Connector({ ctx }: { ctx: Ctx }) {
   const [d, setD] = useState<{ url: string; grants: Grant[] } | null>(null);
-  const load = () => api<{ url: string; grants: Grant[] }>("/api/oauth/grants").then(setD).catch(e => ctx.toast((e as Error).message));
+  const load = () => api<{ url: string; grants: Grant[] }>("/api/oauth/grants").then(setD).catch(e => ctx.toast((e as Error).message, { error: true }));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   async function copy() {
-    try { await navigator.clipboard.writeText(d!.url); ctx.toast("URL kopiert"); } catch { ctx.toast("Kopieren nicht möglich"); }
+    try { await navigator.clipboard.writeText(d!.url); ctx.toast("URL kopiert"); } catch { ctx.toast("Kopieren nicht möglich", { error: true }); }
   }
   async function revoke(id: number) {
-    try { await api(`/api/oauth/grants?id=${id}`, { method: "DELETE" }); load(); } catch (e) { ctx.toast((e as Error).message); }
+    try { await api(`/api/oauth/grants?id=${id}`, { method: "DELETE" }); load(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   if (!d) return null;
   return <div className="list-box">
@@ -189,7 +192,7 @@ function Billing({ ctx }: { ctx: Ctx }) {
     ["tax", "Steuernummer / USt-IdNr."], ["iban", "IBAN"], ["bic", "BIC"], ["email", "E-Mail für Rechnungen"]];
   async function save() {
     try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { invoice: { seller: s, nextNo: Number(no) || inv.nextNo, plans } } }); ctx.toast("Gespeichert"); ctx.reload(); }
-    catch (e) { ctx.toast((e as Error).message); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   return <>
     <div className="form">{F.map(([k, l]) => <label key={k} className="fld"><span>{l}</span><input className="inp" value={s[k]} onChange={e => setS({ ...s, [k]: e.target.value })} /></label>)}</div>

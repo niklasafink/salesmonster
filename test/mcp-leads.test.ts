@@ -49,6 +49,16 @@ describe("leads_add", () => {
     expect(list.rows.find(l => l.id === kim.id)).toMatchObject({ companyId: kim.companyId, salutation: "Frau Dr.", linkedin: "https://linkedin.com/in/kim", hook: "die neue Halle", sourceUrl: "https://kappa.de/team" });
   });
 
+  it("ungültige E-Mail wird übersprungen, Links nur mit http(s)", async () => {
+    const u = await fx.tenant(me);
+    const r = await c.tool<Added>("leads_add", { tenant: u.slug, rows: [
+      { company: "Iota GmbH", person: "Ina Iota", email: "ina@iota" }, { company: "Jota AG", person: "Jo Jota", email: " jo@jota.de ", linkedin: "javascript:alert(1)", sourceUrl: "jota.de/team" }] });
+    expect(r.skipped).toEqual([{ company: "Iota GmbH", why: "E-Mail ungültig" }]);
+    const l = (await c.tool<List>("leads_list", { tenant: u.slug })).rows;
+    expect(l).toHaveLength(1);
+    expect(l[0]).toMatchObject({ company: "Jota AG", email: "jo@jota.de", linkedin: "", sourceUrl: "https://jota.de/team" });
+  });
+
   it("mehr als 200 Zeilen werden abgelehnt", async () => {
     const rows = Array.from({ length: 201 }, (_, i) => ({ company: `X${i}` }));
     await expect(c.tool("leads_add", { tenant: t.slug, rows })).rejects.toThrow();
@@ -127,6 +137,18 @@ describe("leads_update", () => {
     expect(await get()).toMatchObject({ emailType: "info", website: "https://kappa.de" });
     await c.tool("leads_update", { tenant: u.slug, updates: [{ id: a.id, email: "anna@kappa.de", website: "http://kappa.de" }] });
     expect(await get()).toMatchObject({ emailType: "person", website: "http://kappa.de" });
+  });
+
+  it("ungültige oder vergebene E-Mail lehnt den Aufruf ab, ohne etwas zu ändern", async () => {
+    const u = await fx.tenant(me);
+    const { added: [a, b] } = await c.tool<Added>("leads_add", { tenant: u.slug, rows: [{ company: "Rho GmbH", person: "Ria Rho", email: "ria@rho.de" }, { company: "Sigma AG", person: "Sam Sigma", email: "sam@sigma.de" }] });
+    await expect(c.tool("leads_update", { tenant: u.slug, updates: [{ id: a.id, note: "zuerst" }, { id: b.id, email: "sam@sigma" }] })).rejects.toThrow("E-Mail ungültig");
+    await expect(c.tool("leads_update", { tenant: u.slug, updates: [{ id: b.id, email: "RIA@rho.de" }] })).rejects.toThrow("Schon in der Liste");
+    await expect(c.tool("leads_update", { tenant: u.slug, updates: [{ id: a.id, email: "neu@rho.de" }, { id: b.id, email: "neu@rho.de" }] })).rejects.toThrow("Schon in der Liste");
+    const rows = (await c.tool<List>("leads_list", { tenant: u.slug })).rows, byId = new Map(rows.map(l => [l.id, l]));
+    expect(byId.get(a.id)).toMatchObject({ note: "", email: "ria@rho.de" });
+    expect(byId.get(b.id)!.email).toBe("sam@sigma.de");
+    await c.tool("leads_update", { tenant: u.slug, updates: [{ id: b.id, email: "SAM@sigma.de" }] });
   });
 
   it("fremder Mandant → Mandant nicht gefunden", async () => {

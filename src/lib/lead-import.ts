@@ -2,9 +2,8 @@ import { eq, inArray } from "drizzle-orm";
 import { db, leads } from "@/db";
 import { attachCompanies, norm } from "@/lib/companies";
 import { HubSpotError, hubspotKnown, hubspotToken, type Known } from "@/lib/hubspot";
-import { getInteg } from "@/lib/integrations";
-import { guessSalutations } from "@/lib/jev";
-import { emailTypeOf, salutationOf, websiteOf } from "@/lib/lead-fields";
+import { guessSalutations, jevKey } from "@/lib/jev";
+import { emailTypeOf, httpUrl, salutationOf, validEmail } from "@/lib/lead-fields";
 import { pool } from "@/lib/outreach";
 
 /* One imported contact as the parser, the import dialog and MCP hand it over; several rows with the same co are contacts of one company */
@@ -30,17 +29,17 @@ export async function checkLeads(tenantId: number, rows: LeadRow[]): Promise<Che
   const inHub = hub ? await pool(rows, 4, r => hubKnown(hub, r).catch(e => { console.error(e); return HUB_DOWN; })) : rows.map(() => null);
   const out = rows.map((r, i) => {
     const h = inHub[i], hit = typeof h === "object" ? h : null;
-    const email = (r.email || "").toLowerCase(), known = companies.has(norm(r.co)) || !!hit;
-    const dup = email && emails.has(email) ? "Schon in der Liste" : h === HUB_DOWN ? HUB_DOWN : hit?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : known && !email ? "Firma bekannt" : "";
+    const email = (r.email || "").trim().toLowerCase(), known = companies.has(norm(r.co)) || !!hit;
+    const dup = email && !validEmail(email) ? "E-Mail ungültig" : email && emails.has(email) ? "Schon in der Liste" : h === HUB_DOWN ? HUB_DOWN : hit?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : known && !email ? "Firma bekannt" : "";
     const extra = !dup && known ? "Weiterer Kontakt" : "";
     companies.add(norm(r.co)); if (email) emails.add(email);
     return { ...r, sal: salutationOf(r.sal || ""), dup, extra };
   });
   /* No Herr/Frau in the source: Jev guesses from name and role, a title found in the text is kept */
   const open = out.map((r, i) => i).filter(i => out[i].p && !out[i].sal);
-  const jev = open.length ? await getInteg(tenantId, "jev") : null;
+  const jev = open.length ? await jevKey(tenantId) : null;
   if (jev) {
-    const g = await guessSalutations(jev.key || "", open.map(i => { const [first, ...rest] = out[i].p.trim().split(/\s+/); return { first, last: rest.join(" "), role: out[i].role }; })).catch(() => []);
+    const g = await guessSalutations(jev, open.map(i => { const [first, ...rest] = out[i].p.trim().split(/\s+/); return { first, last: rest.join(" "), role: out[i].role }; })).catch(() => []);
     open.forEach((i, k) => { if (g[k]) out[i].sal = salutationOf(`${g[k]} ${rows[i].sal || ""}`); });
   }
   return out;
@@ -53,8 +52,8 @@ export async function insertLeads(tenantId: number, rows: LeadRow[], source: str
     const [first, ...rest] = (r.p || "").trim().split(/\s+/);
     const email = (r.email || "").trim();
     return { tenantId, company: r.co.trim(), first: r.p ? first : "", last: r.p ? rest.join(" ") : "", role: r.role || "",
-      email, emailType: emailTypeOf(email, !!r.p?.trim()), website: websiteOf((r.web || "").trim()),
-      city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: r.li || "", hook: r.hook || "", sourceUrl: r.url || "", source: source || "Import", status: "neu" };
+      email, emailType: emailTypeOf(email, !!r.p?.trim()), website: httpUrl(r.web || ""),
+      city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: httpUrl(r.li || ""), hook: r.hook || "", sourceUrl: httpUrl(r.url || ""), source: source || "Import", status: "neu" };
   });
   const ids = (await db.insert(leads).values(vals).returning({ id: leads.id })).map(r => r.id);
   await attachCompanies(tenantId);

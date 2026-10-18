@@ -4,7 +4,7 @@ import { db, leads, setups, templates, tenants, SETUP_STEPS, type ChatMsg, type 
 import { ask, json } from "./claude";
 import { AiMissing, type Ai } from "./ai";
 import { getInteg } from "./integrations";
-import { scoreMail } from "./jev";
+import { jevKey, scoreMail } from "./jev";
 import { lint } from "./playbook";
 import { skillFor, WEB } from "./skills";
 
@@ -63,7 +63,7 @@ async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean) 
 
 /* Jev reviews each template once, rendered with the first good lead; optional */
 async function scoreTemplates(t: Tenant, su: Setup, tpls: z.infer<typeof Tpl>[]) {
-  const jev = (await getInteg(t.id, "jev"))?.key;
+  const jev = await jevKey(t.id);
   const l = su.leads.find(x => x.vote === 1) || su.leads[0];
   const fill = (x: string) => x.replace(/{{anrede}}/g, l?.person ? `Guten Tag ${l.person},` : "Guten Tag,").replace(/{{firma}}/g, l?.company || "Muster GmbH")
     .replace(/{{vorname}}/g, l?.person.split(" ")[0] || "").replace(/{{nachname}}/g, l?.person.split(" ").slice(1).join(" ") || "")

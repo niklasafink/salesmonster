@@ -13,7 +13,7 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
   if (obj(b.settings)) {
     const s = { ...t.settings, ...b.settings };
     if (typeof s.prompt !== "string") throw new HttpError(400, "Ungültige Eingabe");
-    s.leadsPerDay = Math.max(1, Math.min(30, Number(s.leadsPerDay) || 10));
+    s.leadsPerDay = Math.max(1, Math.min(30, Math.round(Number(s.leadsPerDay)) || 10));
     /* "claude" or "openrouter:<model>"; null goes back to the default order */
     if ("ai" in b.settings) {
       const c = b.settings.ai === null ? null : choiceOf(String(b.settings.ai));

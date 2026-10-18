@@ -5,7 +5,8 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { OPENROUTER_MODELS } from "@/lib/integ-meta";
 import type { SetupLead, SetupStep, SetupTemplate } from "@/db/schema";
 import type { Setup } from "@/lib/setup";
-import { Icon, Top, api } from "../ui";
+import { httpUrl } from "@/lib/lead-fields";
+import { Icon, Top, api, useEscape } from "../ui";
 import type { Ctx } from "../types";
 
 /* Setup inside the portal: the steps on the left, everything else happens in a chat in the claude.ai look (assistant-ui's unstyled primitives).
@@ -33,13 +34,13 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   const [choose, setChoose] = useState<Opt[] | null>(null);
 
   const apply = useCallback((r: Res) => { setSu(r.setup); setRes(r); if (r.ai !== undefined) setAi(r.ai); if (r.choose !== undefined) setChoose(r.choose); }, []);
-  const load = useCallback(() => api<Res>(`/api/setup?t=${t.slug}`).then(apply).catch(e => ctx.toast(e.message)), [t.slug, apply, ctx]);
+  const load = useCallback(() => api<Res>(`/api/setup?t=${t.slug}`).then(apply).catch(e => ctx.toast(e.message, { error: true })), [t.slug, apply, ctx]);
   useEffect(() => { load(); }, [load]);
 
   const post = useCallback(async (body: Record<string, unknown>) => {
     setBusy(true);
     try { const r = await api<Res>("/api/setup", { body: { t: t.slug, ...body } }); apply(r); return r.setup; }
-    catch (e) { ctx.toast((e as Error).message); return null; }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); return null; }
     finally { setBusy(false); }
   }, [t.slug, apply, ctx]);
 
@@ -100,7 +101,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
     const o = choose?.find(x => x.label === label);
     if (!o) return;
     try { await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: o.id } } }); setChoose(null); ctx.reload(); }
-    catch (e) { ctx.toast((e as Error).message); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
 
   /* Without any model nothing works, so the key is the first answer in the chat */
@@ -126,7 +127,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
       const a = r.applied;
       ctx.toast([a.prompt && "Zielgruppe", a.templates && `${a.templates} Vorlagen`, a.leads && `${a.leads} Leads`].filter(Boolean).join(", ") + " übernommen");
       await ctx.reload(); ctx.setView(a.leads ? "leads" : "einstellungen");
-    } catch (e) { ctx.toast((e as Error).message); }
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); }
     setBusy(false);
   }
 
@@ -172,7 +173,7 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
   </div>
   {open && res && <PromptDialog key={open} step={open} text={res.parts[open]} label={res.keys[open]} busy={busy} onClose={() => setOpen(null)}
     onGo={() => { setOpen(null); goto(open); }} onSave={async text => {
-      try { apply(await api<Res>("/api/setup", { body: { t: t.slug, action: "prompt", step: open, text } })); setOpen(null); } catch (e) { ctx.toast((e as Error).message); }
+      try { apply(await api<Res>("/api/setup", { body: { t: t.slug, action: "prompt", step: open, text } })); setOpen(null); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
     }} />}
   </>;
 }
@@ -185,7 +186,8 @@ function PromptDialog({ step, text, label, busy, onClose, onGo, onSave }: {
   const re = label ? new RegExp(`^${label}:[ \\t]*(.*)$`, "m") : null;
   const keys = re ? v.match(re)?.[1] ?? "" : "";
   const setKeys = (k: string) => setV(re!.test(v) ? v.replace(re!, () => `${label}: ${k}`) : `${label}: ${k}\n${v}`);
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg">
+  useEscape(onClose);
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg" role="dialog" aria-modal="true" aria-label={NAME[step]}>
     <div className="dlg-h">{NAME[step]}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
     {label && <label className="fld"><span>{label}</span><textarea className="inp ta keys" rows={2} value={keys} onChange={e => setKeys(e.target.value.replace(/\s*\n\s*/g, " "))} /></label>}
     <label className="fld"><span>Prompt</span><textarea className="prompt" value={v} onChange={e => setV(e.target.value)} /></label>
@@ -241,13 +243,13 @@ function LeadList({ su, busy, post, send }: { su: Setup; busy: boolean; post: Po
   return <>
     <div className="cl-leads">{rows.map((r, i) => <div key={r.company} className={`cl-lead ${r.vote === -1 ? "out" : ""}`}>
       <div className="cl-lh">
-        <b className="cl-co">{r.website ? <a href={r.website.startsWith("http") ? r.website : `https://${r.website}`} target="_blank" rel="noreferrer">{r.company}</a> : r.company}</b>
+        <b className="cl-co">{httpUrl(r.website) ? <a href={httpUrl(r.website)} target="_blank" rel="noreferrer">{r.company}</a> : r.company}</b>
         <div className="cl-vote">
           <button className={`btn gh ic ${r.vote === 1 ? "up" : ""}`} aria-label="Passt" aria-pressed={r.vote === 1} onClick={() => vote(i, 1)}><Icon n="thumbs-up" /></button>
           <button className={`btn gh ic ${r.vote === -1 ? "down" : ""}`} aria-label="Passt nicht" aria-pressed={r.vote === -1} onClick={() => vote(i, -1)}><Icon n="thumbs-down" /></button>
         </div>
       </div>
-      <div className="f2">{r.person ? <>{r.linkedin ? <a href={r.linkedin} target="_blank" rel="noreferrer">{r.person}</a> : r.person}{r.role && `, ${r.role}`}</> : "Kein Ansprechpartner"}{r.segment && ` · ${r.segment}`}</div>
+      <div className="f2">{r.person ? <>{httpUrl(r.linkedin) ? <a href={httpUrl(r.linkedin)} target="_blank" rel="noreferrer">{r.person}</a> : r.person}{r.role && `, ${r.role}`}</> : "Kein Ansprechpartner"}{r.segment && ` · ${r.segment}`}</div>
       {r.why && <p>{r.why}</p>}
       {r.vote === -1 && <input className="inp" placeholder="Warum nicht?" value={r.reason || ""} onChange={e => setRows(rows.map((x, k) => k === i ? { ...x, reason: e.target.value } : x))}
         onBlur={() => post({ action: "votes", leads: rows })} />}

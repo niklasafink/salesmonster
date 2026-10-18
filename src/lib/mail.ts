@@ -81,3 +81,14 @@ export async function hasReply(tenantId: number, userId: number, from: string, s
   const j = await r.json();
   return (j.value || []).length > 0;
 }
+
+/* Delivery failure for an address since a date: a bounce from the mail system that names the address */
+export async function hasBounce(tenantId: number, userId: number, to: string, since: Date) {
+  const g = await graphAccess(tenantId, userId);
+  if (!g) return null;
+  const q = encodeURIComponent(`"${to.replace(/"/g, "")}"`);
+  const r = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$top=10&$select=from,receivedDateTime&$search=${q}`, { headers: { authorization: `Bearer ${g.token}` } });
+  if (!r.ok) return null;
+  const j = await r.json() as { value?: { from?: { emailAddress?: { address?: string } }; receivedDateTime: string }[] };
+  return (j.value || []).some(m => new Date(m.receivedDateTime) >= since && /mailer-daemon|postmaster|microsoftexchange/i.test(m.from?.emailAddress?.address || ""));
+}

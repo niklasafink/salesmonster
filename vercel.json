@@ -3,6 +3,7 @@
   "regions": ["fra1"],
   "crons": [
     { "path": "/api/cron/evening", "schedule": "0 18 * * 0-4" },
-    { "path": "/api/cron/morning", "schedule": "0 6 * * 1-5" }
+    { "path": "/api/cron/morning", "schedule": "0 6 * * 1-5" },
+    { "path": "/api/cron/sequences", "schedule": "0 9 * * *" }
   ]
 }

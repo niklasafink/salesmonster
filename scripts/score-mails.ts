@@ -1,7 +1,7 @@
 /* npx tsx scripts/score-mails.ts mails.jsonl [out.jsonl]
    Scores a collection of cold mails with Jev and shows what goes with replies.
    One JSON object per line: {"subject":"…","body":"…","replied":true|false (optional),"source":"…" (optional)}
-   Needs AI_GATEWAY_API_KEY (or VERCEL_OIDC_TOKEN) in .env.local. Free tier: 5 calls per 5 minutes; with credits it runs about 1,000 mails a minute. */
+   Needs OPENROUTER_API_KEY in .env.local. Jev costs about 3 cents per 1,000 mails. */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 import { readFileSync, writeFileSync } from "node:fs";
@@ -10,9 +10,9 @@ type Row = { subject: string; body: string; replied?: boolean; source?: string }
 
 async function main() {
   const [file, outFile] = process.argv.slice(2);
-  const key = process.env.AI_GATEWAY_API_KEY || "";
+  const key = process.env.OPENROUTER_API_KEY;
   if (!file) throw new Error("Datei fehlt: npx tsx scripts/score-mails.ts mails.jsonl");
-  if (!key && !process.env.VERCEL_OIDC_TOKEN) throw new Error("AI_GATEWAY_API_KEY oder VERCEL_OIDC_TOKEN fehlt in .env.local");
+  if (!key) throw new Error("OPENROUTER_API_KEY fehlt in .env.local");
   const { scoreMail } = await import("../src/lib/jev");
 
   const rows: Row[] = readFileSync(file, "utf8").split("\n").filter(l => l.trim()).map(l => JSON.parse(l));

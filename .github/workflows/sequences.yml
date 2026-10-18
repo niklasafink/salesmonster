@@ -1,0 +1,12 @@
+# Vercel Hobby runs crons once a day; the mail sequences need an hourly tick
+name: Strecken
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - run: curl -fsS --max-time 300 -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://sales-portal-sooty.vercel.app/api/cron/sequences

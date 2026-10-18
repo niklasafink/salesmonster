@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
-import { and, eq } from "drizzle-orm";
-import { db, members, tenants, users } from "@/db";
+import { and, eq, ne, sql } from "drizzle-orm";
+import { db, leads, members, tenants, users } from "@/db";
 import { AiMissing } from "./ai";
+import { validEmail } from "./lead-fields";
 import { COOKIE, readSession } from "./session";
 
 export class HttpError extends Error {
@@ -28,6 +29,15 @@ export async function tenantBySlug(slug: string | null, user: { id: number }) {
 export async function assertMember(user: { id: number }, tenantId: number, what = "Eintrag") {
   const [m] = await db.select({ id: members.id }).from(members).where(and(eq(members.tenantId, tenantId), eq(members.userId, user.id)));
   if (!m) throw new HttpError(404, `${what} nicht gefunden`);
+}
+
+/* Address checks for a hand-entered contact: well formed, not already in this tenant (other than the lead itself) */
+export async function checkEmail(tenantId: number, email: string | undefined, self?: number) {
+  if (!email) return;
+  if (!validEmail(email)) throw new HttpError(400, "E-Mail ungültig");
+  const [d] = await db.select({ id: leads.id }).from(leads)
+    .where(and(eq(leads.tenantId, tenantId), sql`lower(${leads.email}) = ${email.toLowerCase()}`, self ? ne(leads.id, self) : undefined)).limit(1);
+  if (d) throw new HttpError(400, "Schon in der Liste");
 }
 
 export async function tenantMembers(tenantId: number) {

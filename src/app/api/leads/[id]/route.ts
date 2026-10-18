@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, leads } from "@/db";
-import { HttpError, assertMember, body, idOf, route } from "@/lib/api";
+import { HttpError, assertMember, body, checkEmail, idOf, route } from "@/lib/api";
 import { attachCompanies } from "@/lib/companies";
 import { cleanLead } from "@/lib/lead-fields";
 import { setLeadStatus } from "@/lib/outreach";
@@ -16,6 +16,7 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
   await assertMember(me, l.tenantId, "Lead");
   const v = cleanLead(b);
   if (v.company === "") throw new HttpError(400, "Firma fehlt");
+  if (v.email !== undefined && v.email.toLowerCase() !== l.email.toLowerCase()) await checkEmail(l.tenantId, v.email, id);
   if (Object.keys(v).length) {
     const moved = v.company !== undefined && v.company !== l.company;
     await db.update(leads).set({ ...v, ...(moved ? { companyId: null } : {}) }).where(eq(leads.id, id));

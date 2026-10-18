@@ -15,7 +15,6 @@
     "@modelcontextprotocol/server": "2.3.1",
     "@neondatabase/serverless": "^1.2.0",
     "@pdf-lib/fontkit": "^1.1.1",
-    "ai": "^7.0.143",
     "drizzle-orm": "^0.45.4",
     "email-reply-parser": "2.3.9",
     "imapflow": "2.1.2",

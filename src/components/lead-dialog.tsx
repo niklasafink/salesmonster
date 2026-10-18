@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import type { Tender } from "@/db/schema";
-import { SALUTATIONS } from "@/lib/lead-fields";
-import { Icon, api } from "./ui";
+import { SALUTATIONS, httpUrl } from "@/lib/lead-fields";
+import { Icon, api, useEscape } from "./ui";
 
 export type EditLead = {
   id?: number; company: string; salutation: string; first: string; last: string; role: string; email: string; emailType: string; phone: string;
@@ -25,6 +25,7 @@ export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, o
 }) {
   const [f, setF] = useState(lead), [tt, setTt] = useState(tendersText(lead.tenders)), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const set = (k: keyof EditLead) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  useEscape(onClose);
 
   async function save() {
     setBusy(true); setErr("");
@@ -41,7 +42,7 @@ export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, o
     try { await api(`/api/leads/${f.id}`, { method: "DELETE" }); onDeleted?.(f.id); } catch (e) { setErr((e as Error).message); }
   }
 
-  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg">
+  return <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}><div className="dlg lg" role="dialog" aria-modal="true" aria-label={f.id ? "Kontakt bearbeiten" : "Kontakt hinzufügen"}>
     <div className="dlg-h">{f.id ? [f.first, f.last].filter(Boolean).join(" ") || f.company : "Kontakt hinzufügen"}<button className="btn gh ic" onClick={onClose} aria-label="Schließen"><Icon n="x" /></button></div>
     <div className="fgrid">
       <label className="fld s1"><span>Anrede</span><select className="inp sel" value={f.salutation} onChange={set("salutation")}><option value="">–</option>{SALUTATIONS.map(s => <option key={s}>{s}</option>)}</select></label>
@@ -59,7 +60,7 @@ export function LeadDialog({ lead, slug, tenders, onClose, onSaved, onDeleted, o
         ? <label className="fld s6"><span>Ausschreibungen</span><textarea className="inp ta" rows={3} value={tt} placeholder="Titel | Vergabestelle | Frist" onChange={e => setTt(e.target.value)} /></label>
         : <label className="fld s6"><span>Anlass</span><input className="inp" value={f.hook} onChange={set("hook")} /></label>}
       <label className="fld s2"><span>Status</span><select className="inp sel" value={f.status} onChange={set("status")} disabled={!f.id}>{Object.entries(STATUS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></label>
-      <label className="fld s4"><span>Quelle{f.sourceUrl && <a className="src" href={f.sourceUrl} target="_blank" rel="noreferrer" aria-label="Quelle öffnen"><Icon n="external-link" /></a>}</span><input className="inp" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></label>
+      <label className="fld s4"><span>Quelle{httpUrl(f.sourceUrl) && <a className="src" href={httpUrl(f.sourceUrl)} target="_blank" rel="noreferrer" aria-label="Quelle öffnen"><Icon n="external-link" /></a>}</span><input className="inp" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></label>
       <label className="fld s6"><span>Notiz</span><textarea className="inp ta" rows={2} value={f.note} onChange={set("note")} /></label>
       {(f.id || f.research) && <label className="fld s6"><span>Original</span><textarea className="inp ta" rows={3} value={f.research} onChange={set("research")} /></label>}
     </div>

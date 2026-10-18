@@ -5,10 +5,10 @@ import { salutationOf } from "./lead-fields";
 import { berlinDate } from "./dates";
 import { getInteg } from "./integrations";
 import { enrichLead, researchLeads, type LeadOut } from "./claude";
-import { aiFor } from "./ai";
+import { AiMissing, aiFor } from "./ai";
 import { HubSpotError, domainOf, hubspotAddContact, hubspotCreateContact, hubspotKnown, hubspotPortal, hubspotReserve, hubspotToken, type Known } from "./hubspot";
 import { hasReply, sendAs, sendSystem } from "./mail";
-import { JevLimit, guessSalutations, scoreMail } from "./jev";
+import { JevLimit, guessSalutations, jevKey, scoreMail } from "./jev";
 
 type Tenant = typeof tenants.$inferSelect;
 type Lead = typeof leads.$inferSelect;
@@ -111,7 +111,7 @@ async function keepAsContact(t: Tenant, hub: Hub | null, row: Lead, companyId: s
 export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
   const today = berlinDate();
   const key = await aiFor(t.id);
-  if (!key) throw new Error("Keine KI verbunden");
+  if (!key) throw new AiMissing();
   const open = await db.select({ n: sql<number>`count(*)::int` }).from(messages).where(and(eq(messages.tenantId, t.id), eq(messages.batchDate, today)));
   if (open[0].n > 0 && !opts.force) return { created: 0, skipped: "Heute schon recherchiert" };
 
@@ -123,7 +123,7 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
     catch (e) { await log(t.id, "hubspot", false, (e as Error).message); }
   }
   const nextVariant = await pickVariant(t.id);
-  const jevKey = (await getInteg(t.id, "jev"))?.key as string | undefined;
+  const jev = await jevKey(t.id);
   await attachCompanies(t.id);
   const known = await db.select({ company: leads.company }).from(leads).where(eq(leads.tenantId, t.id)).orderBy(desc(leads.createdAt)).limit(2000);
   const seen = new Set(known.map(k => norm(k.company)));
@@ -158,8 +158,8 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
     if (!rows.length) return;
     /* salutation from first name and role where Jev is sure, so {{anrede}} can name the person */
     const unsure = rows.filter(l => l.last && !l.salutation);
-    if (jevKey && unsure.length) {
-      const g = await guessSalutations(jevKey, unsure.map(l => ({ first: l.first, last: l.last, role: l.role }))).catch(() => []);
+    if (jev && unsure.length) {
+      const g = await guessSalutations(jev, unsure.map(l => ({ first: l.first, last: l.last, role: l.role }))).catch(() => []);
       for (const [k, l] of unsure.entries()) if (g[k]) { l.salutation = g[k]; await db.update(leads).set({ salutation: g[k] }).where(eq(leads.id, l.id)); }
     }
     /* a company this tenant already works with is in HubSpot already; new contacts are added there */
@@ -259,11 +259,11 @@ export async function sendApproved(t: Tenant) {
   await log(t.id, "send", failed === 0, `${sent} gesendet${failed ? `, ${failed} fehlgeschlagen` : ""}`);
 
   /* Jev's view of what actually went out, to check later whether its scores predict replies */
-  const jev = (await getInteg(t.id, "jev"))?.key;
-  if (jev) {
+  const scoreKey = await jevKey(t.id);
+  if (scoreKey) {
     for (const { m, l } of rows) {
       try {
-        const score = await scoreMail(jev, { subject: m.finalSubject || "", body: m.finalBody || "", company: l.company, role: l.role }, { wait: false });
+        const score = await scoreMail(scoreKey, { subject: m.finalSubject || "", body: m.finalBody || "", company: l.company, role: l.role }, { wait: false });
         await db.update(messages).set({ score }).where(and(eq(messages.id, m.id), eq(messages.status, "gesendet")));
       } catch (e) { if (e instanceof JevLimit) break; }
     }
