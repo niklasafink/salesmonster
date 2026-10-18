@@ -7,6 +7,8 @@ import type { EnrichField, RatingInfo, Tender } from "@/db/schema";
 import { Icon, Top, api, useDialog } from "../ui";
 import { hasField, httpUrl } from "@/lib/lead-fields";
 import { EnrichReport, type EnrichDone } from "../enrich-report";
+/* a background enrich run as /api/leads/enrich/jobs reports it */
+type EnrichJob = { id: number; status: string; error: string; total: number; done: number; found: number; skipped: number; results: EnrichDone[] };
 import { ENRICH, LeadDialog, RatingBar, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import { AnglesDialog } from "../angles-dialog";
 import type { Ctx } from "../types";
@@ -75,8 +77,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
   const liRef = useDialog(() => setLi(null));
   const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean; picked: boolean }>(null), [sel, setSel] = useState<Set<number>>(new Set());
-  const [job, setJob] = useState<null | { total: number; done: number; found: number }>(null), [report, setReport] = useState<null | { done: EnrichDone[]; skipped: number; stopped: boolean }>(null);
-  const stop = useRef(false);
+  const [job, setJob] = useState<EnrichJob | null>(null), [report, setReport] = useState<null | { done: EnrichDone[]; skipped: number; stopped: boolean }>(null);
+  const seenRes = useRef(0);
   const enrRef = useDialog(() => setEnr(null));
   useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
   const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
@@ -211,29 +213,33 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   };
   const toggle = (id: number) => setSel(s => { const n = new Set(s); if (!n.delete(id)) n.add(id); return n; });
   const allOn = vis.length > 0 && vis.every(r => sel.has(r.id));
+  /* the run lives on the server: switching tenants, reloading or closing the tab does not stop it, coming back shows it again */
+  const poll = useCallback(async () => {
+    const { job: j } = await api<{ job: EnrichJob | null }>(`/api/leads/enrich/jobs?t=${t.slug}`);
+    if (!j) { setJob(null); return; }
+    const fresh = j.results.slice(seenRes.current); seenRes.current = j.results.length;
+    if (fresh.length) setRows(rs => rs.map(x => { const r = fresh.find(f => f.id === x.id); return r ? { ...x, ...r.found } : x; }));
+    if (j.status === "laeuft") { setJob(j); return; }
+    setJob(null); seenRes.current = 0; load();
+    api("/api/leads/enrich/jobs", { method: "PATCH", body: { t: t.slug, id: j.id, action: "seen" } }).catch(() => {});
+    if (j.status === "fehler") ctx.toast(j.error, { error: true });
+    if (j.results.length || j.skipped) setReport({ done: j.results, skipped: j.skipped, stopped: j.status !== "fertig" });
+  }, [t.slug, load, ctx]);
+  useEffect(() => { poll().catch(() => {}); }, [poll]);
+  const running = !!job;
+  useEffect(() => { if (!running) return; const iv = setInterval(() => poll().catch(() => {}), 3000); return () => clearInterval(iv); }, [running, poll]);
   async function runEnrich() {
     if (!enr) return;
     const { fields } = enr, list = enrichable(enr), skipped = enr.again ? 0 : missedBefore(enr) - list.filter(r => fields.some(f => !hasField(r, f) && r.enrichMiss?.[f])).length;
     keep.set("enrich-fields", JSON.stringify(fields));
-    setEnr(null); stop.current = false; setJob({ total: list.length, done: 0, found: 0 });
-    let i = 0, fail = "", found = 0, done = 0;
-    const res: EnrichDone[] = [];
-    await Promise.all(Array.from({ length: Math.min(3, list.length) }, async () => {
-      while (i < list.length && !stop.current && !fail) {
-        const l = list[i++];
-        try {
-          const { results: [r] } = await api<{ results: { id: number; found: Partial<Lead>; missed: EnrichField[]; error?: string }[] }>("/api/leads/enrich", { body: { t: t.slug, ids: [l.id], fields, again: enr.again } });
-          if (r) res.push({ ...r, name: [person(l), l.company].filter(Boolean).join(", ") });
-          const hit = !!r && Object.keys(r.found).length > 0;
-          if (hit) { found++; setRows(rs => rs.map(x => x.id === r.id ? { ...x, ...r.found } : x)); }
-        } catch (e) { fail = (e as Error).message; }
-        done++; setJob(j => j && { ...j, done, found });
-      }
-    }));
-    setJob(null); load();
-    if (fail) ctx.toast(fail, { error: true });
-    /* in list order, not in the order the parallel requests came back */
-    if (res.length || skipped) setReport({ done: list.flatMap(l => res.filter(r => r.id === l.id)), skipped, stopped: stop.current });
+    setEnr(null);
+    try { const { job: j } = await api<{ job: EnrichJob }>("/api/leads/enrich/jobs", { body: { t: t.slug, ids: list.map(l => l.id), fields, again: enr.again, skipped } }); seenRes.current = 0; setJob(j); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); }
+  }
+  async function stopEnrich() {
+    if (!job) return;
+    try { await api("/api/leads/enrich/jobs", { method: "PATCH", body: { t: t.slug, id: job.id, action: "stop" } }); await poll(); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
 
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
@@ -284,7 +290,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       {job ? <div className="enr" role="status" aria-label="Anreichern">
         <div className="bar"><i style={{ width: `${job.total ? job.done / job.total * 100 : 0}%` }} /></div>
         <span className="num">{job.done}/{job.total}</span><span className="f3 num">{job.found} gefunden</span>
-        <button className="btn gh ic" title="Stoppen" aria-label="Stoppen" onClick={() => { stop.current = true; }}><Icon n="square" /></button>
+        <button className="btn gh ic" title="Stoppen" aria-label="Stoppen" onClick={stopEnrich}><Icon n="square" /></button>
       </div> : <button className="btn sec" onClick={openEnrich}><Icon n="sparkles" />Anreichern{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>}
       <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>

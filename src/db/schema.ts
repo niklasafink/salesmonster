@@ -430,3 +430,25 @@ export const sequenceMails = pgTable("sequence_mails", {
   repliedAt: timestamp("replied_at", { withTimezone: true }),
   bouncedAt: timestamp("bounced_at", { withTimezone: true }),
 }, t => [index("sequence_mails_step").on(t.sequenceId, t.step)]);
+
+/* An enrich run in the background: workers claim items by bumping next, so it survives tenant switches, reloads and closed tabs */
+export type EnrichItem = { id: number; name: string };
+export type EnrichJobResult = EnrichItem & { found: Partial<Record<"salutation" | "first" | "last" | "role" | "email" | "phone" | "linkedin" | "website" | "city", string>>; missed: EnrichField[]; error?: string };
+export const enrichJobs = pgTable("enrich_jobs", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  items: jsonb("items").$type<EnrichItem[]>().notNull(),
+  fields: jsonb("fields").$type<EnrichField[]>().notNull(),
+  again: boolean("again").notNull().default(false),
+  skipped: integer("skipped").notNull().default(0),
+  next: integer("next").notNull().default(0),
+  done: integer("done").notNull().default(0),
+  results: jsonb("results").$type<EnrichJobResult[]>().notNull().default([]),
+  /* laeuft | fertig | gestoppt | fehler */
+  status: text("status").notNull().default("laeuft"),
+  error: text("error").notNull().default(""),
+  seenAt: timestamp("seen_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [index("enrich_jobs_tenant").on(t.tenantId, t.id)]);
