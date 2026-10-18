@@ -249,6 +249,7 @@ th:first-child,td:first-child{padding-left:0} th:last-child,td:last-child{paddin
 .row2{display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px; padding:8px 16px; border-bottom:1px solid var(--line)}
 .row2:last-child{border-bottom:0}
 .row2 > .inp{width:120px}
+.row2 > .inp.url{flex:1; width:auto; min-width:0}
 .row2 .nm{display:flex; align-items:center; gap:10px; font-weight:500}
 .row2 .nm .lucide{color:var(--fg-3)}
 .int .act{opacity:0; transition:opacity .12s}

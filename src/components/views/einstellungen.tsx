@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { INTEG } from "@/lib/integ-meta";
 import { Icon, Top, api } from "../ui";
 import type { Ctx } from "../types";
@@ -96,6 +96,7 @@ function Integ({ ctx }: { ctx: Ctx }) {
       return <div key={i.k} className="row2 int"><span className="nm"><Icon n={i.ico} />{i.name}{s?.on ? <span className="pill g">Verbunden</span> : i.auth === "pending" ? <span className="pill">Demnächst</span> : null}
 </span>
         {s?.on ? <button className="btn gh act" onClick={() => disconnect(i.k)}>Trennen</button> : i.auth === "pending" ? null : <button className="btn sec" onClick={() => open(i.k)}>Verbinden</button>}</div>; })}</div>
+    <Connector ctx={ctx} />
     {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" onSubmit={connect}>
       <div className="dlg-h">{x.name} verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
       {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
@@ -105,6 +106,29 @@ function Integ({ ctx }: { ctx: Ctx }) {
       <button className="btn pri wide" disabled={busy}>{busy ? <Icon n="loader" /> : null}Verbinden</button>
     </form></div>}
   </>;
+}
+
+type Grant = { id: number; clientName: string; createdAt: string; lastUsedAt: string | null };
+
+/* Claude in claude.ai as custom connector: per person, not per tenant */
+function Connector({ ctx }: { ctx: Ctx }) {
+  const [d, setD] = useState<{ url: string; grants: Grant[] } | null>(null);
+  const load = () => api<{ url: string; grants: Grant[] }>("/api/oauth/grants").then(setD).catch(e => ctx.toast((e as Error).message));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  async function copy() {
+    try { await navigator.clipboard.writeText(d!.url); ctx.toast("URL kopiert"); } catch { ctx.toast("Kopieren nicht möglich"); }
+  }
+  async function revoke(id: number) {
+    try { await api(`/api/oauth/grants?id=${id}`, { method: "DELETE" }); load(); } catch (e) { ctx.toast((e as Error).message); }
+  }
+  if (!d) return null;
+  return <div className="list-box">
+    <div className="row2 int"><span className="nm"><Icon n="sparkles" />Claude-Connector{d.grants.length > 0 && <span className="pill g">Verbunden</span>}</span></div>
+    <div className="row2"><input className="inp url" readOnly value={d.url} aria-label="Connector-URL" onFocus={e => e.target.select()} />
+      <button className="btn sec" onClick={copy}><Icon n="copy" />Kopieren</button></div>
+    {d.grants.map(g => <div key={g.id} className="row2"><span>{g.clientName} <span className="f3 num">{when(g.lastUsedAt || g.createdAt)}</span></span>
+      <button className="btn gh act" onClick={() => revoke(g.id)}>Trennen</button></div>)}
+  </div>;
 }
 
 function Billing({ ctx }: { ctx: Ctx }) {

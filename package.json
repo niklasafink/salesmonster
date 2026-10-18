@@ -12,12 +12,14 @@
     "@anthropic-ai/sdk": "^0.135.0",
     "@assistant-ui/react": "^0.15.29",
     "@assistant-ui/react-markdown": "^0.14.23",
+    "@modelcontextprotocol/server": "2.3.1",
     "@neondatabase/serverless": "^1.2.0",
     "@pdf-lib/fontkit": "^1.1.1",
     "ai": "^7.0.143",
     "drizzle-orm": "^0.45.4",
     "jose": "^6.2.12",
     "lucide-react": "^1.59.0",
+    "mcp-handler": "2.3.0",
     "next": "16.4.2",
     "nodemailer": "^10.1.2",
     "pdf-lib": "^1.17.1",
@@ -27,6 +29,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19",

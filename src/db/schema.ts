@@ -187,3 +187,14 @@ export const runs = pgTable("runs", {
   info: text("info").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/* One row per Claude connector login; refreshHash stays null until the code is exchanged, which makes codes single-use */
+export const oauthGrants = pgTable("oauth_grants", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  clientName: text("client_name").notNull(),
+  refreshHash: text("refresh_hash").unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
