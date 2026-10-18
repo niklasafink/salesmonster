@@ -46,7 +46,7 @@ function buckets(p: Period, off: number, today: string): Bucket[] {
 /* Costs arrive in millionths of a dollar; single actions often cost fractions of a cent */
 function usd(micro: number) {
   const v = micro / 1e6;
-  if (v > 0 && v < 0.0001) return "< 0,0001 $";
+  if (v > 0 && v < 0.0001) return v.toLocaleString("de-DE", { style: "currency", currency: "USD", maximumSignificantDigits: 2 });
   const digits = v !== 0 && v < 1 ? 4 : 2;
   return v.toLocaleString("de-DE", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
@@ -140,8 +140,8 @@ export function Kosten({ ctx }: { ctx: Ctx }) {
       <div className="kpi"><span className="l">Insgesamt</span><span className="v">{usd(ever)}</span></div>
     </div>
     <div className="blk chart"><Chart p={p} b={b} /></div>
-    {inPeriod.length > 0 && <div className="blk"><h3>Aktionen</h3><div className="tbl"><table className="costs"><thead><tr><th>Aktion</th><th>Umfang</th><th>Zeitpunkt</th><th className="num-r hide-m">Je Stück</th><th className="num-r">Kosten</th></tr></thead><tbody>
-      {shown.map((a, i) => <tr key={i}><td>{KINDS[a.kind]?.[0] || a.kind}</td><td className="num f2">{unit(a)}</td><td className="num f2">{when(a.at)}</td>
+    {inPeriod.length > 0 && <div className="blk"><h3>Aktionen</h3><div className="tbl"><table className="costs"><thead><tr><th>Aktion</th><th>Umfang</th><th className="hide-m">Zeitpunkt</th><th className="num-r hide-m">Je Stück</th><th className="num-r">Kosten</th></tr></thead><tbody>
+      {shown.map((a, i) => <tr key={i}><td>{KINDS[a.kind]?.[0] || a.kind}</td><td className="num f2">{unit(a)}</td><td className="num f2 hide-m">{when(a.at)}</td>
         <td className="num f2 num-r hide-m">{a.items && a.cost ? usd(a.cost / a.items) : "–"}</td><td className="num num-r">{cost(a)}</td></tr>)}
     </tbody></table></div></div>}
     {inPeriod.length > VISIBLE && <div><button className="btn gh" onClick={() => setAll(!all)}>{all ? "Weniger anzeigen" : `Alle ${inPeriod.length} anzeigen`}</button></div>}
