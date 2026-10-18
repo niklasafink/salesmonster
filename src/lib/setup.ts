@@ -97,13 +97,15 @@ function context(t: Tenant, su: Setup) {
 /* Writing mails needs the most care; the profile and segments decide everything after them */
 const EFFORT: Record<SetupStep, "low" | "medium" | "high"> = { website: "medium", zielgruppe: "medium", ansprechpartner: "medium", liste: "medium", ansprache: "high", fertig: "low" };
 
-/* One model call for the current step. text = what the user wrote; auto = decide alone */
-async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean, signal?: AbortSignal) {
+/* One model call for the current step. text = what the user wrote; auto = decide alone; prev = the closing answer of the step just finished */
+async function think(t: Tenant, ai: Ai, su: Setup, text: string, auto: boolean, signal?: AbortSignal, prev?: string) {
   /* the buttons shown with each question go along, so the model knows which options the user did not pick */
   const history = su.chat.filter(m => m.step === su.step).slice(-12)
     .map(m => `${m.role === "ai" ? "Du" : "Nutzer"}: ${m.text}${m.role === "ai" && m.chips?.length ? `\n(Antwort-Buttons: ${m.chips.join(" | ")})` : ""}`).join("\n");
   const ask_ = auto ? "Der Nutzer möchte, dass du diesen Schritt ohne Rückfragen selbst erledigst. Triff alle Entscheidungen selbst, fülle die Felder vollständig und setze advance auf true."
-    : text ? `Nutzer: ${text}` : "Beginne diesen Schritt: erledige die Recherche bzw. den Entwurf und stelle dann deine erste Frage.";
+    : text ? `Nutzer: ${text}`
+    : prev ? `Der vorige Schritt ist gerade abgeschlossen. Deine Abschlussantwort dort, die der Nutzer nicht sieht:\n«${prev}»\nBeginne reply mit höchstens einem Satz, der den Abschluss bestätigt, ohne Frage. Dann beginne diesen Schritt: erledige die Recherche bzw. den Entwurf und stelle deine erste Frage.`
+    : "Beginne diesen Schritt: erledige die Recherche bzw. den Entwurf und stelle dann deine erste Frage.";
   const read = mustRead(t, su.step);
   const readNote = read ? `\n\nDie Website https://${t.domain} ist noch nicht gelesen. Lies sie jetzt einmal gründlich und gib alles, was du dort gefunden hast, in "site" zurück. Diese Notizen werden gespeichert und ersetzen das Lesen der Website in allen folgenden Antworten.` : "";
   /* step 1 needs the web only to read the website; other steps search the market and get the notes instead of the site */
@@ -163,13 +165,47 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
   const chat: ChatMsg[] = [...su.chat, ...(a.intro ?? [])];
   if (text) chat.push({ role: "me", text, step: su.step });
 
+  const t0 = Date.now();
   const o = await think(t, ai, { ...su, chat }, text, a.action === "auto", signal);
   if (signal?.aborted) return su;
+  let cur = { ...su, ...(await absorb(t, su, o, text)) };
+  if (o.site && mustRead(t, su.step)) t = { ...t, settings: { ...t.settings, site: { domain: t.domain, notes: o.site.slice(0, 20000), at: new Date().toISOString() } } };
+  const reply: ChatMsg = { role: "ai", text: labelled(o.reply, su.step), step: su.step, chips: o.chips.slice(0, 4) };
+  const step = a.action === "auto" || (o.advance && a.action === "message") ? nextStep(su.step) : su.step;
+
+  /* A finished step starts the next one in the same request, so the user gets one answer instead of a closing answer, a wait and a second answer.
+     Without enough time left the closing answer is saved and the client starts the next step as before */
+  const left = CHAIN_MS - (Date.now() - t0);
+  if (step !== su.step && step !== "fertig" && left > CHAIN_MIN_MS) {
+    const nsu = { ...cur, chat, step };
+    try {
+      const timeout = AbortSignal.timeout(left);
+      const o2 = await think(t, ai, nsu, "", false, signal ? AbortSignal.any([signal, timeout]) : timeout, o.reply);
+      cur = { ...cur, ...(await absorb(t, nsu, o2, "")) };
+      chat.push({ role: "ai", text: labelled(o2.reply, step), step, chips: o2.chips.slice(0, 4) });
+      return save(su.id, { ...pick(cur), chat: chat.slice(-80), step });
+    } catch (e) {
+      if (signal?.aborted) return su;
+      console.error("setup: next step not chained", e);
+    }
+  }
+  chat.push(reply);
+  return save(su.id, { ...pick(cur), chat: chat.slice(-80), step });
+}
+
+/* Vercel stops the function at 300 s (maxDuration of /api/setup); the chained call gets what is left, minus room to save */
+const CHAIN_MS = 270_000, CHAIN_MIN_MS = 90_000;
+
+const pick = (su: Setup): Partial<typeof setups.$inferInsert> =>
+  ({ profile: su.profile, segments: su.segments, personas: su.personas, leads: su.leads, templates: su.templates, prompts: su.prompts, sources: su.sources });
+
+/* Writes the data fields of one answer: website notes into the tenant, the rest is returned for the setup row */
+async function absorb(t: Tenant, su: Setup, o: z.infer<typeof Out>, text: string) {
   if (o.site && mustRead(t, su.step)) {
     const site = { domain: t.domain, notes: o.site.slice(0, 20000), at: new Date().toISOString() };
     await db.update(tenants).set({ settings: sql`${tenants.settings} || ${JSON.stringify({ site })}::jsonb` }).where(eq(tenants.id, t.id));
   }
-  const set: Partial<typeof setups.$inferInsert> = {};
+  const set: Partial<Setup> = {};
   if (o.profile) set.profile = mergeProfile(su.profile, o.profile);
   if (o.segments?.length) set.segments = o.segments;
   if (o.personas?.length) set.personas = o.personas;
@@ -185,10 +221,7 @@ export async function act(t: Tenant, ai: Ai | null, su: Setup, a: Action, signal
     /* written from the user's answer counts as input, on its own (start, auto) as AI */
     set.sources = { ...su.sources, ...Object.fromEntries(wrote.map(k => [k, text ? "nutzer" : "ki"])) };
   }
-  chat.push({ role: "ai", text: labelled(o.reply, su.step), step: su.step, chips: o.chips.slice(0, 4) });
-  set.chat = chat.slice(-80);
-  if (a.action === "auto" || (o.advance && a.action === "message")) set.step = nextStep(su.step);
-  return save(su.id, set);
+  return set;
 }
 
 /* The prompt the evening research reads, one section per step. Keeps the field lines the settings form edits. */
