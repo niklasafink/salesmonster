@@ -14,6 +14,8 @@ export type TenantSettings = {
   /* research rounds per day besides the evening run (0 = off), and whether grade-A leads wait for Tuesday/Wednesday */
   roundsPerDay?: number;
   holdTop?: boolean;
+  /* SendPilot campaign the evening run hands LinkedIn leads to; unset = they wait for the LinkedIn button */
+  sendpilotCampaign?: string;
   /* notes from reading the tenant's website once in the setup; read again only when the domain changes */
   site?: { domain: string; notes: string; at: string };
 };
@@ -151,6 +153,11 @@ export const leads = pgTable("leads", {
   angleId: integer("angle_id").references((): AnyPgColumn => angles.id, { onDelete: "set null" }),
   /* fields a web search looked for and did not find, with when; the next search skips them unless asked to look again */
   enrichMiss: jsonb("enrich_miss").$type<Partial<Record<EnrichField, string>>>().notNull().default({}),
+  /* channel set by hand (mail | linkedin), empty = as recommended (lib/lead-rating.ts channelOf); place in the send queue set by drag and drop;
+     when the lead went to SendPilot, after which it is never mailed */
+  channel: text("channel").notNull().default(""),
+  queueRank: integer("queue_rank"),
+  sendpilotAt: timestamp("sendpilot_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("leads_tenant").on(t.tenantId, t.status), index("leads_rating").on(t.tenantId, t.rating)]);
 

@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-or
 import { claims, companies, db, leads, members, messages, runs, templates, tenants, users } from "@/db";
 import { attachCompanies, norm, plan, type Unit } from "./companies";
 import { salutationOf } from "./lead-fields";
-import { berlinDate, berlinWeekday } from "./dates";
+import { berlinDate } from "./dates";
 import { getInteg } from "./integrations";
 import { enrichLead } from "./claude";
 import { AiMissing, aiFor } from "./ai";
@@ -13,7 +13,9 @@ import { judge, scoreDrafts, templateStats } from "./drafts";
 import { refreshRatings, rerate } from "./ratings";
 import { researchRound } from "./strategy";
 import { beta } from "./angles";
-import { FREEMAIL } from "./lead-rating";
+import { FREEMAIL, channelOf } from "./lead-rating";
+import { bouncedDomains, linkedinOn, mailQueue } from "./queue";
+import { sendpilotPush } from "./sendpilot";
 
 type Tenant = typeof tenants.$inferSelect;
 type Lead = typeof leads.$inferSelect;
@@ -108,6 +110,7 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
   const jev = await jevKey(t.id);
   await attachCompanies(t.id);
   const units: Unit[] = [];
+  const onLi = await linkedinOn(t.id), bounced = onLi ? await bouncedDomains(t.id) : [];
   const done = new Set<number>();
 
   /* Fills a lead's gaps from the web, unless it already has what the draft needs */
@@ -129,7 +132,9 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
     done.add(companyId);
     const [c] = await db.select().from(companies).where(eq(companies.id, companyId));
     const all = await db.select().from(leads).where(and(eq(leads.companyId, companyId), eq(leads.tenantId, t.id))).orderBy(asc(leads.id));
-    let rows = await pool(all.filter(l => l.status === "neu"), 4, enrich);
+    /* a company already reached on LinkedIn is not mailed; with SendPilot on, LinkedIn contacts go there instead */
+    if (all.some(l => l.sendpilotAt)) return;
+    let rows = await pool(all.filter(l => l.status === "neu" && !(onLi && channelOf(l, bounced).ch === "linkedin")), 4, enrich);
     /* without any address at the company and without LinkedIn nobody can be written to */
     if (!rows.some(l => l.email) && !all.some(l => l.email)) {
       for (const l of rows.filter(l => !l.linkedin)) await db.update(leads).set({ note: l.note || "E-Mail fehlt" }).where(eq(leads.id, l.id));
@@ -160,23 +165,19 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
     units.push(...plan(c, rows, all.filter(l => l.status !== "papierkorb").map(l => l.email)));
   };
 
-  /* 1. open leads first, the best rated company first */
+  /* 1. open leads first, in the order of the send queue (drag and drop, then rating); replies come most often on Tuesday and Wednesday
+     (6,337 cold mails), so with holdTop grade-A leads wait for those days and only fill the batch on other days when nothing else is left */
   await refreshRatings(t.id).catch(e => log(t.id, "rating", false, (e as Error).message));
-  /* replies come most often on Tuesday and Wednesday (6,337 cold mails); with holdTop grade-A leads wait for those days
-     and only fill the batch on other days when nothing else is left */
-  const tomorrow = berlinWeekday(new Date(Date.now() + 864e5)), hold = !!t.settings.holdTop && !["Tue", "Wed"].includes(tomorrow);
-  const best = hold ? sql`(coalesce(${leads.ratingInfo}->>'grade', '') = 'A') asc, ${leads.rating} desc nulls last` : sql`${leads.rating} desc nulls last`;
-  const queue = await db.select({ companyId: leads.companyId }).from(leads)
-    .where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), hold ? sql`coalesce(${leads.ratingInfo}->>'grade', '') <> 'A'` : undefined)).orderBy(best, asc(leads.createdAt), asc(leads.id));
-  for (const q of queue) { if (units.length >= n) break; if (q.companyId) await admit(q.companyId); }
+  await toLinkedin(t, n);
+  for (const q of await mailQueue(t)) { if (units.length >= n || q.held) break; if (q.companyId) await admit(q.companyId); }
 
   /* 2. new research for the rest along the strategy's directions; asks for a few extra so duplicates can be replaced,
      and whatever is left over waits in the list, rated, for the next evening */
   const rest = n - units.length;
   if (rest > 0) {
     await researchRound(t, rest + Math.ceil(rest / 2), key);
-    const added = await db.select({ companyId: leads.companyId }).from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"))).orderBy(best, asc(leads.createdAt), asc(leads.id));
-    for (const q of added) { if (units.length >= n) break; if (q.companyId) await admit(q.companyId); }
+    await refreshRatings(t.id).catch(e => log(t.id, "rating", false, (e as Error).message));
+    for (const q of await mailQueue(t)) { if (units.length >= n) break; if (q.companyId) await admit(q.companyId); }
   }
 
   /* 3. drafts, each scored before anyone reads it */
@@ -190,6 +191,19 @@ export async function runResearch(t: Tenant, opts: { force?: boolean } = {}) {
   await scoreDrafts(t.id, made).catch(e => log(t.id, "score", false, (e as Error).message));
   await log(t.id, "research", true, `${units.length} Entwürfe`);
   return { created: units.length };
+}
+
+/* LinkedIn leads into the tenant's SendPilot campaign, the best n per evening; without a campaign they wait for the LinkedIn button */
+async function toLinkedin(t: Tenant, n: number) {
+  const campaign = t.settings.sendpilotCampaign;
+  if (!campaign || !await linkedinOn(t.id)) return;
+  const bounced = await bouncedDomains(t.id);
+  const open = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`))
+    .orderBy(sql`${leads.queueRank} asc nulls last`, sql`${leads.rating} desc nulls last`, asc(leads.createdAt), asc(leads.id));
+  const ids = open.filter(l => channelOf(l, bounced).ch === "linkedin").slice(0, n).map(l => l.id);
+  if (!ids.length) return;
+  try { const r = await sendpilotPush(t.id, campaign, ids); await log(t.id, "linkedin", true, `${r.added} an SendPilot`); }
+  catch (e) { await log(t.id, "linkedin", false, (e as Error).message); }
 }
 
 export async function approvalMail(t: Tenant) {

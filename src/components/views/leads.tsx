@@ -1,5 +1,8 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { EnrichField, RatingInfo, Tender } from "@/db/schema";
 import { Icon, Top, api, useDialog } from "../ui";
 import { httpUrl } from "@/lib/lead-fields";
@@ -9,7 +12,8 @@ import type { Ctx } from "../types";
 import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
 
-type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number; enrichMiss: Partial<Record<EnrichField, string>> };
+type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number; enrichMiss: Partial<Record<EnrichField, string>>;
+  channelRec: { ch: "mail" | "linkedin" | "none"; text: string }; sendpilotAt: string | null };
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string };
 type Campaign = { id: string; name: string; status: string; totalLeads: number };
@@ -20,10 +24,11 @@ const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unz
 /* we already had contact: a mail went out, an answer came in, or the mailbox knows them */
 const warm = (r: Lead) => !!r.lastContactAt || r.source === "Postfach" || ["angeschrieben", "beantwortet", "kontakt"].includes(r.status);
 
-/* best leads first by default; the choice stays per browser */
-const SORTS: [string, string][] = [["bewertung", "Bewertung"], ["neu", "Neueste"], ["firma", "Firma A–Z"], ["status", "Status"]];
+/* the send queue first by default; the choice stays per browser */
+const SORTS: [string, string][] = [["versand", "Versand"], ["bewertung", "Bewertung"], ["neu", "Neueste"], ["firma", "Firma A–Z"], ["status", "Status"]];
 const ORDER = Object.keys(STATUS);
 const sorters: Record<string, (a: Lead, b: Lead) => number> = {
+  versand: () => 0,
   bewertung: (a, b) => (b.rating ?? -1) - (a.rating ?? -1) || b.createdAt.localeCompare(a.createdAt),
   neu: (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id,
   firma: (a, b) => a.company.localeCompare(b.company, "de") || a.id - b.id,
@@ -31,6 +36,16 @@ const sorters: Record<string, (a: Lead, b: Lead) => number> = {
 };
 const keep = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
 export const reasonText = (r: { pts: number; text: string; learned?: boolean }) => `${r.pts > 0 ? "+" : "−"}${Math.abs(r.pts)} ${r.text}${r.learned ? " (gelernt)" : ""}`;
+
+/* the channel a lead is written on: set by hand, else as recommended */
+const chOf = (r: Lead) => r.sendpilotAt ? "linkedin" : (r.channel === "mail" && r.email) || (r.channel === "linkedin" && r.linkedin) ? r.channel : r.channelRec.ch;
+
+/* A row of the send queue, dragged by its handle so a click still opens the lead */
+function QueueRow({ id, children, ...p }: { id: number; children: (handle: ReactNode) => ReactNode } & Omit<React.HTMLAttributes<HTMLTableRowElement>, "id" | "children">) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const handle = <button type="button" className="btn gh ic grip" ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label="Verschieben" onClick={e => e.stopPropagation()}><Icon n="grip-vertical" /></button>;
+  return <tr ref={setNodeRef} {...p} className={`${p.className || ""}${isDragging ? " drag" : ""}`} style={{ transform: CSS.Translate.toString(transform), transition }}>{children(handle)}</tr>;
+}
 
 export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?.[1] || "n"}`} title={STATUS[s]?.[0] || s} />;
 
@@ -45,7 +60,9 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; cols?: Column[] | null; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null), [drag, setDrag] = useState(false);
   const [edit, setEdit] = useState<EditLead | null>(null), [allCols, setAllCols] = useState(false);
-  const [sort, setSortState] = useState("bewertung"), [angles, setAngles] = useState(false);
+  const [order, setOrder] = useState<number[]>([]), [next, setNext] = useState<number[]>([]);
+  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  const [sort, setSortState] = useState("versand"), [angles, setAngles] = useState(false);
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
   const liRef = useDialog(() => setLi(null));
   const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean }>(null);
@@ -55,7 +72,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   useEffect(() => { const v = keep.get("leads-sort"); if (v && sorters[v]) setSortState(v); }, []);
   const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
   const impRef = useDialog(() => setImp(null));
-  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
+  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[]; order: number[]; next: number[] }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); setOrder(r.order); setNext(r.next); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
   /* opened from the command palette */
   useEffect(() => { const r = focus != null && rows.find(x => x.id === focus); if (r) { setEdit(r); onFocused?.(); } }, [focus, rows, onFocused]);
@@ -63,7 +80,22 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const srcs = [...new Set(rows.map(r => r.source))];
   const inFilter = (r: Lead, s: string) => s === "alle" ? r.status !== "papierkorb" : r.status === s;
   const cnt = (s: string) => rows.filter(r => inFilter(r, s)).length;
-  const vis = rows.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q)).sort(sorters[sort]);
+  /* Versand: the mail queue in send order, everything else after it by rating */
+  const pos = new Map(order.map((id, i) => [id, i]));
+  const byQueue = (a: Lead, b: Lead) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity) || sorters.bewertung(a, b);
+  const vis = rows.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q)).sort(sort === "versand" ? byQueue : sorters[sort]);
+  /* dragging only where the whole queue is in view, so a move means the same as in the list */
+  const canDrag = sort === "versand" && src === "alle" && !q.trim() && (filter === "alle" || filter === "neu");
+  const lastNext = vis.filter(r => next.includes(r.id)).at(-1)?.id;
+  async function moved(e: DragEndEvent) {
+    const from = order.indexOf(Number(e.active.id)), to = e.over ? order.indexOf(Number(e.over.id)) : -1;
+    if (from < 0 || to < 0 || from === to) return;
+    const nx = arrayMove(order, from, to);
+    setOrder(nx);
+    /* the moved block keeps its places; what follows stays sorted by rating */
+    try { await api("/api/leads/queue", { method: "PUT", body: { t: t.slug, ids: nx.slice(0, Math.max(from, to) + 1) } }); load(); }
+    catch (err) { ctx.toast((err as Error).message, { error: true }); load(); }
+  }
 
   const coOf = (r: Lead) => r.companyId ? cos.find(c => c.id === r.companyId) : undefined;
   const contactsOf = (r: Lead) => r.companyId ? rows.filter(x => x.companyId === r.companyId) : [r];
@@ -142,7 +174,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   }
 
   /* the leads in view that have a LinkedIn profile go into a SendPilot campaign */
-  const liLeads = vis.filter(r => /linkedin\.com\/in\//i.test(r.linkedin));
+  const liLeads = vis.filter(r => /linkedin\.com\/in\//i.test(r.linkedin) && !r.sendpilotAt && chOf(r) === "linkedin" && !["papierkorb", "dublette"].includes(r.status));
   async function openLi() {
     setLi({ campaigns: null, id: "", busy: false });
     try { const { campaigns } = await api<{ campaigns: Campaign[] }>(`/api/sendpilot?t=${t.slug}`); setLi(cur => cur && { ...cur, campaigns, id: campaigns[0]?.id || "" }); }
@@ -153,7 +185,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     setLi({ ...li, busy: true });
     try {
       const r = await api<{ added: number; duplicates: number }>("/api/sendpilot", { body: { t: t.slug, campaignId: li.id, leadIds: liLeads.map(r => r.id) } });
-      ctx.toast(`${r.added} ${r.added === 1 ? "Lead" : "Leads"} in SendPilot${r.duplicates ? `, ${r.duplicates} schon drin` : ""}`); setLi(null);
+      ctx.toast(`${r.added} ${r.added === 1 ? "Lead" : "Leads"} in SendPilot${r.duplicates ? `, ${r.duplicates} schon drin` : ""}`); setLi(null); load();
     } catch (e) { ctx.toast((e as Error).message, { error: true }); setLi(cur => cur && { ...cur, busy: false }); }
   }
 
@@ -191,14 +223,19 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     let host = ""; try { host = u ? new URL(u).hostname.replace(/^www\./, "") : ""; } catch {}
     return host ? <a className="srcl" href={u!} target="_blank" rel="noreferrer" title={u!} onClick={e => e.stopPropagation()}>{host}</a> : <span title={r.source}>{r.source}</span>;
   };
-  const row = (r: Lead) => <tr key={r.id} className="click" tabIndex={0} onClick={() => setEdit(r)}
-    onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } }}>
+  const chCell = (r: Lead) => {
+    const ch = chOf(r), title = r.sendpilotAt ? `In SendPilot seit ${new Date(r.sendpilotAt).toLocaleDateString("de-DE")}` : ch === "none" ? r.channelRec.text : `${ch === "mail" ? "E-Mail" : "LinkedIn"}: ${r.channel ? "von Hand gesetzt" : r.channelRec.text}`;
+    return <td className={`c-ch${r.sendpilotAt ? " on" : ""}`} title={title}>{ch === "none" ? <span className="f3">–</span> : <Icon n={ch === "mail" ? "mail" : "linkedin"} />}</td>;
+  };
+  const cells = (r: Lead, handle: ReactNode) => <>
+    <td className="c-q">{handle}{next.includes(r.id) && <span className="num">{next.indexOf(r.id) + 1}</span>}</td>
     <td className="c-rt">{r.rating !== null && r.ratingInfo ? <RatingBar value={r.rating} title={[`${r.rating} von 100`, ...r.ratingInfo.reasons.slice(0, 3).map(reasonText)].join("\n")} /> : <span className="f3">–</span>}</td>
     <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
     <td className="dotc"><Dot s={r.status} /></td>
     <td className="co" title={r.company}>{r.company}</td>
     <td title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
     <td className="c-role f2" title={r.role || undefined}>{r.role || <span className="f3">–</span>}</td>
+    {chCell(r)}
     <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td>
     <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
     <td className="c-src f2">{srcCell(r)}</td>
@@ -208,7 +245,12 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     </>}{r.status === "papierkorb"
       ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
       : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td>
-  </tr>;
+  </>;
+  const rowProps = (r: Lead) => ({ className: `click${r.id === lastNext && sort === "versand" ? " cut" : ""}`, tabIndex: 0, onClick: () => setEdit(r),
+    onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } } });
+  const row = (r: Lead) => canDrag && pos.has(r.id)
+    ? <QueueRow key={r.id} id={r.id} {...rowProps(r)}>{h => cells(r, h)}</QueueRow>
+    : <tr key={r.id} {...rowProps(r)}>{cells(r, null)}</tr>;
 
   const ok = imp?.rows?.filter(r => !r.dup).length || 0;
   const table = imp?.cols && !imp.rows ? splitTable(imp.text) : null;
@@ -233,8 +275,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads"><thead><tr><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="act"></th></tr></thead><tbody>
-        {vis.length ? vis.map(row) : <tr><td colSpan={10} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+      <div className="tbl"><table className="leads"><thead><tr><th className="c-q" aria-label="Versand"></th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="dotc"></th><th className="co">Firma</th><th className="pn">Ansprechpartner</th><th className="c-role">Rolle</th><th className="c-ch" aria-label="Kanal"></th><th className="c-em">E-Mail</th><th className="c-hook">{t.tenders ? "Ausschreibungen" : "Anlass"}</th><th className="c-src">Quelle</th><th className="act"></th></tr></thead><tbody>
+        {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved}>
+          <SortableContext items={canDrag ? vis.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{vis.map(row)}</SortableContext>
+        </DndContext> : <tr><td colSpan={12} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
     </div></div>
 

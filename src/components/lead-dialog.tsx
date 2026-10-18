@@ -8,6 +8,8 @@ import { Icon, api, useDialog } from "./ui";
 export type EditLead = {
   id?: number; company: string; salutation: string; first: string; last: string; role: string; email: string; emailType: string; phone: string;
   linkedin: string; website: string; city: string; hook: string; note: string; sourceUrl: string; research: string; status: string; tenders: Tender[]; source?: string;
+  /* mail | linkedin set by hand, "" = as recommended */
+  channel?: string; channelRec?: { ch: string; text: string };
 };
 
 export const STATUS: Record<string, [string, string]> = {
@@ -106,6 +108,8 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], rating, onV
         <Prop l="Adresse"><select className="pv" value={f.emailType} onChange={set("emailType")}><option value="person">Persönlich</option><option value="info">Sammeladresse</option></select></Prop>
         <Prop l="Telefon" link={f.phone.trim() ? `tel:${f.phone.replace(/[^+\d]/g, "")}` : undefined}><input className="pv num" value={f.phone} placeholder="–" onChange={set("phone")} /></Prop>
         <Prop l="LinkedIn" link={httpUrl(f.linkedin) || undefined}><input className="pv" value={f.linkedin} placeholder="–" onChange={set("linkedin")} /></Prop>
+        {f.id && <Prop l="Kanal"><select className="pv" value={f.channel || ""} onChange={set("channel")}>
+          <option value="">Automatisch{f.channelRec && f.channelRec.ch !== "none" ? `: ${f.channelRec.ch === "mail" ? "E-Mail" : "LinkedIn"}` : ""}</option><option value="mail">E-Mail</option><option value="linkedin">LinkedIn</option></select></Prop>}
         <Prop l="Status"><select className="pv" value={f.status} onChange={set("status")} disabled={!f.id}>{Object.entries(STATUS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></Prop>
         {!tenders && <Prop l="Anlass"><textarea className="pv" rows={1} value={f.hook} placeholder="–" onChange={set("hook")} /></Prop>}
         <Prop l="Link zur Quelle" link={httpUrl(f.sourceUrl) || undefined}><input className="pv" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></Prop>

@@ -31,6 +31,19 @@ function address(l: RateLead): Adr {
   if (l.emailType === "info" || ROLE_BOX.test(l.email)) return "role";
   return FREEMAIL.test(l.email) ? "freemail" : "person";
 }
+/* Mail or LinkedIn: a personal address is the better way in, a front desk inbox, a bounced domain or no address at all lose to the profile */
+export type Channel = { ch: "mail" | "linkedin" | "none"; text: string; manual?: boolean };
+export function channelOf(l: { email: string; emailType: string; linkedin: string; channel?: string }, bounced: string[] = []): Channel {
+  const li = /linkedin\.com\/in\//i.test(l.linkedin);
+  if (l.channel === "linkedin" && li) return { ch: "linkedin", text: "Von Hand auf LinkedIn gesetzt", manual: true };
+  if (l.channel === "mail" && l.email) return { ch: "mail", text: "Von Hand auf E-Mail gesetzt", manual: true };
+  if (!l.email) return li ? { ch: "linkedin", text: "Keine E-Mail" } : { ch: "none", text: "Weder E-Mail noch LinkedIn" };
+  if (!li) return { ch: "mail", text: "Kein LinkedIn-Profil" };
+  if (bounced.includes(domain(l.email))) return { ch: "linkedin", text: "Domain unzustellbar" };
+  const a = address({ email: l.email, emailType: l.emailType, linkedin: l.linkedin } as RateLead);
+  return a === "role" ? { ch: "linkedin", text: "Nur Sammeladresse, LinkedIn erreicht die Person" } : { ch: "mail", text: a === "person" ? "Persönliche Adresse" : "Freemail-Adresse" };
+}
+
 const ADR: Record<Adr, { or: number; deliver: number; text: string }> = {
   person: { or: 1, deliver: 0.95, text: "Persönliche Adresse" },
   role: { or: 0.35, deliver: 0.9, text: "Sammeladresse" },

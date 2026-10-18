@@ -554,6 +554,12 @@ table.leads th.c-role{width:15%} table.leads th.c-em{width:21%} table.leads th.c
 table.leads td.c-em{font-size:12.5px}
 table.leads td.act,table.leads th.act{width:90px; padding:0; text-align:right}
 table.leads th.c-rt{width:120px}
+table.leads th.c-q{width:46px} table.leads td.c-q{padding:0 0 0 4px; font-size:12px; color:var(--fg-3)}
+table.leads td.c-q .grip{width:20px; height:24px; cursor:grab; touch-action:none; color:var(--fg-3); vertical-align:middle}
+table.leads th.c-ch{width:30px} table.leads td.c-ch{color:var(--fg-3); padding-right:0} table.leads td.c-ch.on{color:var(--fg)}
+table.leads td.c-ch svg{width:15px; height:15px; vertical-align:middle}
+table.leads tr.cut td{border-bottom:2px solid var(--fg-3)}
+table.leads tr.drag{position:relative; z-index:1; background:var(--bg); box-shadow:0 4px 16px rgb(0 0 0 / .12)}
 table.leads td.act .btn.on{opacity:1; color:var(--fg)}
 @media (max-width:1500px){ table.leads .c-hook{display:none} }
 @media (max-width:1200px){ table.leads .c-role{display:none} }

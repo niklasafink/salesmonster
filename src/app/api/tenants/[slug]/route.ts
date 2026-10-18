@@ -16,6 +16,7 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
     s.leadsPerDay = Math.max(1, Math.min(30, Math.round(Number(s.leadsPerDay)) || 10));
     s.roundsPerDay = Math.max(0, Math.min(24, Math.round(Number(s.roundsPerDay)) || 0));
     s.holdTop = s.holdTop === true;
+    if (typeof s.sendpilotCampaign !== "string" || !s.sendpilotCampaign) delete s.sendpilotCampaign;
     /* "claude" or "openrouter:<model>"; null goes back to the default order */
     if ("ai" in b.settings) {
       const c = b.settings.ai === null ? null : choiceOf(String(b.settings.ai));

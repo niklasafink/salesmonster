@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
-import { db, leads } from "@/db";
+import { db, leads, messages } from "@/db";
 import { HttpError } from "./api";
 import { getInteg } from "./integrations";
 
@@ -58,6 +58,11 @@ export async function sendpilotPush(tenantId: number, campaignId: string, leadId
       ...(l.email ? { email: l.email } : {}), ...(l.website ? { website: l.website } : {}), ...(l.hook ? { hook: l.hook } : {}) })) }) });
     added += j.leadsAdded || 0; duplicates += j.duplicatesSkipped || 0; invalid += j.invalidEntries || 0;
   }
+  /* from now on these people and their companies stay out of the mail run; mails still waiting for them are dropped */
+  const sent = ok.map(l => l.id);
+  await db.update(leads).set({ sendpilotAt: new Date() }).where(inArray(leads.id, sent));
+  await db.delete(messages).where(and(eq(messages.tenantId, tenantId), inArray(messages.status, ["entwurf", "freigegeben"]),
+    sql`(${messages.leadId} in (${sql.join(sent.map(id => sql`${id}`), sql`, `)}) or ${messages.leadIds} @> any(array[${sql.join(sent.map(id => sql`${JSON.stringify([id])}`), sql`, `)}]::jsonb[]))`));
   return { added, duplicates, invalid, skipped: rows.length - ok.length + (leadIds.length - rows.length) };
 }
 
