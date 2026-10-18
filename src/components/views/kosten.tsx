@@ -20,6 +20,7 @@ const KINDS: Record<string, [string, string, string]> = {
   einrichtung: ["Einrichtung", "Antwort", "Antworten"],
   texte: ["Mail-Texte", "Fassung", "Fassungen"],
   strecke: ["Strecke", "Variante", "Varianten"],
+  chat: ["KI-Chat Leads", "Nachricht", "Nachrichten"],
 };
 const VISIBLE = 15;
 
