@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCsv, toTsv, tsvChunks } from "@/lib/sheet";
+import { mdTable, parseCsv, toTsv, tsvChunks } from "@/lib/sheet";
 
 describe("parseCsv", () => {
   it("liest Komma-CSV mit Anführungszeichen", () => {
@@ -46,5 +46,15 @@ describe("toTsv Kopfzeile", () => {
   it("überspringt Titelzeilen über der Tabelle", () => {
     const rows = [["Leadliste Oktober", null, null], ["Export vom 01.10.", "", ""], ["Firma", "Ort", "E-Mail"], ["A GmbH", "Ulm", "a@a.de"]];
     expect(toTsv(rows)).toBe("Firma\tOrt\tE-Mail\nA GmbH\tUlm\ta@a.de");
+  });
+});
+
+describe("mdTable", () => {
+  it("liest die Pipe-Tabelle aus Markdown, Überschrift, Text und Trennzeile fallen weg", () => {
+    const md = "# Leads\n\nAus der Messe\n\n| Firma | E-Mail |\n|---|:--:|\n| A GmbH | a@a.de |\n| B AG | b@b.de |\n\nEnde";
+    expect(mdTable(md)).toEqual([["Firma", "E-Mail"], ["A GmbH", "a@a.de"], ["B AG", "b@b.de"]]);
+  });
+  it("gibt null ohne Tabelle", () => {
+    expect(mdTable("- A GmbH, a@a.de\n- B AG")).toBeNull();
   });
 });

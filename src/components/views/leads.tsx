@@ -6,7 +6,7 @@ import { httpUrl } from "@/lib/lead-fields";
 import { LeadDialog, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import type { Ctx } from "../types";
 import { FIELDS, splitTable, type Column, type Field } from "@/lib/lead-columns";
-import { parseCsv, toTsv } from "@/lib/sheet";
+import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
 
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null };
 type Sheet = { sheet: string; data: unknown[][] };
@@ -57,15 +57,18 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     const ext = f.name.split(".").pop()?.toLowerCase(), name = f.name.replace(/\.\w+$/, "");
     let text;
     try {
-      if (ext === "csv") {
+      if (ext === "csv" || ext === "md") {
         const buf = await f.arrayBuffer();
         let txt; try { txt = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { txt = new TextDecoder("windows-1252").decode(buf); }
-        text = toTsv(parseCsv(txt)); setSheets(null);
+        /* Markdown: a pipe table goes to the column view, anything else to the parser as free text */
+        const md = ext === "md" && mdTable(txt);
+        text = ext === "csv" ? toTsv(parseCsv(txt)) : md ? toTsv(md) : txt.trim(); setSheets(null);
+        if (!text) throw new Error("Datei ist leer");
       } else if (ext === "xlsx") {
         const { default: read } = await import("read-excel-file/browser");
         const list = await read(f).catch(() => { throw new Error("Datei nicht lesbar"); });
         text = toTsv(list[0].data); setSheets(list.length > 1 ? { list, i: 0 } : null);
-      } else throw new Error("Nur .xlsx und .csv");
+      } else throw new Error("Nur .xlsx, .csv und .md");
     } catch (e) { ctx.toast((e as Error).message, { error: true }); return; }
     /* a Quelle typed meanwhile stays, one taken from an earlier file name is replaced */
     setImp(cur => cur && { ...cur, text, ...(!cur.src || cur.auto ? { src: name, auto: true } : {}) });
@@ -173,8 +176,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         <div className="dlg-h">Leads importieren<button className="btn gh ic" onClick={() => setImp(null)} aria-label="Schließen"><Icon n="x" /></button></div>
         <label className={`drop${drag ? " on" : ""}`} onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
           onDrop={e => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files[0]); }}>
-          {imp.busy ? <Icon n="loader" /> : <Icon n="upload" />}<span>Excel- oder CSV-Datei hierher ziehen oder <u>auswählen</u></span>
-          <input type="file" accept=".xlsx,.csv" className="vh" onChange={e => { pick(e.target.files?.[0]); e.target.value = ""; }} />
+          {imp.busy ? <Icon n="loader" /> : <Icon n="upload" />}<span>Excel-, CSV- oder Markdown-Datei hierher ziehen oder <u>auswählen</u></span>
+          <input type="file" accept=".xlsx,.csv,.md" className="vh" onChange={e => { pick(e.target.files?.[0]); e.target.value = ""; }} />
         </label>
         <label className="fld"><span>Oder Text einfügen</span><textarea className="prompt" style={{ minHeight: 88 }} placeholder="Liste, Tabelle oder Text einfügen" value={imp.text} autoFocus
           onChange={e => setImp({ ...imp, text: e.target.value })}

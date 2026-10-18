@@ -56,3 +56,12 @@ export function tsvChunks(text: string, size = 120): string[] {
   for (let i = 0; i < rows.length; i += size) out.push([head, ...rows.slice(i, i + size)].join("\n"));
   return out;
 }
+
+/* Rows of the first Markdown pipe table in the text, or null when it has none; the |---| line falls away */
+export function mdTable(text: string): string[][] | null {
+  const lines = text.split(/\r?\n/).map(l => l.trim()), start = lines.findIndex(l => l.startsWith("|"));
+  if (start < 0) return null;
+  const end = lines.findIndex((l, i) => i > start && !l.startsWith("|")), block = lines.slice(start, end < 0 ? undefined : end);
+  const rows = block.filter(l => !/^\|[\s:|-]+$/.test(l)).map(l => l.replace(/^\||\|$/g, "").split("|").map(c => c.trim()));
+  return rows.length > 1 ? rows : null;
+}
