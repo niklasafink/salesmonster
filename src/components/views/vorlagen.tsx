@@ -79,7 +79,7 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
         </> : <>
           <div className="doc-meta"><span>An</span><span>{to}</span><span>Von</span><span>{st.me.name}</span></div>
           <div className="subj">{fill(cur.subject, sample, cur, st.me.name) || <span className="f3">Kein Betreff</span>}</div>
-          <div className="mailpv">{fill(cur.body, sample, cur, st.me.name)}</div>
+          <div className="tplpv">{fill(cur.body, sample, cur, st.me.name)}</div>
         </>}
       </div>
     </div></div></div>

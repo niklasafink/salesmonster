@@ -33,7 +33,7 @@ test("Vorschau ersetzt die Platzhalter", async ({ page }) => {
   await page.getByRole("button", { name: "Vorschau" }).click();
   await expect(page.locator(".doc .subj")).not.toBeEmpty();
   await expect(page.locator(".doc .subj")).not.toContainText("{{");
-  await expect(page.locator(".doc .mailpv")).not.toContainText("{{");
+  await expect(page.locator(".doc .tplpv")).not.toContainText("{{");
   await page.screenshot({ path: "test-results/vorlagen-vorschau.png" });
   await page.getByRole("button", { name: "Bearbeiten" }).click();
   await expect(page.getByLabel("Betreff")).toBeVisible();
