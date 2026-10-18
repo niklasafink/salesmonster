@@ -471,6 +471,7 @@ a.btn{text-decoration:none}
 .cl-ai p,.cl-md p{margin:0 0 .75em} .cl-ai .cl-h{margin:0 0 .5em; font-size:18px; font-weight:500; line-height:1.3} .cl-md > :last-child{margin-bottom:0}
 .cl-md ul,.cl-md ol{margin:0 0 .75em; padding-left:1.4em} .cl-md li{margin:.2em 0}
 .cl-md strong{font-weight:600}
+.cl-md h1,.cl-md h2,.cl-md h3{margin:1.25em 0 .35em; font-size:inherit; font-weight:600; line-height:1.4} .cl-md > :first-child{margin-top:0}
 .cl-md code{font-family:var(--mono); font-size:.85em; background:var(--cl-bubble); padding:1px 5px; border-radius:5px}
 .cl-md a{color:inherit; text-decoration:underline; text-underline-offset:2px}
 .cl-acts{display:flex; gap:2px; margin-top:4px; opacity:0; transition:opacity .15s}
