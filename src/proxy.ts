@@ -19,5 +19,5 @@ export async function proxy(req: NextRequest) {
 
 /* api/mcp, api/oauth and .well-known authenticate themselves (bearer token or own session check) */
 export const config = {
-  matcher: ["/((?!api/auth/login|api/cron|api/integrations/microsoft/callback|api/mcp|api/oauth|.well-known|_next/static|_next/image|icon.svg|favicon.ico|apple-icon|manifest.webmanifest).*)"],
+  matcher: ["/((?!api/auth/login|api/cron|api/abmelden|api/integrations/microsoft/callback|api/mcp|api/oauth|.well-known|_next/static|_next/image|icon.svg|favicon.ico|apple-icon|manifest.webmanifest).*)"],
 };

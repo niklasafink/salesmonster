@@ -86,3 +86,33 @@ export async function hubspotCompanies(token: string, q: string): Promise<HsComp
     return { id: r.id, co: p.name || "", domain: p.domain || "", street: p.address || "", zip: p.zip || "", city: p.city || "", contact, email, salut: "" };
   }));
 }
+
+export type HsContact = { id: string; properties: Record<string, string | null> };
+
+/* property = value, or any value when value is empty */
+const filterOf = (m: { property: string; value: string }) =>
+  m.value ? { propertyName: m.property, operator: "EQ", value: m.value } : { propertyName: m.property, operator: "HAS_PROPERTY" };
+
+/* Contacts matching a property, created since a date, oldest first */
+export async function hubspotContactsWhere(token: string, m: { property: string; value: string }, since: string, properties: string[], max = 500): Promise<HsContact[]> {
+  const out: HsContact[] = [];
+  let after: string | undefined;
+  while (out.length < max) {
+    const j = await hs(token, "/crm/v3/objects/contacts/search", { method: "POST", body: JSON.stringify({
+      filterGroups: [{ filters: [filterOf(m), { propertyName: "createdate", operator: "GTE", value: String(Date.parse(since)) }] }],
+      sorts: [{ propertyName: "createdate", direction: "ASCENDING" }], properties, limit: 100, after }) });
+    out.push(...(j.results || []));
+    after = j.paging?.next?.after;
+    if (!after) break;
+  }
+  return out;
+}
+
+export async function hubspotContactsRead(token: string, ids: string[], properties: string[]): Promise<HsContact[]> {
+  const out: HsContact[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const j = await hs(token, "/crm/v3/objects/contacts/batch/read", { method: "POST", body: JSON.stringify({ properties, inputs: ids.slice(i, i + 100).map(id => ({ id })) }) });
+    out.push(...(j.results || []));
+  }
+  return out;
+}
