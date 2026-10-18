@@ -71,8 +71,8 @@ export function LeadDialog({ lead, slug, tenders, co, contacts = [], onClose, on
         : <label className="fld s6"><span>Anlass</span><input className="inp" value={f.hook} onChange={set("hook")} /></label>}
       <label className="fld s2"><span>Status</span><select className="inp sel" value={f.status} onChange={set("status")} disabled={!f.id}>{Object.entries(STATUS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></label>
       <label className="fld s4"><span>Quelle{httpUrl(f.sourceUrl) && <a className="src" href={httpUrl(f.sourceUrl)} target="_blank" rel="noreferrer" aria-label="Quelle öffnen"><Icon n="external-link" /></a>}</span><input className="inp" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></label>
-      {m && <label className="fld s6"><span>Anschreiben ({contacts.length} Kontakte bei {f.company || "der Firma"})</span><select className="inp sel" value={mode} onChange={e => setMode(e.target.value)}>
-        <option value="einzeln">Jede Person einzeln</option>
+      {m && <label className="fld s6"><span>Anschreiben</span><select className="inp sel" value={mode} onChange={e => setMode(e.target.value)}>
+        <option value="einzeln">Jede der {contacts.length} Personen einzeln</option>
         {addrs.length > 1 && <option value="alle">Eine Mail an alle Adressen</option>}
         {addrs.map(a => <option key={a} value={`eine:${a}`}>Eine Mail an {a}</option>)}
       </select></label>}
