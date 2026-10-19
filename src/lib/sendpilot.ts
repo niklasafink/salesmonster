@@ -21,6 +21,19 @@ export async function sendpilotMe(key: string): Promise<{ id: string; name: stri
   return { id: j.workspace.id, name: j.workspace.name };
 }
 
+/* One JSON-RPC call to SendPilot's own MCP server (stateless, answers as JSON or a single SSE event) */
+export async function sendpilotMcp<T = Record<string, unknown>>(key: string, method: string, params: object = {}): Promise<T> {
+  const r = await fetch("https://mcp.sendpilot.ai", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    headers: { "x-api-key": key, "content-type": "application/json", accept: "application/json, text/event-stream" } });
+  if (r.status === 401) throw new HttpError(400, "SendPilot: API-Schlüssel ungültig");
+  if (r.status === 429) throw new HttpError(429, "SendPilot: zu viele Anfragen, gleich noch einmal");
+  if (!r.ok) throw new Error(`SendPilot ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const text = await r.text();
+  const j = JSON.parse(r.headers.get("content-type")?.includes("event-stream") ? text.split("\n").filter(l => l.startsWith("data:")).at(-1)!.slice(5) : text);
+  if (j.error) throw new HttpError(400, `SendPilot: ${j.error.message}`);
+  return j.result;
+}
+
 export async function sendpilotConfig(tenantId: number) {
   const c = await getInteg<SendPilotConfig>(tenantId, "sendpilot");
   if (!c) throw new HttpError(400, "SendPilot ist nicht verbunden");

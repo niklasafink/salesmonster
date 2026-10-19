@@ -6,7 +6,7 @@ import { setInteg } from "@/lib/integrations";
 import { linkedinKey } from "@/lib/sendpilot";
 import { POST as PUSH } from "@/app/api/sendpilot/route";
 import { POST as HOOK } from "@/app/api/sendpilot/webhook/[slug]/route";
-import { call, fixtures } from "./helpers";
+import { call, connectorTokens, fixtures, mcp } from "./helpers";
 
 const fx = fixtures();
 const secret = `whsec_${Buffer.from("sendpilot-test-secret-0123456789").toString("base64")}`;
@@ -89,5 +89,30 @@ describe("SendPilot", () => {
   it("Fremder Mandant kann nichts übergeben", async () => {
     const other = await fx.user();
     expect((await call(PUSH, { as: other, body: { t: t.slug, campaignId: "c1", leadIds: [eva] } })).status).toBe(404);
+  });
+
+  it("Tools des SendPilot-MCP laufen mit dem Schlüssel des Mandanten durch", async () => {
+    const real = globalThis.fetch, seen: { key: string | null; body: { method: string; params: Record<string, unknown> } }[] = [];
+    vi.stubGlobal("fetch", async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url) !== "https://mcp.sendpilot.ai") return real(url, init);
+      const body = JSON.parse(String(init?.body));
+      seen.push({ key: new Headers(init?.headers).get("x-api-key"), body });
+      const result = body.method === "tools/list"
+        ? { tools: [
+          { name: "list_senders", description: "Lists senders", inputSchema: { type: "object", properties: { limit: { type: "number" } } }, annotations: { readOnlyHint: true } },
+          { name: "add_leads", description: "Adds leads", inputSchema: { type: "object", properties: {} } }] }
+        : { content: [{ type: "text", text: `{"senders":[]}` }] };
+      return new Response(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: 1, result })}\n\n`, { headers: { "content-type": "text/event-stream" } });
+    });
+    const c = await mcp((await connectorTokens(me)).access_token);
+    const names = (await c.listTools()).tools.map(x => x.name);
+    expect(names).toContain("sendpilot_list_senders");
+    expect(names).not.toContain("sendpilot_add_leads");
+    expect(await c.tool("sendpilot_list_senders", { tenant: t.slug, limit: 5 })).toEqual({ senders: [] });
+    expect(seen.at(-1)).toEqual({ key: "sp_test", body: expect.objectContaining({ method: "tools/call", params: { name: "list_senders", arguments: { limit: 5 } } }) });
+
+    const other = await fx.user();
+    const oc = await mcp((await connectorTokens(other)).access_token);
+    await expect(oc.tool("sendpilot_list_senders", { tenant: t.slug })).rejects.toThrow();
   });
 });
