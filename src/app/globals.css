@@ -601,7 +601,7 @@ table.leads th.c-rt{width:76px} table.leads td.c-rt,table.leads th.c-rt{padding-
 table.leads th.warm{width:42px} table.leads td.warm,table.leads th.warm{font-size:12.5px; padding-left:4px; padding-right:0}
 table.leads th.c-ch{width:30px} table.leads td.c-ch{color:var(--fg-3); padding-right:0} table.leads td.c-ch.on{color:var(--fg)}
 table.leads td.c-ch svg{width:15px; height:15px; vertical-align:middle}
-table.leads tr.cut td{border-bottom:2px solid var(--fg-3)}
+table.leads tr.cut td{border-bottom:1px solid var(--line-2)}
 table.leads tr.drag{position:relative; z-index:1; background:var(--bg); box-shadow:0 4px 16px rgb(0 0 0 / .12)}
 table.leads td.act .btn.on{opacity:1; color:var(--fg)}
 @media (max-width:1560px){ table.leads .c-hook{display:none} }
