@@ -106,7 +106,7 @@ const GROUPS = [["mail", "Mail"], ["ki", "KI"], ["sonstiges", "Sonstiges"]] as c
 type Group = (typeof GROUPS)[number][0];
 
 function Mark({ p }: { p: Prov }) {
-  return <span className="mark">{hasLogo(p.k) ? <Logo k={p.k} /> : <Icon n={p.ico} />}</span>;
+  return <span className="brand">{hasLogo(p.k) ? <Logo k={p.k} /> : <Icon n={p.ico} />}</span>;
 }
 
 function Integ({ ctx }: { ctx: Ctx }) {

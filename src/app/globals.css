@@ -288,9 +288,9 @@ button.snode:hover{background:var(--hover)}
 .tile-h .lucide{width:16px; height:16px; color:var(--fg-3)}
 .marks{display:flex; flex-wrap:wrap; gap:6px}
 .marks .off{opacity:.35; filter:grayscale(1)}
-.mark{width:32px; height:32px; flex:none; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--fg); display:grid; place-items:center}
-.mark .logo{width:18px; height:18px}
-.mark .lucide{width:16px; height:16px; color:var(--fg-2)}
+.brand{width:32px; height:32px; flex:none; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--fg); display:grid; place-items:center}
+.brand .logo{width:18px; height:18px}
+.brand .lucide{width:16px; height:16px; color:var(--fg-2)}
 .crumb{display:flex; align-items:center; gap:8px; font-weight:500; margin-bottom:-12px}
 .crumb .btn{padding:0 8px; margin-left:-8px; color:var(--fg-2)}
 .provs{display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px}
