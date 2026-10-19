@@ -126,3 +126,31 @@ test("Import mit leerem Text liefert 400", async ({ request }) => {
   expect(r.status()).toBe(400);
   expect((await r.json()).error).toBe("Keine Daten");
 });
+
+test("KI-Chat: geänderte Leads erscheinen ohne Neuladen und sind markiert", async ({ page, request }) => {
+  const tag = `QA-${Date.now()}`, co = `${tag} Chat GmbH`;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  try {
+    expect((await request.post("/api/leads", { data: { t: Q, lead: { company: co, first: "Chat", last: "Test" } } })).ok()).toBe(true);
+    const id = (await leadsOf(request)).find(l => l.company === co)!.id;
+    /* the chat answer is faked, the change behind it is real: the lead is renamed on the server before the answer arrives */
+    await page.route("**/api/leads/chat", async route => {
+      expect((await request.patch(`/api/leads/${id}`, { data: { company: `${co} Neu` } })).ok()).toBe(true);
+      await route.fulfill({ json: { reply: "Umbenannt.", changed: 1, ids: [id], reordered: true } });
+    });
+    await page.goto("/#leads");
+    await page.getByLabel("Sortieren").selectOption("bewertung");
+    await page.getByLabel("Suchen").fill(tag);
+    await expect(page.locator("table.leads tbody tr", { hasText: co })).toBeVisible();
+    await page.getByLabel("Nachricht an die KI").fill("Benenne den Lead um");
+    await page.getByLabel("Nachricht an die KI").press("Enter");
+    await expect(page.locator(".lc-ai", { hasText: "Umbenannt." })).toBeVisible();
+    const row = page.locator("table.leads tbody tr", { hasText: `${co} Neu` });
+    await expect(row).toBeVisible();
+    await expect(row).toHaveClass(/flash/);
+    await expect(page.getByLabel("Sortieren")).toHaveValue("versand");
+  } finally {
+    await page.evaluate(() => sessionStorage.clear()).catch(() => {});
+    await cleanup(request, tag);
+  }
+});
