@@ -126,21 +126,23 @@ ${list.text}`,
     prompt: talk,
   });
   const out = json(text, Out);
-  const done: string[] = [];
-  let changed = 0;
+  const done: string[] = [], touched = new Set<number>();
+  let reordered = false;
   if (out.updates?.length) {
     const ids = await applyEdits(t.id, out.updates.filter(u => list.ids.has(u.id)).slice(0, 500)).catch(e => { if (e instanceof HttpError) { done.push(`Nicht gespeichert: ${e.message}`); return []; } throw e; });
-    changed += ids.length;
+    for (const id of ids) touched.add(id);
     if (ids.length) await later(() => refreshRatings(t.id, ids));
   }
   if (out.places?.length || out.order?.length || out.reset) {
     const places = out.reset ? [] : (out.places ?? []).map(p => p.trim()).filter(Boolean);
     const front = (await fromPlaces(t.id, places)).map(r => r.id);
     const ids = [...new Set([...front, ...(out.reset ? [] : out.order ?? []).filter(id => list.ids.has(id))])].slice(0, 2000);
-    await setQueue(t.id, ids); changed += ids.length;
+    await setQueue(t.id, ids); reordered = true;
+    for (const id of ids) touched.add(id);
     await db.update(tenants).set({ settings: sql`${tenants.settings} || ${JSON.stringify({ firstPlaces: places })}::jsonb` }).where(eq(tenants.id, t.id));
     const facts = await frontFacts(t, ids);
     if (facts) done.unshift(facts);
   }
-  return { reply: [out.reply, ...done].join("\n\n"), changed };
+  /* ids = leads the answer changed or moved, so the list can show them; reordered = the send order is new */
+  return { reply: [out.reply, ...done].join("\n\n"), changed: touched.size || (reordered ? 1 : 0), ids: [...touched], reordered };
 }

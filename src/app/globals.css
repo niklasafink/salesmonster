@@ -756,3 +756,8 @@ table.angles tr.off td:not(.sw-c){color:var(--fg-3)}
 .lc-send .lucide{width:16px; height:16px}
 .lc-send .lucide-square{width:11px; height:11px; fill:currentColor; stroke-width:0}
 @media (max-width:640px){ .lc{bottom:calc(8px + env(safe-area-inset-bottom,0px)); width:calc(100% - 16px)} .lc-log{max-height:60vh} }
+
+/* rows the lead chat just changed */
+table.leads tr.flash td{animation:flash 4s ease-out}
+@keyframes flash{0%,40%{background:color-mix(in srgb, var(--accent) 16%, transparent)}}
+@media (prefers-reduced-motion: reduce){table.leads tr.flash td{animation:none; background:color-mix(in srgb, var(--accent) 12%, transparent)}}

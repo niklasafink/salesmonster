@@ -5,13 +5,14 @@ import { Icon, api } from "./ui";
 import type { Ctx } from "./types";
 
 type Msg = { role: "user" | "assistant"; content: string };
+export type ChatChange = { ids: number[]; reordered: boolean };
 const store = {
   get: (k: string): Msg[] => { try { const v = JSON.parse(sessionStorage.getItem(k) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } },
   set: (k: string, v: Msg[]) => { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
 
 /* Docked at the bottom of the lead list: talk to the AI about the list, it reorders and edits leads; onChanged reloads the list */
-export function LeadChat({ slug, onChanged, toast }: { slug: string; onChanged: () => void; toast: Ctx["toast"] }) {
+export function LeadChat({ slug, onChanged, toast }: { slug: string; onChanged: (c: ChatChange) => void; toast: Ctx["toast"] }) {
   const key = `lead-chat-${slug}`;
   const [msgs, setMsgs] = useState<Msg[]>([]), [text, setText] = useState(""), [busy, setBusy] = useState(false), [open, setOpen] = useState(false);
   const log = useRef<HTMLDivElement>(null), input = useRef<HTMLTextAreaElement>(null), stop = useRef<AbortController | null>(null);
@@ -28,12 +29,14 @@ export function LeadChat({ slug, onChanged, toast }: { slug: string; onChanged: 
     put(next); setText(""); setOpen(true); setBusy(true);
     const ac = new AbortController(); stop.current = ac;
     try {
-      const r = await api<{ reply: string; changed: number }>("/api/leads/chat", { body: { t: slug, messages: next }, signal: ac.signal });
+      const r = await api<{ reply: string; changed: number; ids?: number[]; reordered?: boolean }>("/api/leads/chat", { body: { t: slug, messages: next }, signal: ac.signal });
       put([...next, { role: "assistant", content: r.reply }]);
-      if (r.changed) onChanged();
+      if (r.changed) onChanged({ ids: r.ids ?? [], reordered: !!r.reordered });
     } catch (e) {
       if (!ac.signal.aborted) toast((e as Error).message, { error: true });
       put(msgs); setText(q);
+      /* the server may have saved part of it before the error or the stop, so the list is read again */
+      onChanged({ ids: [], reordered: false });
     } finally { setBusy(false); stop.current = null; }
   }
 

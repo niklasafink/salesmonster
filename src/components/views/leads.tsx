@@ -11,7 +11,7 @@ import { EnrichReport, type EnrichDone } from "../enrich-report";
 type EnrichJob = { id: number; status: string; error: string; total: number; done: number; found: number; skipped: number; results: EnrichDone[] };
 import { ENRICH, LeadDialog, RatingBar, STATUS, emptyLead, type EditLead } from "../lead-dialog";
 import { AnglesDialog } from "../angles-dialog";
-import { LeadChat } from "../lead-chat";
+import { LeadChat, type ChatChange } from "../lead-chat";
 import type { Ctx } from "../types";
 import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
@@ -98,8 +98,37 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const th = (k: string, label: ReactNode) => <th className={k}>{label}<span className="rsz" aria-hidden onPointerDown={e => resize(k, e)} onDoubleClick={() => unsize(k)} /></th>;
   const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
   const impRef = useDialog(() => setImp(null));
-  const load = useCallback(() => api<{ rows: Lead[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string> }>(`/api/leads?t=${t.slug}`).then(r => { setRows(r.rows); setCos(r.companies); setOrder(r.order); setDays(r.days || {}); }).catch(e => ctx.toast(e.message, { error: true })), [t.slug, ctx]);
+  /* only the newest read is shown: an older answer that arrives late never overwrites a newer one */
+  const seq = useRef(0);
+  const load = useCallback(() => {
+    const n = ++seq.current;
+    return api<{ rows: Lead[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string> }>(`/api/leads?t=${t.slug}`)
+      .then(r => { if (n !== seq.current) return; setRows(r.rows); setCos(r.companies); setOrder(r.order); setDays(r.days || {}); })
+      .catch(e => { if (n === seq.current) ctx.toast(e.message, { error: true }); });
+  }, [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
+  /* back in the tab: read again, the evening run or another tab may have changed the list */
+  useEffect(() => {
+    const vis = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => document.removeEventListener("visibilitychange", vis);
+  }, [load]);
+  /* after the chat changed the list: read it again, switch to the send order when that changed, mark the changed rows for a moment
+     and scroll to the first; ratings follow on the server after the answer, so the list is read once more a little later */
+  const [flash, setFlash] = useState<Set<number>>(new Set());
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined), rereadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const chatChanged = useCallback(async (c: ChatChange) => {
+    await load();
+    clearTimeout(rereadTimer.current);
+    rereadTimer.current = setTimeout(load, 5000);
+    if (!c.ids.length && !c.reordered) return;
+    if (c.reordered) setSortState("versand");
+    setFlash(new Set(c.ids));
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(new Set()), 4000);
+    requestAnimationFrame(() => document.querySelector("table.leads tr.flash")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  }, [load]);
+  useEffect(() => () => { clearTimeout(flashTimer.current); clearTimeout(rereadTimer.current); }, []);
   /* opened from the command palette */
   useEffect(() => { const r = focus != null && rows.find(x => x.id === focus); if (r) { setEdit(r); onFocused?.(); } }, [focus, rows, onFocused]);
 
@@ -297,7 +326,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
       : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td>
   </>;
-  const rowProps = (r: Lead) => ({ className: `click${dayEnd.has(r.id) ? " cut" : ""}`, tabIndex: 0, onClick: () => setEdit(r),
+  const rowProps = (r: Lead) => ({ className: `click${dayEnd.has(r.id) ? " cut" : ""}${flash.has(r.id) ? " flash" : ""}`, tabIndex: 0, onClick: () => setEdit(r),
     onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } } });
   const row = (r: Lead) => canDrag && pos.has(r.id)
     ? <QueueRow key={r.id} id={r.id} {...rowProps(r)}>{h => cells(r, h)}</QueueRow>
@@ -334,7 +363,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         </DndContext> : <tr><td colSpan={14} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
       </tbody></table></div>
     </div></div>
-    <LeadChat slug={t.slug} onChanged={load} toast={ctx.toast} />
+    <LeadChat slug={t.slug} onChanged={chatChanged} toast={ctx.toast} />
 
     {edit && <LeadDialog key={edit.id ?? `new-${edit.company}`} lead={edit} slug={t.slug} tenders={t.tenders}
       rating={"ratingInfo" in edit ? rows.find(x => x.id === edit.id) : undefined} miss={rows.find(x => x.id === edit.id)?.enrichMiss}
