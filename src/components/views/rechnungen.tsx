@@ -56,7 +56,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
     setCust(h);
     const next = { co: h.co, attn: h.contact, street: h.street, zip: h.zip, city: h.city, salut: h.salut, vat: h.vat, email: h.email, domain: h.domain };
     setF(next);
-    if (h.domain && (!h.street || !h.salut) && st.integ.claude?.on) {
+    if (h.domain && (!h.street || !h.salut) && st.ai.options.length > 0) {
       setImp(true);
       try {
         const r = await api<{ street: string; zip: string; city: string; gf: string; vat: string }>(`/api/impressum?t=${t.slug}&domain=${encodeURIComponent(h.domain)}`);

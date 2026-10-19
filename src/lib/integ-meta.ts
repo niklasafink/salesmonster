@@ -1,6 +1,6 @@
 /* Shared between client and server. perUser = one connection per person and tenant (mailboxes).
    account = one connection per person for all their tenants (AI keys); jobs without a user take the key of a member. */
-export type IntegKind = "outlook" | "imap" | "smtp" | "hubspot" | "vergabehero" | "sendpilot" | "claude" | "openrouter" | "resend";
+export type IntegKind = "outlook" | "imap" | "smtp" | "hubspot" | "vergabehero" | "sendpilot" | "claude" | "openrouter" | "openai" | "requesty" | "resend";
 export type Field = { id: string; label: string; type?: string; value?: string; secret?: boolean; optional?: boolean; placeholder?: string; options?: [string, string][] };
 
 /* Claude models a tenant can pick; the first is the default for new choices */
@@ -19,6 +19,28 @@ export const OPENROUTER_MODELS: [string, string][] = [
   ["x-ai/grok-4.7", "Grok 4.7"],
 ];
 
+export const OPENAI_MODELS: [string, string][] = [
+  ["gpt-5.6-luna", "GPT-5.6 Luna"],
+];
+
+/* Requesty names models provider/model like OpenRouter, but with the provider's own ids */
+export const REQUESTY_MODELS: [string, string][] = [
+  ["anthropic/claude-sonnet-5-5", "Claude Sonnet 5.5"],
+  ["anthropic/claude-haiku-5-5", "Claude Haiku 5.5"],
+  ["openai/gpt-5.6-luna", "GPT-5.6 Luna"],
+  ["xai/grok-4.7", "Grok 4.7"],
+];
+
+/* The AI providers in the order the "KI verbinden" dialog lists them; keys belong to the account */
+export type AiKind = "claude" | "openrouter" | "requesty" | "openai";
+export const AI_PROVIDERS: { k: AiKind; name: string; keys: string; models: [string, string][] }[] = [
+  { k: "claude", name: "Claude", keys: "https://console.anthropic.com/settings/keys", models: CLAUDE_MODELS },
+  { k: "openrouter", name: "OpenRouter", keys: "https://openrouter.ai/settings/keys", models: OPENROUTER_MODELS },
+  { k: "requesty", name: "Requesty", keys: "https://app.requesty.ai/api-keys", models: REQUESTY_MODELS },
+  { k: "openai", name: "OpenAI", keys: "https://platform.openai.com/api-keys", models: OPENAI_MODELS },
+];
+export const isAi = (k: string): k is AiKind => AI_PROVIDERS.some(p => p.k === k);
+
 export const INTEG: { k: IntegKind; ico: string; name: string; perUser?: boolean; account?: boolean; auth: "oauth" | "fields" | "pending"; fields?: Field[] }[] = [
   { k: "outlook", ico: "mail", name: "Microsoft 365", perUser: true, auth: "oauth" },
   { k: "imap", ico: "inbox", name: "IMAP-Postfach", perUser: true, auth: "fields", fields: [
@@ -34,5 +56,7 @@ export const INTEG: { k: IntegKind; ico: string; name: string; perUser?: boolean
   { k: "openrouter", ico: "sparkles", name: "OpenRouter", account: true, auth: "fields", fields: [{ id: "key", label: "API-Schlüssel", type: "password", secret: true },
     { id: "model", label: "Modell", type: "select", value: OPENROUTER_MODELS[0][0], options: OPENROUTER_MODELS }] },
   { k: "claude", ico: "sparkles", name: "Claude", account: true, auth: "fields", fields: [{ id: "key", label: "API-Schlüssel", type: "password", secret: true }] },
+  { k: "requesty", ico: "sparkles", name: "Requesty", account: true, auth: "fields", fields: [{ id: "key", label: "API-Schlüssel", type: "password", secret: true }] },
+  { k: "openai", ico: "sparkles", name: "OpenAI", account: true, auth: "fields", fields: [{ id: "key", label: "API-Schlüssel", type: "password", secret: true }] },
   { k: "resend", ico: "bell", name: "Resend", auth: "fields", fields: [{ id: "key", label: "API-Schlüssel", type: "password", secret: true }, { id: "from", label: "Absender", type: "email" }] },
 ];

@@ -7,7 +7,7 @@ import { removeInteg, setInteg } from "@/lib/integrations";
 import { hubspotVerify } from "@/lib/hubspot";
 import { sendpilotMe } from "@/lib/sendpilot";
 import { MODEL } from "@/lib/claude";
-import { OPENROUTER_MODELS, openrouterVerify } from "@/lib/ai";
+import { AI_ENV, OPENROUTER_MODELS, modelsVerify, openrouterVerify } from "@/lib/ai";
 import { Microsoft365, imapClient, imapHost } from "@/lib/mail-source";
 import { startSync } from "@/lib/mail-sync";
 
@@ -15,7 +15,7 @@ import { startSync } from "@/lib/mail-sync";
 async function verify(kind: IntegKind, v: Record<string, string>): Promise<string> {
   switch (kind) {
     case "claude": {
-      try { await new Anthropic({ apiKey: v.key }).models.retrieve(MODEL); }
+      try { await new Anthropic({ apiKey: v.key, baseURL: AI_ENV.claude.base }).models.retrieve(MODEL); }
       catch (e) { if (e instanceof Anthropic.AuthenticationError) throw new HttpError(400, "API-Schlüssel ungültig"); throw e; }
       return MODEL;
     }
@@ -23,6 +23,10 @@ async function verify(kind: IntegKind, v: Record<string, string>): Promise<strin
       if (!OPENROUTER_MODELS.some(([id]) => id === v.model)) throw new HttpError(400, "Modell unbekannt");
       const credit = await openrouterVerify(v.key).catch(() => { throw new HttpError(400, "API-Schlüssel ungültig"); });
       return [OPENROUTER_MODELS.find(([id]) => id === v.model)![1], credit].filter(Boolean).join(", ");
+    }
+    case "requesty": case "openai": {
+      await modelsVerify(kind, v.key).catch(() => { throw new HttpError(400, "API-Schlüssel ungültig"); });
+      return "";
     }
     case "hubspot": return hubspotVerify(v.token).catch(() => { throw new HttpError(400, "Token ungültig oder ohne CRM-Rechte"); });
     case "sendpilot": {

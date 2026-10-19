@@ -20,7 +20,7 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
     const p = planOf(s);
     s.sendDays = p.days; s.sendFrom = Math.max(0, Math.min(23, p.from)); s.sendTo = Math.max(s.sendFrom + 1, Math.min(24, p.to));
     if (typeof s.sendpilotCampaign !== "string" || !s.sendpilotCampaign) delete s.sendpilotCampaign;
-    /* "claude" or "openrouter:<model>"; null goes back to the default order */
+    /* "<provider>:<model>", e.g. "requesty:xai/grok-4.7"; null goes back to the default order */
     if ("ai" in b.settings) {
       const c = b.settings.ai === null ? null : choiceOf(String(b.settings.ai));
       if (b.settings.ai !== null && !c) throw new HttpError(400, "KI unbekannt");

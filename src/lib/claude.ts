@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { openrouterAsk, type Ai } from "./ai";
+import { AI_ENV, chatAsk, openaiAsk, type Ai } from "./ai";
 import { spend } from "./usage";
 
 export const MODEL = "claude-sonnet-5-5";
@@ -13,8 +13,9 @@ type Opts = { key: Ai; system: string; prompt: string; web?: boolean; maxSearche
 
 /* One task: streams, resumes pause_turn, returns the final text. onText gets all text so far while it streams */
 export async function ask({ key, system, prompt, web, maxSearches = 20, effort = "medium", signal, onText }: Opts): Promise<string> {
-  if (typeof key === "object" && key.provider === "openrouter") return openrouterAsk(key, system, [{ role: "user", content: prompt }], !!web, maxSearches, signal, onText);
-  const client = new Anthropic({ apiKey: typeof key === "string" ? key : key.key });
+  if (typeof key === "object" && (key.provider === "openrouter" || key.provider === "requesty")) return chatAsk({ ...key, provider: key.provider }, system, [{ role: "user", content: prompt }], !!web, maxSearches, signal, onText);
+  if (typeof key === "object" && key.provider === "openai") return openaiAsk(key, system, [{ role: "user", content: prompt }], !!web, signal, onText);
+  const client = new Anthropic({ apiKey: typeof key === "string" ? key : key.key, baseURL: AI_ENV.claude.base });
   const model = (typeof key === "object" && key.model) || MODEL, modern = NEW_WEB.test(model);
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = [{ role: "user", content: prompt }];
   const tools: Anthropic.Beta.Messages.BetaToolUnion[] = web

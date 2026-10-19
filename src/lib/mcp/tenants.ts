@@ -2,7 +2,7 @@ import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db, integrations, members, tenants } from "@/db";
-import { aiFor, choiceLabel } from "@/lib/ai";
+import { aiFor, aiLabel, choiceLabel } from "@/lib/ai";
 import { tool } from "./tool";
 
 export function tenantTools(server: McpServer) {
@@ -20,7 +20,7 @@ export function tenantTools(server: McpServer) {
       const on = (k: string) => ints.find(i => i.tenantId === t.id && i.kind === k);
       const ai = await aiFor(t.id, user.id);
       return { slug: t.slug, name: t.name, domain: t.domain, hubspot: !!on("hubspot"), sendpilot: !!on("sendpilot"), mailbox: on("outlook")?.detail || on("imap")?.detail || null,
-        ai: t.settings.ai ? choiceLabel(t.settings.ai) : ai ? (typeof ai === "object" && ai.provider === "openrouter" ? `${ai.model} über OpenRouter` : "Claude Sonnet 5.5") : null };
+        ai: t.settings.ai ? choiceLabel(t.settings.ai) : ai ? aiLabel(ai) : null };
     }));
   });
 }

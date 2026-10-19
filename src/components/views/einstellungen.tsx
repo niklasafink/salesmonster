@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { INTEG } from "@/lib/integ-meta";
+import { AI_PROVIDERS, INTEG, isAi } from "@/lib/integ-meta";
 import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx, MailSync } from "../types";
 import { DAY_NAMES, daysText, hh, planOf } from "@/lib/schedule";
@@ -110,19 +110,31 @@ function Integ({ ctx }: { ctx: Ctx }) {
   async function disconnect(k: string) {
     try { await api(`/api/integrations?t=${t.slug}&kind=${k}`, { method: "DELETE" }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
+  const ais = AI_PROVIDERS.filter(p => st.integ[p.k]?.on);
   return <>
-    <div className="list-box">{INTEG.filter(i => i.k !== "vergabehero" || t.tenders).map(i => { const s = st.integ[i.k];
+    <div className="list-box">
+      <div className="row2 int"><span className="nm"><Icon n="sparkles" />KI</span><button className="btn sec" onClick={() => { setErr(""); setDlg("ai"); }}>KI verbinden</button></div>
+      {ais.map(p => <div key={p.k} className="row2 int"><span className="nm">{p.name}<span className="pill g">Verbunden</span></span>
+        <button className="btn gh act" onClick={() => disconnect(p.k)}>Trennen</button></div>)}
+    </div>
+    <div className="list-box">{INTEG.filter(i => !isAi(i.k) && (i.k !== "vergabehero" || t.tenders)).map(i => { const s = st.integ[i.k];
       return <div key={i.k} className="row2 int"><span className="nm"><Icon n={i.ico} />{i.name}{s?.on ? <span className="pill g">Verbunden</span> : i.auth === "pending" ? <span className="pill">Demnächst</span> : null}
 </span>
         {s?.on ? <button className="btn gh act" onClick={() => disconnect(i.k)}>Trennen</button> : i.auth === "pending" ? null : <button className="btn sec" onClick={() => open(i.k)} aria-label={`${i.name} verbinden`}>Verbinden</button>}</div>; })}</div>
     <AiPick ctx={ctx} />
     {(st.integ.outlook?.on || st.integ.imap?.on) && <Contacts ctx={ctx} />}
     <Connector ctx={ctx} />
+    {dlg === "ai" && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><div className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label="KI verbinden">
+      <div className="dlg-h">KI verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+      <div className="list-box">{AI_PROVIDERS.map(p => <button key={p.k} type="button" className="row2 int pick" onClick={() => open(p.k)}>
+        <span className="nm">{p.name}{st.integ[p.k]?.on && <span className="pill g">Verbunden</span>}</span><Icon n="chevron-right" /></button>)}</div>
+    </div></div>}
     {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label={`${x.name} verbinden`} onSubmit={connect}>
       <div className="dlg-h">{x.name} verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
       {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
         ? <select className="inp" value={vals[f.id] || ""} onChange={e => setVals({ ...vals, [f.id]: e.target.value })}>{f.options.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>
         : <input className="inp" type={f.type || "text"} value={vals[f.id] || ""} placeholder={f.placeholder} autoFocus={i === 0} autoComplete="off" onChange={e => setVals({ ...vals, [f.id]: e.target.value })} />}</label>)}
+      {isAi(x.k) && <a className="f2" href={AI_PROVIDERS.find(p => p.k === x.k)!.keys} target="_blank" rel="noreferrer">Schlüssel bei {x.name} erstellen</a>}
       {x.k === "sendpilot" && <label className="fld"><span>Webhook-URL für SendPilot</span><input className="inp mono" readOnly value={`${location.origin}/api/sendpilot/webhook/${t.slug}`} onFocus={e => e.target.select()} /></label>}
       {err && <div className="warn">{err}</div>}
       <button className="btn pri wide" disabled={busy}>{busy ? <Icon n="loader" /> : null}Verbinden</button>

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActionBarPrimitive, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useAuiState, useExternalStoreRuntime, type AppendMessage } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { OPENROUTER_MODELS } from "@/lib/integ-meta";
+import { AI_PROVIDERS, OPENROUTER_MODELS, type AiKind } from "@/lib/integ-meta";
 import type { SetupLead, SetupStep, SetupTemplate } from "@/db/schema";
 import type { ChatItem, Setup, Sources } from "@/lib/setup";
 import { httpUrl } from "@/lib/lead-fields";
@@ -20,7 +20,7 @@ const numbered = (t: string) => t.replace(/^(###[ \t]+)(.+?):/gm, (m, h: string,
   return i < 0 ? m : `${h}${i + 1}. ${l}:`;
 });
 const BUSY: Record<SetupStep, string> = { website: "Denke nach", zielgruppe: "Leite Zielgruppen ab", ansprechpartner: "Ordne Rollen zu", liste: "Suche Firmen und Ansprechpartner", ansprache: "Schreibe Mails", fertig: "Übernehme" };
-const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier deinen API-Schlüssel ein, von [OpenRouter](https://openrouter.ai/settings/keys) oder von der [Claude-API](https://console.anthropic.com/settings/keys).";
+const CONNECT = "Bevor wir anfangen, brauche ich Zugriff auf eine KI. Füge hier deinen API-Schlüssel ein, von der [Claude-API](https://console.anthropic.com/settings/keys), [OpenRouter](https://openrouter.ai/settings/keys), [Requesty](https://app.requesty.ai/api-keys) oder [OpenAI](https://platform.openai.com/api-keys).";
 
 const NEW_KEY = "Anderen Schlüssel verbinden";
 const SOURCE = { ki: "Von der KI", nutzer: "Aus deiner Eingabe", recherche: "Aus der Recherche" };
@@ -177,14 +177,21 @@ export function Einrichtung({ ctx }: { ctx: Ctx }) {
 
   /* Without any model nothing works, so the key is the first answer in the chat */
   async function connect(raw: string) {
-    const key = raw.trim(), kind = key.startsWith("sk-ant-") ? "claude" : "openrouter";
+    const key = raw.trim();
     if (!key) return;
+    /* Claude and OpenRouter keys carry a prefix; any other key is tried against OpenAI, then Requesty */
+    const kinds: AiKind[] = key.startsWith("sk-ant-") ? ["claude"] : key.startsWith("sk-or-") ? ["openrouter"] : ["openai", "requesty"];
     setLocal(l => [...l, { id: `me${l.length}`, role: "me", text: `${key.slice(0, 6)}…${key.slice(-4)}` }]);
     setBusy(true);
     try {
-      await api("/api/integrations", { body: { t: t.slug, kind, values: kind === "openrouter" ? { key, model: OPENROUTER_MODELS[0][0] } : { key } } });
+      let kind: AiKind | null = null, err: unknown;
+      for (const k of kinds) {
+        try { await api("/api/integrations", { body: { t: t.slug, kind: k, values: k === "openrouter" ? { key, model: OPENROUTER_MODELS[0][0] } : { key } } }); kind = k; break; }
+        catch (e) { err = e; }
+      }
+      if (!kind) throw err;
       /* a fresh setup asks for the model next; one already running keeps going with the new key */
-      if (su?.chat.length) await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: kind === "openrouter" ? `openrouter:${OPENROUTER_MODELS[0][0]}` : "claude:claude-opus-5-5" } } });
+      if (su?.chat.length) await api(`/api/tenants/${t.slug}`, { method: "PATCH", body: { settings: { ai: kind === "claude" ? "claude:claude-opus-5-5" : `${kind}:${AI_PROVIDERS.find(p => p.k === kind)!.models[0][0]}` } } });
       ctx.reload(); await load();
     }
     catch (e) { setLocal(l => [...l, { id: `ai${l.length}`, role: "ai", text: `Das hat nicht geklappt: ${(e as Error).message}. Prüfe den Schlüssel und füge ihn noch einmal ein.` }]); }

@@ -4,7 +4,7 @@ import { bigint, boolean, date, integer, jsonb, numeric, pgTable, real, serial, 
 export type Tender = { t: string; s: string; f: string };
 
 /* Which connected AI a tenant uses; the keys themselves belong to the account, so tenants can share one or differ */
-export type AiChoice = { kind: "claude"; model?: string } | { kind: "openrouter"; model: string };
+export type AiChoice = { kind: "claude"; model?: string } | { kind: "openrouter" | "requesty" | "openai"; model: string };
 
 export type TenantSettings = {
   prompt: string;

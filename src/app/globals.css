@@ -280,6 +280,9 @@ button.snode:hover{background:var(--hover)}
 .list-box{border:1px solid var(--line); border-radius:12px}
 .row2{display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px; padding:8px 16px; border-bottom:1px solid var(--line)}
 .row2:last-child{border-bottom:0}
+button.row2.pick{width:100%; background:none; border-left:0; border-right:0; border-top:0; font:inherit; color:inherit; text-align:left; cursor:pointer}
+button.row2.pick:hover{background:var(--n-bg)}
+button.row2.pick > .lucide{color:var(--fg-3)}
 .row2 > .inp{width:120px}
 .row2 > .inp.url{flex:1; width:auto; min-width:0}
 .row2 .nm{display:flex; align-items:center; gap:10px; font-weight:500}
