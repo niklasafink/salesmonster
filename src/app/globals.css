@@ -596,6 +596,8 @@ table.leads td.act,table.leads th.act{width:84px; padding:0; text-align:right}
 table.leads th.c-sel{width:26px} table.leads td.c-sel,table.leads th.c-sel{padding:0 0 0 4px} .c-sel input{accent-color:var(--accent); margin:0; vertical-align:middle; cursor:pointer}
 table.leads th.c-q{width:22px} table.leads td.c-q,table.leads th.c-q{padding:0}
 table.leads td.c-q .grip{width:20px; height:24px; cursor:grab; touch-action:none; color:var(--fg-3); vertical-align:middle}
+/* the grip only shows on the row under the pointer; touch screens without hover keep it */
+@media (hover:hover){ table.leads td.c-q .grip{opacity:0; transition:opacity .12s} table.leads tr:hover td.c-q .grip, table.leads tr.drag td.c-q .grip, table.leads td.c-q .grip:focus-visible{opacity:1} }
 table.leads th.c-day{width:72px} table.leads td.c-day{font-size:12.5px; white-space:nowrap}
 table.leads th.c-rt{width:76px} table.leads td.c-rt,table.leads th.c-rt{padding-right:4px}
 table.leads th.warm{width:42px} table.leads td.warm,table.leads th.warm{font-size:12.5px; padding-left:4px; padding-right:0}
