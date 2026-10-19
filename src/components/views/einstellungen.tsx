@@ -92,7 +92,7 @@ function LiCampaign({ ctx, save }: { ctx: Ctx; save: (s: object) => Promise<void
 
 /* What a provider card shows; kind is what the API stores ("mailbox" = IMAP and SMTP together) */
 type Prov = { k: string; kind: string; name: string; ico: string; on: boolean; soon?: boolean };
-type Form = { kind: string; name: string; fields: Field[]; fixed?: Record<string, string>; link?: [string, string] };
+type Form = { kind: string; name: string; fields: Field[]; fixed?: Record<string, string>; link?: [string, string]; guide?: string[] };
 
 const GMAIL_SMTP = "smtp.gmail.com";
 const MAILBOX: Field[] = [{ id: "user", label: "E-Mail", type: "email" }, { id: "pass", label: "Passwort", type: "password", secret: true }];
@@ -101,6 +101,22 @@ const FORMS: Record<string, Form> = {
     link: ["https://myaccount.google.com/apppasswords", "App-Passwort bei Google erstellen"] },
   other: { kind: "mailbox", name: "Anderes Postfach", fields: [...MAILBOX, { id: "host", label: "IMAP-Server", optional: true, placeholder: "Automatisch" },
     { id: "smtp", label: "SMTP-Server", optional: true, placeholder: "Automatisch" }] },
+};
+const aiGuide = (name: string, model?: boolean) => [`Bei ${name} ein Konto anlegen und Guthaben aufladen`, "Einen neuen API-Schlüssel erstellen und kopieren",
+  "Hier einfügen", ...(model ? ["Modell wählen, das die KI nutzen soll"] : [])];
+const GUIDES: Record<string, string[]> = {
+  google: ["Im Google-Konto die Bestätigung in zwei Schritten einschalten", "Über den Link unten ein App-Passwort erstellen, Name z. B. „Sales Monster“",
+    "Das 16-stellige Passwort ohne Leerzeichen hier einfügen"],
+  other: ["E-Mail und Passwort des Postfachs eintragen", "Server leer lassen, sie werden automatisch erkannt",
+    "Klappt das nicht: IMAP- und SMTP-Server beim Anbieter nachsehen", "Mit Zwei-Faktor-Anmeldung ein App-Passwort beim Anbieter erstellen"],
+  hubspot: ["In HubSpot Entwicklung → Alte Apps öffnen", "Alte App erstellen → Privat → Mit alter privater App fortfahren",
+    "Unter Bereiche anhaken: crm.objects.contacts.read, crm.objects.contacts.write, crm.objects.companies.read, crm.objects.companies.write",
+    "Webhooks leer lassen und App erstellen", "Zugriffstoken anzeigen, kopieren und hier einfügen"],
+  sendpilot: ["In SendPilot in den Einstellungen unter API einen Schlüssel erstellen", "Die Webhook-URL unten in SendPilot als Webhook eintragen",
+    "Das Signing-Secret des Webhooks kopieren und hier einfügen"],
+  resend: ["In Resend unter Domains die Absender-Domain anlegen und die DNS-Einträge setzen", "Unter API Keys einen Schlüssel mit Sendezugriff erstellen",
+    "Schlüssel einfügen, als Absender eine Adresse dieser Domain eintragen"],
+  claude: aiGuide("Anthropic"), openrouter: aiGuide("OpenRouter", true), requesty: aiGuide("Requesty"), openai: aiGuide("OpenAI"),
 };
 const GROUPS = [["mail", "Mail"], ["ki", "KI"], ["sonstiges", "Sonstiges"]] as const;
 type Group = (typeof GROUPS)[number][0];
@@ -127,7 +143,7 @@ function Integ({ ctx }: { ctx: Ctx }) {
   function open(p: Prov) {
     if (p.kind === "outlook") { location.href = `/api/integrations/microsoft?t=${t.slug}`; return; }
     const m = INTEG.find(i => i.k === p.kind);
-    const f = FORMS[p.k] || { kind: p.kind, name: p.name, fields: m!.fields!, link: isAi(p.k) ? [AI_PROVIDERS.find(a => a.k === p.k)!.keys, `Schlüssel bei ${p.name} erstellen`] : undefined };
+    const f = { guide: GUIDES[p.k], ...(FORMS[p.k] || { kind: p.kind, name: p.name, fields: m!.fields!, link: isAi(p.k) ? [AI_PROVIDERS.find(a => a.k === p.k)!.keys, `Schlüssel bei ${p.name} erstellen`] : undefined }) };
     setVals(Object.fromEntries(f.fields.map(x => [x.id, x.id === "user" ? st.me.email : x.value || ""]))); setErr(""); setForm(f);
   }
   async function connect(e: React.FormEvent) {
@@ -157,6 +173,7 @@ function Integ({ ctx }: { ctx: Ctx }) {
     </>}
     {form && <div className="ov" onClick={e => e.target === e.currentTarget && setForm(null)}><form className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label={`${form.name} verbinden`} onSubmit={connect}>
       <div className="dlg-h">{form.name} verbinden<button type="button" className="btn gh ic" onClick={() => setForm(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+      {form.guide && <details className="howto"><summary>Du brauchst eine Anleitung?</summary><ul>{form.guide.map(g => <li key={g}>{g}</li>)}</ul></details>}
       {form.fields.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
         ? <select className="inp" value={vals[f.id] || ""} onChange={e => setVals({ ...vals, [f.id]: e.target.value })}>{f.options.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>
         : <input className="inp" type={f.type || "text"} value={vals[f.id] || ""} placeholder={f.placeholder} autoFocus={i === 0} autoComplete="off" onChange={e => setVals({ ...vals, [f.id]: e.target.value })} />}</label>)}
