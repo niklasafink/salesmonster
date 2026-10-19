@@ -20,6 +20,8 @@ export type TenantSettings = {
   sendTo?: number;
   /* SendPilot campaign the evening run hands LinkedIn leads to; unset = they wait for the LinkedIn button */
   sendpilotCampaign?: string;
+  /* places whose open leads go first, set by the lead chat; leads found later from there join the front before each evening run */
+  firstPlaces?: string[];
   /* notes from reading the tenant's website once in the setup; read again only when the domain changes */
   site?: { domain: string; notes: string; at: string };
 };
