@@ -4,7 +4,7 @@ import { db, leads, messages, tenants } from "@/db";
 import { attachCompanies } from "@/lib/companies";
 import { channelOf } from "@/lib/lead-rating";
 import { removeInteg, setInteg } from "@/lib/integrations";
-import { batches, mailQueue, nextUp } from "@/lib/queue";
+import { batches, mailQueue, nextUp, roomTonight, sendDates } from "@/lib/queue";
 import { PUT as QUEUE } from "@/app/api/leads/queue/route";
 import { GET as LIST } from "@/app/api/leads/route";
 import { PATCH as LEAD } from "@/app/api/leads/[id]/route";
@@ -64,6 +64,26 @@ describe("Versand-Warteschlange", () => {
     expect(nextUp(q, 3)).toEqual([ids.Anna, ids.Bert]);
     expect(batches(q, 3)).toEqual([[ids.Anna, ids.Bert], [ids.Gina, ids.Gus, ids.Dora]]);
     expect(nextUp(q, 4)).toEqual([ids.Anna, ids.Bert, ids.Gina, ids.Gus]);
+  });
+
+  it("eine Firma mit mehr Kontakten als ein Lauf wird geteilt, kein Lauf hat mehr als n", () => {
+    const q = [1, 2, 3, 4, 5].map(id => ({ id, companyId: 7, held: false })).concat({ id: 6, companyId: 8, held: false });
+    expect(batches(q, 2)).toEqual([[1, 2], [3, 4], [5, 6]]);
+    expect(nextUp(q, 10)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it("wartende Entwürfe belegen ihren Versandtag, der Rest der Warteschlange folgt mit n je Tag", async () => {
+    const tt = { ...(await db.select().from(tenants).where(eq(tenants.id, t.id)))[0] };
+    tt.settings = { ...tt.settings, leadsPerDay: 2 };
+    /* Sunday noon, nothing drafted yet: tonight's run fills Monday */
+    const sun = new Date("2026-10-18T10:00:00Z");
+    const [m] = await db.insert(messages).values({ tenantId: t.id, leadId: ids.Anna, leadIds: [ids.Anna, ids.Bert, ids.Gina], to: "", batchDate: "2026-10-16", variant: "A", status: "entwurf" }).returning({ id: messages.id });
+    const days = await sendDates(tt, [{ id: ids.Gus, companyId: null, held: false }, { id: ids.Dora, companyId: null, held: false }], [], sun);
+    expect(await roomTonight(tt, sun)).toBe(0);
+    await db.delete(messages).where(eq(messages.id, m.id));
+    /* three people in one message take Monday whole, Gus fills Tuesday next to nothing else, Dora joins him */
+    expect([days[ids.Anna], days[ids.Gus], days[ids.Dora]]).toEqual(["2026-10-19", "2026-10-20", "2026-10-20"]);
+    expect(await roomTonight(tt, sun)).toBe(2);
   });
 
   it("mit SendPilot fallen LinkedIn-Leads aus dem Mail-Lauf", async () => {

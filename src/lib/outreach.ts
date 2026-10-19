@@ -14,7 +14,7 @@ import { refreshRatings, rerate } from "./ratings";
 import { researchRound } from "./strategy";
 import { beta } from "./angles";
 import { FREEMAIL, channelOf } from "./lead-rating";
-import { bouncedDomains, byCompany, linkedinOn, liQueue, mailQueue, type QueueLead } from "./queue";
+import { bouncedDomains, byCompany, linkedinOn, liQueue, mailQueue, perDay, roomTonight, sentToday, type QueueLead } from "./queue";
 import { sendpilotPush } from "./sendpilot";
 import { DAY_NAMES, draftDay, hh, isoWeekday, planOf, sendQuota } from "./schedule";
 import { track } from "./usage";
@@ -107,7 +107,8 @@ async function research(t: Tenant, opts: { force?: boolean }) {
   const open = await db.select({ n: sql<number>`count(*)::int` }).from(messages).where(and(eq(messages.tenantId, t.id), eq(messages.batchDate, today)));
   if (open[0].n > 0 && !opts.force) return { created: 0, skipped: "Heute schon recherchiert" };
 
-  const n = Math.max(1, Math.min(30, t.settings.leadsPerDay || 10));
+  /* leadsPerDay per send day: drafts still waiting for that day take part of it */
+  const perLi = perDay(t), n = await roomTonight(t);
   const token = await hubspotToken(t.id);
   let hub: Hub | null = null;
   if (token) {
@@ -134,15 +135,15 @@ async function research(t: Tenant, opts: { force?: boolean }) {
     } catch (err) { await log(t.id, "enrich", false, `${l.company}: ${(err as Error).message}`); return l; }
   };
 
-  /* All open contacts of one company: reserve it once, then plan its messages */
-  const admit = async (companyId: number) => {
+  /* The open contacts of one company (only those in `only`, when a company has more than a day takes): reserve it once, then plan its messages */
+  const admit = async (companyId: number, only: number[]) => {
     if (done.has(companyId)) return;
     done.add(companyId);
     const [c] = await db.select().from(companies).where(eq(companies.id, companyId));
     const all = await db.select().from(leads).where(and(eq(leads.companyId, companyId), eq(leads.tenantId, t.id))).orderBy(asc(leads.id));
     /* a company already reached on LinkedIn is not mailed; with SendPilot on, LinkedIn contacts go there instead */
     if (all.some(l => l.sendpilotAt)) return;
-    let rows = await pool(all.filter(l => l.status === "neu" && !(onLi && channelOf(l, bounced).ch === "linkedin")), 4, enrich);
+    let rows = await pool(all.filter(l => l.status === "neu" && only.includes(l.id) && !(onLi && channelOf(l, bounced).ch === "linkedin")), 4, enrich);
     /* without any address at the company and without LinkedIn nobody can be written to */
     if (!rows.some(l => l.email) && !all.some(l => l.email)) {
       for (const l of rows.filter(l => !l.linkedin)) await db.update(leads).set({ note: l.note || "E-Mail fehlt" }).where(eq(leads.id, l.id));
@@ -176,13 +177,13 @@ async function research(t: Tenant, opts: { force?: boolean }) {
   /* 1. open leads first, in the order of the send queue (drag and drop, then rating); replies come most often on Tuesday and Wednesday
      (6,337 cold mails), so with holdTop grade-A leads wait for those days and only fill the batch on other days when nothing else is left */
   await refreshRatings(t.id).catch(e => log(t.id, "rating", false, (e as Error).message));
-  await toLinkedin(t, n);
-  /* n people per evening; a company whose contacts no longer fit waits for the next one, as the lead list shows it */
+  await toLinkedin(t, perLi);
+  /* n people per evening; a company whose contacts no longer fit waits for the next one, one bigger than a whole evening sends its first n, as the lead list shows it */
   const taken = () => units.reduce((s, u) => s + u.leads.length, 0);
   const fill = async (q: QueueLead[], stopAtHeld: boolean) => {
     for (const g of byCompany(q)) {
       if ((stopAtHeld && g.held) || taken() >= n || (taken() > 0 && taken() + g.ids.length > n)) break;
-      if (g.companyId) await admit(g.companyId);
+      if (g.companyId) await admit(g.companyId, g.ids.slice(0, n));
     }
   };
   await fill(await mailQueue(t), true);
@@ -234,7 +235,12 @@ export async function approvalMail(t: Tenant) {
 export async function sendApproved(t: Tenant, opts: { now?: boolean } = {}) {
   let rows = await db.select({ m: messages, l: leads }).from(messages).innerJoin(leads, eq(leads.id, messages.leadId))
     .where(and(eq(messages.tenantId, t.id), eq(messages.status, "freigegeben"), eq(messages.channel, "mail"), isNotNull(messages.senderId))).orderBy(sql`${messages.error} <> ''`, asc(messages.id));
-  if (!opts.now) rows = rows.slice(0, sendQuota(planOf(t.settings), rows.length));
+  if (!opts.now) {
+    /* at most leadsPerDay people a day; the rest goes out on the next send day */
+    let room = perDay(t) - await sentToday(t.id);
+    rows = rows.filter(({ m }) => { const k = idsOf(m).length; if (k > room && room < perDay(t)) { room = 0; return false; } room -= k; return true; });
+    rows = rows.slice(0, sendQuota(planOf(t.settings), rows.length));
+  }
   if (!rows.length) return { sent: 0, failed: 0 };
   const hub = await hubspotToken(t.id);
   let sent = 0, failed = 0;

@@ -1,9 +1,9 @@
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, leads, messages, tenants } from "@/db";
-import { berlinDate, berlinWeekday } from "./dates";
+import { addDaysIso, berlinDate, berlinWeekday } from "./dates";
 import { getInteg } from "./integrations";
 import { channelOf, domain } from "./lead-rating";
-import { batchDays, draftDay, planOf } from "./schedule";
+import { batchDays, draftDay, isSendDay, planOf, sendDayFrom, type SendPlan } from "./schedule";
 
 type Tenant = typeof tenants.$inferSelect;
 export type QueueLead = { id: number; companyId: number | null; held: boolean };
@@ -43,10 +43,13 @@ export function byCompany(q: QueueLead[]) {
   return [...out.values()];
 }
 
-/* The queue cut into evening runs of n people each; a company that no longer fits starts the next run */
+/* A company's contacts in pieces of at most n, so no run and no send day takes more than n people */
+const pieces = (ids: number[], n: number) => Array.from({ length: Math.ceil(ids.length / n) }, (_, i) => ids.slice(i * n, (i + 1) * n));
+
+/* The queue cut into evening runs of n people each; a company that no longer fits starts the next run, one bigger than a run is split */
 export function batches(q: QueueLead[], n: number) {
   const out: number[][] = [];
-  for (const g of byCompany(q)) { const last = out.at(-1); if (last && last.length + g.ids.length <= n) last.push(...g.ids); else out.push([...g.ids]); }
+  for (const g of byCompany(q)) for (const ids of pieces(g.ids, n)) { const last = out.at(-1); if (last && last.length + ids.length <= n) last.push(...ids); else out.push([...ids]); }
   return out;
 }
 
@@ -62,17 +65,53 @@ export async function liQueue(t: Tenant) {
   return open.filter(l => channelOf(l, bounced).ch === "linkedin").map(l => l.id);
 }
 
-/* The day each lead is written to: drafts go out on the send day after their evening, the queue fills one evening run per send day
-   with leadsPerDay people on each channel, mail in queue order and LinkedIn in campaign order */
-export async function sendDates(t: Tenant, q: QueueLead[], li: number[] = [], now = new Date()) {
-  const p = planOf(t.settings), n = Math.max(1, Math.min(30, t.settings.leadsPerDay || 10)), today = berlinDate(now);
+export const perDay = (t: Tenant) => Math.max(1, Math.min(30, t.settings.leadsPerDay || 10));
+
+/* Send days from `first` on with room for n people each. Returns the day for k people, not before `from`: the current day while it has room,
+   else the next; a message bigger than a whole day takes an empty one */
+function dayFiller(p: SendPlan, first: string, n: number) {
+  const days = [{ day: first, left: n }];
+  let i = 0;
+  return (k: number, from = first) => {
+    while (days[i].day < from || (days[i].left < k && days[i].left < n)) if (++i === days.length) days.push({ day: sendDayFrom(p, addDaysIso(days[i - 1].day, 1)), left: n });
+    days[i].left -= k;
+    return days[i].day;
+  };
+}
+
+/* People mailed today, they count against today's limit */
+export async function sentToday(tenantId: number, now = new Date()) {
+  const rows = await db.select({ leadId: messages.leadId, leadIds: messages.leadIds }).from(messages)
+    .where(and(eq(messages.tenantId, tenantId), eq(messages.channel, "mail"), eq(messages.status, "gesendet"), sql`(${messages.sentAt} at time zone 'Europe/Berlin')::date = ${berlinDate(now)}`));
+  return rows.reduce((s, m) => s + (m.leadIds?.length || 1), 0);
+}
+
+/* Waiting mail drafts on the send days ahead, oldest first and leadsPerDay people per day: what has piled up spills onto the following days */
+async function draftPlan(t: Tenant, now: Date) {
+  const p = planOf(t.settings), n = perDay(t), today = berlinDate(now), first = draftDay(p, addDaysIso(today, -1), now);
   const drafts = await db.select({ leadId: messages.leadId, leadIds: messages.leadIds, batchDate: messages.batchDate, channel: messages.channel }).from(messages)
-    .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben"])));
-  const out: Record<number, string> = {};
-  for (const m of drafts) if (m.channel === "mail") for (const id of m.leadIds?.length ? m.leadIds : [m.leadId]) out[id] = draftDay(p, m.batchDate, now);
-  const runs = batches(q, n), liRuns = Array.from({ length: Math.ceil(li.length / n) }, (_, i) => li.slice(i * n, (i + 1) * n));
-  const days = batchDays(p, Math.max(runs.length, liRuns.length), drafts.some(m => m.batchDate === today), now);
-  for (const rs of [runs, liRuns]) rs.forEach((ids, i) => { for (const id of ids) if (days[i] && !out[id]) out[id] = days[i]; });
+    .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben"]))).orderBy(asc(messages.id));
+  const put = dayFiller(p, first, n), out: Record<number, string> = {};
+  if (first === today && isSendDay(p, today)) { const sent = await sentToday(t.id, now); if (sent) put(Math.min(sent, n)); }
+  for (const m of drafts) if (m.channel === "mail") { const ids = m.leadIds?.length ? m.leadIds : [m.leadId], d = put(ids.length); for (const id of ids) out[id] = d; }
+  return { p, n, today, put, out, ranToday: drafts.some(m => m.batchDate === today) };
+}
+
+/* How many people tonight's run may still draft: the day it fills keeps leadsPerDay, minus what is already waiting for that day */
+export async function roomTonight(t: Tenant, now = new Date()) {
+  const { p, n, today, out } = await draftPlan(t, now), day = draftDay(p, today, now);
+  const days = Object.values(out);
+  return days.some(d => d > day) ? 0 : Math.max(0, n - days.filter(d => d === day).length);
+}
+
+/* The day each lead is written to: waiting drafts first, then the queue, leadsPerDay people per send day; the queue starts on the day
+   the next evening run fills. Mail in queue order, LinkedIn separately in campaign order */
+export async function sendDates(t: Tenant, q: QueueLead[], li: number[] = [], now = new Date()) {
+  const { p, n, put, out, ranToday } = await draftPlan(t, now);
+  const from = batchDays(p, 1, ranToday, now)[0];
+  for (const g of byCompany(q)) for (const ids of pieces(g.ids.filter(id => !out[id]), n)) if (ids.length) { const d = put(ids.length, from); for (const id of ids) out[id] = d; }
+  const liPut = dayFiller(p, from, n);
+  for (const id of li) if (!out[id]) out[id] = liPut(1);
   return out;
 }
 
