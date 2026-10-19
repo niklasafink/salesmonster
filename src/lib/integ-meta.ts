@@ -31,7 +31,7 @@ export const REQUESTY_MODELS: [string, string][] = [
   ["xai/grok-4.7", "Grok 4.7"],
 ];
 
-/* The AI providers in the order the "KI verbinden" dialog lists them; keys belong to the account */
+/* The AI providers in the order the KI tile lists them; keys belong to the account */
 export type AiKind = "claude" | "openrouter" | "requesty" | "openai";
 export const AI_PROVIDERS: { k: AiKind; name: string; keys: string; models: [string, string][] }[] = [
   { k: "claude", name: "Claude", keys: "https://console.anthropic.com/settings/keys", models: CLAUDE_MODELS },

@@ -170,10 +170,13 @@ test("Barrierefreiheit: Navigation, Verbinden-Buttons, Kontrast", async ({ page 
   }
   await page.goto("/#einstellungen");
   await page.locator(".tabs button", { hasText: "Integrationen" }).click();
-  const names = await page.locator(".int .btn.sec").evaluateAll(bs => bs.map(b => b.getAttribute("aria-label") || b.textContent));
-  expect(names.length).toBeGreaterThan(0);
-  expect(new Set(names).size).toBe(names.length);
-  for (const n of names) expect(n).toMatch(/^.+ verbinden$/);
+  for (const g of ["Mail", "KI", "Sonstiges"]) {
+    await page.locator(".tile", { hasText: g }).click();
+    const names = await page.locator(".prov .btn.sec").evaluateAll(bs => bs.map(b => b.getAttribute("aria-label") || b.textContent));
+    expect(new Set(names).size).toBe(names.length);
+    for (const n of names) expect(n).toMatch(/^.+ verbinden$/);
+    await page.locator(".crumb button").click();
+  }
 });
 
 test("Import: Spaltenzuordnung prüfen und ändern", async ({ page }) => {

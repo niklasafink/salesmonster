@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { AI_PROVIDERS, INTEG, isAi } from "@/lib/integ-meta";
+import { AI_PROVIDERS, INTEG, isAi, type Field } from "@/lib/integ-meta";
+import { Logo, hasLogo } from "../logos";
 import { Icon, Top, api, useDialog } from "../ui";
 import type { Ctx, MailSync } from "../types";
 import { DAY_NAMES, daysText, hh, planOf } from "@/lib/schedule";
@@ -89,53 +90,78 @@ function LiCampaign({ ctx, save }: { ctx: Ctx; save: (s: object) => Promise<void
     </select></label>;
 }
 
+/* What a provider card shows; kind is what the API stores ("mailbox" = IMAP and SMTP together) */
+type Prov = { k: string; kind: string; name: string; ico: string; on: boolean; soon?: boolean };
+type Form = { kind: string; name: string; fields: Field[]; fixed?: Record<string, string>; link?: [string, string] };
+
+const GMAIL_SMTP = "smtp.gmail.com";
+const MAILBOX: Field[] = [{ id: "user", label: "E-Mail", type: "email" }, { id: "pass", label: "Passwort", type: "password", secret: true }];
+const FORMS: Record<string, Form> = {
+  google: { kind: "mailbox", name: "Google", fields: [MAILBOX[0], { ...MAILBOX[1], label: "App-Passwort" }], fixed: { host: "imap.gmail.com", smtp: GMAIL_SMTP },
+    link: ["https://myaccount.google.com/apppasswords", "App-Passwort bei Google erstellen"] },
+  other: { kind: "mailbox", name: "Anderes Postfach", fields: [...MAILBOX, { id: "host", label: "IMAP-Server", optional: true, placeholder: "Automatisch" },
+    { id: "smtp", label: "SMTP-Server", optional: true, placeholder: "Automatisch" }] },
+};
+const GROUPS = [["mail", "Mail"], ["ki", "KI"], ["sonstiges", "Sonstiges"]] as const;
+type Group = (typeof GROUPS)[number][0];
+
+function Mark({ p }: { p: Prov }) {
+  return <span className="mark">{hasLogo(p.k) ? <Logo k={p.k} /> : <Icon n={p.ico} />}</span>;
+}
+
 function Integ({ ctx }: { ctx: Ctx }) {
   const { st } = ctx, t = st.tenant!;
-  const [dlg, setDlg] = useState<string | null>(null), [vals, setVals] = useState<Record<string, string>>({}), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
-  const x = INTEG.find(i => i.k === dlg);
-  function open(k: string) {
-    const m = INTEG.find(i => i.k === k)!;
-    if (m.auth === "oauth") {
-      location.href = `/api/integrations/microsoft?t=${t.slug}`; return;
-    }
-    setVals(Object.fromEntries((m.fields || []).map(f => [f.id, f.id === "user" ? st.me.email : f.value || ""]))); setErr(""); setDlg(k);
+  const [group, setGroup] = useState<Group | null>(null);
+  const [form, setForm] = useState<Form | null>(null), [vals, setVals] = useState<Record<string, string>>({}), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const on = (k: string) => !!st.integ[k]?.on;
+  const box = on("imap") || on("smtp"), gmail = box && st.integ.smtp?.detail === GMAIL_SMTP;
+  const meta = (k: string) => INTEG.find(i => i.k === k)!;
+  const items: Record<Group, Prov[]> = {
+    mail: [{ k: "microsoft", kind: "outlook", name: "Microsoft 365", ico: "mail", on: on("outlook") },
+      { k: "google", kind: "mailbox", name: "Google", ico: "mail", on: gmail },
+      { k: "other", kind: "mailbox", name: "Anderes Postfach", ico: "mail", on: box && !gmail }],
+    ki: AI_PROVIDERS.map(p => ({ k: p.k, kind: p.k, name: p.name, ico: "sparkles", on: on(p.k) })),
+    sonstiges: (["hubspot", "sendpilot", "resend", ...(t.tenders ? ["vergabehero"] : [])] as const).map(k => { const m = meta(k);
+      return { k, kind: k, name: m.name, ico: m.ico, on: on(k), soon: m.auth === "pending" }; }),
+  };
+  function open(p: Prov) {
+    if (p.kind === "outlook") { location.href = `/api/integrations/microsoft?t=${t.slug}`; return; }
+    const m = INTEG.find(i => i.k === p.kind);
+    const f = FORMS[p.k] || { kind: p.kind, name: p.name, fields: m!.fields!, link: isAi(p.k) ? [AI_PROVIDERS.find(a => a.k === p.k)!.keys, `Schlüssel bei ${p.name} erstellen`] : undefined };
+    setVals(Object.fromEntries(f.fields.map(x => [x.id, x.id === "user" ? st.me.email : x.value || ""]))); setErr(""); setForm(f);
   }
   async function connect(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr("");
-    try { await api("/api/integrations", { body: { t: t.slug, kind: dlg, values: vals } }); ctx.toast(`${x!.name} verbunden`); setDlg(null); ctx.reload(); }
+    try { await api("/api/integrations", { body: { t: t.slug, kind: form!.kind, values: { ...vals, ...form!.fixed } } }); ctx.toast(`${form!.name} verbunden`); setForm(null); ctx.reload(); }
     catch (e2) { setErr((e2 as Error).message); }
     setBusy(false);
   }
-  const ref = useDialog(() => setDlg(null));
-  async function disconnect(k: string) {
-    try { await api(`/api/integrations?t=${t.slug}&kind=${k}`, { method: "DELETE" }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
+  const ref = useDialog(() => setForm(null));
+  async function disconnect(kind: string) {
+    try { await api(`/api/integrations?t=${t.slug}&kind=${kind}`, { method: "DELETE" }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
-  const ais = AI_PROVIDERS.filter(p => st.integ[p.k]?.on);
   return <>
-    <div className="list-box">
-      <div className="row2 int"><span className="nm"><Icon n="sparkles" />KI</span><button className="btn sec" onClick={() => { setErr(""); setDlg("ai"); }}>KI verbinden</button></div>
-      {ais.map(p => <div key={p.k} className="row2 int"><span className="nm">{p.name}<span className="pill g">Verbunden</span></span>
-        <button className="btn gh act" onClick={() => disconnect(p.k)}>Trennen</button></div>)}
-    </div>
-    <div className="list-box">{INTEG.filter(i => !isAi(i.k) && (i.k !== "vergabehero" || t.tenders)).map(i => { const s = st.integ[i.k];
-      return <div key={i.k} className="row2 int"><span className="nm"><Icon n={i.ico} />{i.name}{s?.on ? <span className="pill g">Verbunden</span> : i.auth === "pending" ? <span className="pill">Demnächst</span> : null}
-</span>
-        {s?.on ? <button className="btn gh act" onClick={() => disconnect(i.k)}>Trennen</button> : i.auth === "pending" ? null : <button className="btn sec" onClick={() => open(i.k)} aria-label={`${i.name} verbinden`}>Verbinden</button>}</div>; })}</div>
-    <AiPick ctx={ctx} />
-    {(st.integ.outlook?.on || st.integ.imap?.on) && <Contacts ctx={ctx} />}
-    <Connector ctx={ctx} />
-    {dlg === "ai" && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><div className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label="KI verbinden">
-      <div className="dlg-h">KI verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
-      <div className="list-box">{AI_PROVIDERS.map(p => <button key={p.k} type="button" className="row2 int pick" onClick={() => open(p.k)}>
-        <span className="nm">{p.name}{st.integ[p.k]?.on && <span className="pill g">Verbunden</span>}</span><Icon n="chevron-right" /></button>)}</div>
-    </div></div>}
-    {x && <div className="ov" onClick={e => e.target === e.currentTarget && setDlg(null)}><form className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label={`${x.name} verbinden`} onSubmit={connect}>
-      <div className="dlg-h">{x.name} verbinden<button type="button" className="btn gh ic" onClick={() => setDlg(null)} aria-label="Schließen"><Icon n="x" /></button></div>
-      {x.fields!.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
+    {!group ? <div className="tiles">{GROUPS.map(([g, name]) => <button key={g} type="button" className="tile" onClick={() => setGroup(g)}>
+      <span className="tile-h">{name}<Icon n="arrow-right" /></span>
+      <span className="marks">{items[g].map(p => <span key={p.k} className={p.on ? "" : "off"} title={p.name}><Mark p={p} /></span>)}</span>
+    </button>)}</div> : <>
+      <div className="crumb"><button type="button" className="btn gh" onClick={() => setGroup(null)}><Icon n="arrow-left" />Integrationen</button>
+        <span className="f3">/</span><span>{GROUPS.find(([g]) => g === group)![1]}</span></div>
+      <div className="provs">{items[group].map(p => <div key={p.k} className="prov int">
+        <Mark p={p} /><span className="nm">{p.name}</span>
+        {p.on ? <><span className="pill g">Verbunden</span><button className="btn gh act" onClick={() => disconnect(p.kind)}>Trennen</button></>
+          : p.soon ? <span className="pill">Demnächst</span> : <button className="btn sec" onClick={() => open(p)} aria-label={`${p.name} verbinden`}>Verbinden</button>}
+      </div>)}</div>
+      {group === "mail" && (on("outlook") || on("imap")) && <Contacts ctx={ctx} />}
+      {group === "ki" && <><AiPick ctx={ctx} /><Connector ctx={ctx} /></>}
+    </>}
+    {form && <div className="ov" onClick={e => e.target === e.currentTarget && setForm(null)}><form className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label={`${form.name} verbinden`} onSubmit={connect}>
+      <div className="dlg-h">{form.name} verbinden<button type="button" className="btn gh ic" onClick={() => setForm(null)} aria-label="Schließen"><Icon n="x" /></button></div>
+      {form.fields.map((f, i) => <label key={f.id} className="fld"><span>{f.label}</span>{f.options
         ? <select className="inp" value={vals[f.id] || ""} onChange={e => setVals({ ...vals, [f.id]: e.target.value })}>{f.options.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>
         : <input className="inp" type={f.type || "text"} value={vals[f.id] || ""} placeholder={f.placeholder} autoFocus={i === 0} autoComplete="off" onChange={e => setVals({ ...vals, [f.id]: e.target.value })} />}</label>)}
-      {isAi(x.k) && <a className="f2" href={AI_PROVIDERS.find(p => p.k === x.k)!.keys} target="_blank" rel="noreferrer">Schlüssel bei {x.name} erstellen</a>}
-      {x.k === "sendpilot" && <label className="fld"><span>Webhook-URL für SendPilot</span><input className="inp mono" readOnly value={`${location.origin}/api/sendpilot/webhook/${t.slug}`} onFocus={e => e.target.select()} /></label>}
+      {form.link && <a className="f2" href={form.link[0]} target="_blank" rel="noreferrer">{form.link[1]}</a>}
+      {form.kind === "sendpilot" && <label className="fld"><span>Webhook-URL für SendPilot</span><input className="inp mono" readOnly value={`${location.origin}/api/sendpilot/webhook/${t.slug}`} onFocus={e => e.target.select()} /></label>}
       {err && <div className="warn">{err}</div>}
       <button className="btn pri wide" disabled={busy}>{busy ? <Icon n="loader" /> : null}Verbinden</button>
     </form></div>}

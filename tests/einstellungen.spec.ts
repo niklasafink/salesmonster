@@ -42,7 +42,8 @@ test("Leads pro Tag wird auf 1 bis 30 begrenzt", async ({ request }) => {
 test("Integrationen: Dialog öffnen und ohne Verbinden schließen", async ({ page }) => {
   await page.goto("/#einstellungen");
   await page.locator(".tabs button", { hasText: "Integrationen" }).click();
-  const row = page.locator(".row2.int", { hasText: "HubSpot" });
+  await page.locator(".tile", { hasText: "Sonstiges" }).click();
+  const row = page.locator(".prov", { hasText: "HubSpot" });
   await expect(row).toBeVisible();
   await expect(row).not.toContainText("Verbunden");
   await row.getByRole("button", { name: "Verbinden" }).click();

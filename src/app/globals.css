@@ -280,9 +280,23 @@ button.snode:hover{background:var(--hover)}
 .list-box{border:1px solid var(--line); border-radius:12px}
 .row2{display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px; padding:8px 16px; border-bottom:1px solid var(--line)}
 .row2:last-child{border-bottom:0}
-button.row2.pick{width:100%; background:none; border-left:0; border-right:0; border-top:0; font:inherit; color:inherit; text-align:left; cursor:pointer}
-button.row2.pick:hover{background:var(--n-bg)}
-button.row2.pick > .lucide{color:var(--fg-3)}
+/* Integrations: one tile per area, then a card per provider */
+.tiles{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px}
+.tile{display:flex; flex-direction:column; gap:18px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--panel); font:inherit; color:inherit; text-align:left; cursor:pointer; transition:border-color .12s, background .12s}
+.tile:hover{border-color:var(--line-2); background:var(--hover)}
+.tile-h{display:flex; align-items:center; justify-content:space-between; font-weight:600; font-size:14px}
+.tile-h .lucide{width:16px; height:16px; color:var(--fg-3)}
+.marks{display:flex; flex-wrap:wrap; gap:6px}
+.marks .off{opacity:.35; filter:grayscale(1)}
+.mark{width:32px; height:32px; flex:none; border-radius:8px; border:1px solid var(--line); background:var(--panel); display:grid; place-items:center}
+.mark .logo{width:18px; height:18px}
+.mark .lucide{width:16px; height:16px; color:var(--fg-2)}
+.crumb{display:flex; align-items:center; gap:8px; font-weight:500; margin-bottom:-12px}
+.crumb .btn{padding:0 8px; margin-left:-8px; color:var(--fg-2)}
+.provs{display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px}
+.prov.int{border:1px solid var(--line); border-radius:12px; flex-wrap:nowrap; min-height:64px}
+.prov.int:last-child{border-bottom:1px solid var(--line)}
+.prov .nm{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .row2 > .inp{width:120px}
 .row2 > .inp.url{flex:1; width:auto; min-width:0}
 .row2 .nm{display:flex; align-items:center; gap:10px; font-weight:500}
@@ -351,6 +365,7 @@ button.row2.pick > .lucide{color:var(--fg-3)}
   .wrap{padding:20px 16px 40px}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr))} .kpi:nth-child(2){border-right:0} .kpi:nth-child(-n+2){border-bottom:1px solid var(--line)} .kpis.three .kpi{border-bottom:0; padding:12px} .kpis.three .kpi:nth-child(2){border-right:1px solid var(--line)} .kpis.three .kpi .v{font-size:18px} .cost-per{min-width:0; font-size:12.5px} .cost-bar .seg button{padding:0 8px}
   .set{grid-template-columns:minmax(0,1fr); gap:10px}
+  .tiles{grid-template-columns:minmax(0,1fr)}
   .compose{padding:16px} .d-head{padding:12px 16px} .actions{padding-left:16px; padding-right:16px}
   .hide-m{display:none}
   .search,.search .inp{width:100%}

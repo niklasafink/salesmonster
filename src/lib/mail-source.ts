@@ -68,7 +68,12 @@ export async function imapHost(email: string) {
   return `imap.${domain}`;
 }
 
-export type ImapConfig = { user: string; pass: string; host: string; port: string };
+/* Outgoing server of the same provider, so a mailbox is connected with one form */
+const SMTP_HOSTS: Record<string, string> = { "imap.gmx.net": "mail.gmx.net", "secureimap.t-online.de": "securesmtp.t-online.de",
+  "mail.your-server.de": "mail.your-server.de", "w0.kasserver.com": "w0.kasserver.com" };
+export const smtpHost = (imap: string) => SMTP_HOSTS[imap] || imap.replace(/^imap\./, "smtp.");
+
+export type ImapConfig ={ user: string; pass: string; host: string; port: string };
 export const imapClient = (c: ImapConfig) => new ImapFlow({ host: c.host, port: Number(c.port) || 993, secure: Number(c.port || 993) !== 143,
   auth: { user: c.user, pass: c.pass }, logger: false, socketTimeout: 60_000 });
 

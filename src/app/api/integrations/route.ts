@@ -8,7 +8,7 @@ import { hubspotVerify } from "@/lib/hubspot";
 import { sendpilotMe } from "@/lib/sendpilot";
 import { MODEL } from "@/lib/claude";
 import { AI_ENV, OPENROUTER_MODELS, modelsVerify, openrouterVerify } from "@/lib/ai";
-import { Microsoft365, imapClient, imapHost } from "@/lib/mail-source";
+import { Microsoft365, imapClient, imapHost, smtpHost } from "@/lib/mail-source";
 import { startSync } from "@/lib/mail-sync";
 
 /* Checks each credential before storing it */
@@ -56,9 +56,38 @@ async function verify(kind: IntegKind, v: Record<string, string>): Promise<strin
   }
 }
 
+/* One mailbox = IMAP for reading and SMTP for sending, entered once; servers follow from the address unless given */
+async function mailbox(v: Record<string, string>) {
+  const user = String(v?.user || "").trim(), pass = String(v?.pass || "").trim();
+  if (!user) throw new HttpError(400, "E-Mail fehlt");
+  if (!pass) throw new HttpError(400, "Passwort fehlt");
+  const imap = { user, pass, port: "993", host: String(v.host || "").trim() };
+  if (!imap.host) imap.host = await imapHost(user).catch(e => { throw e instanceof Microsoft365 ? new HttpError(400, e.message) : e; });
+  const cl = imapClient(imap);
+  await cl.connect().catch(e => { throw new HttpError(400, `IMAP ${imap.host}: ${e.responseText || e.message}`); });
+  await cl.logout().catch(() => {});
+  const host = String(v.smtp || "").trim() || smtpHost(imap.host);
+  let last: Error | null = null;
+  for (const port of [465, 587]) {
+    try {
+      await nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass }, connectionTimeout: 10_000 }).verify();
+      return { imap, smtp: { host, port: String(port), user, pass } };
+    } catch (e) { last = e as Error; }
+  }
+  throw new HttpError(400, `SMTP ${host}: ${last?.message}`);
+}
+
 export const POST = route(async (req, _c, me) => {
-  const { t: slug, kind, values } = await req.json() as { t: string; kind: IntegKind; values: Record<string, string> };
+  const { t: slug, kind, values } = await req.json() as { t: string; kind: IntegKind | "mailbox"; values: Record<string, string> };
   const t = await tenantBySlug(slug, me);
+  if (kind === "mailbox") {
+    const m = await mailbox(values);
+    await setInteg(t.id, "imap", me.id, m.imap, m.imap.user);
+    /* the SMTP host tells the settings screen which provider the mailbox belongs to */
+    await setInteg(t.id, "smtp", me.id, m.smtp, m.smtp.host);
+    await startSync(t.id, me.id, "imap");
+    return;
+  }
   const meta = INTEG.find(i => i.k === kind);
   if (!meta || meta.auth !== "fields") throw new HttpError(400, "Nicht verfügbar");
   for (const f of meta.fields!) if (!f.optional && !String(values?.[f.id] || "").trim()) throw new HttpError(400, `${f.label} fehlt`);
@@ -71,5 +100,6 @@ export const POST = route(async (req, _c, me) => {
 
 export const DELETE = route(async (req, _c, me) => {
   const t = await tenantBySlug(qp(req, "t"), me);
-  await removeInteg(t.id, qp(req, "kind") as IntegKind, me.id);
+  const kind = qp(req, "kind");
+  for (const k of kind === "mailbox" ? ["imap", "smtp"] as const : [kind as IntegKind]) await removeInteg(t.id, k, me.id);
 });

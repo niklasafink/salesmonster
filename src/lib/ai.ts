@@ -60,7 +60,7 @@ export async function aiFor(tenantId: number, userId?: number): Promise<Ai | nul
   return chosen ? as(chosen) : first ? as(first) : null;
 }
 
-export class AiMissing extends Error { constructor() { super("Keine KI verbunden. Unter Einstellungen → Integrationen auf KI verbinden klicken."); } }
+export class AiMissing extends Error { constructor() { super("Keine KI verbunden. Unter Einstellungen → Integrationen → KI einen Anbieter verbinden."); } }
 
 type Msg = { role: "user" | "assistant"; content: string };
 

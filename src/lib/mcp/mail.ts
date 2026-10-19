@@ -24,7 +24,7 @@ export function mailTools(server: McpServer) {
     const cur = await syncState(t.id, user.id);
     if (cur?.status !== "läuft") {
       const src = await getInteg(t.id, "outlook", user.id) ? "outlook" : await getInteg(t.id, "imap", user.id) ? "imap" : null;
-      if (!src) throw new HttpError(400, `In ${t.name} ist kein Postfach verbunden. Im Portal unter Einstellungen → Integrationen Microsoft 365 oder IMAP verbinden.`);
+      if (!src) throw new HttpError(400, `In ${t.name} ist kein Postfach verbunden. Im Portal unter Einstellungen → Integrationen → Mail ein Postfach verbinden.`);
       await startSync(t.id, user.id, src);
     }
     return stepSync(t.id, user.id, 50_000);
