@@ -58,6 +58,21 @@ export function route<C = unknown>(fn: (req: Request, ctx: C, user: Awaited<Retu
   };
 }
 
+/* AI turns answer as NDJSON: {"reply"} lines with the answer so far while the model writes, then {"done"} with the result or {"error"} */
+export function streamed(run: (onReply: (reply: string) => void) => Promise<unknown>) {
+  const enc = new TextEncoder();
+  return new Response(new ReadableStream({
+    async start(c) {
+      const put = (o: unknown) => { try { c.enqueue(enc.encode(`${JSON.stringify(o)}\n`)); } catch { /* client gone */ } };
+      let last = 0;
+      /* at most ~12 updates a second; the final state follows anyway */
+      const onReply = (reply: string) => { const now = Date.now(); if (!reply || now - last > 80) { last = now; put({ reply }); } };
+      try { put({ done: await run(onReply) }); } catch (e) { put({ error: publicError(e).message }); }
+      try { c.close(); } catch { /* client gone */ }
+    },
+  }), { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store, no-transform", "x-accel-buffering": "no" } });
+}
+
 /* Request body as an object; malformed JSON or a non-object body is the caller's fault */
 export async function body(req: Request): Promise<Record<string, unknown>> {
   const b = await req.json().catch(() => { throw new HttpError(400, "Ungültige Anfrage"); });

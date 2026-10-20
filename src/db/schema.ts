@@ -205,6 +205,8 @@ export const messages = pgTable("messages", {
   /* text rewritten by "Verbessern"; compared against untouched drafts in the stats */
   improved: boolean("improved").notNull().default(false),
   error: text("error").notNull().default(""),
+  /* place among the waiting drafts: below 0 pulled forward, above 0 pushed behind every other draft, null = by age (set by the lead chat) */
+  sendRank: integer("send_rank"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("messages_tenant").on(t.tenantId, t.status), index("messages_sent").on(t.tenantId, t.sentAt)]);
 

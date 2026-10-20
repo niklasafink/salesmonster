@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db, leads, messages, tenants } from "@/db";
 import { attachCompanies } from "@/lib/companies";
 import { channelOf } from "@/lib/lead-rating";
@@ -84,6 +84,22 @@ describe("Versand-Warteschlange", () => {
     /* three people in one message take Monday whole, Gus fills Tuesday next to nothing else, Dora joins him */
     expect([days[ids.Anna], days[ids.Gus], days[ids.Dora]]).toEqual(["2026-10-19", "2026-10-20", "2026-10-20"]);
     expect(await roomTonight(tt, sun)).toBe(2);
+  });
+
+  it("sendRank: vorgezogene Entwürfe gehen zuerst, nach hinten geschobene blockieren den Abendlauf nicht", async () => {
+    const tt = { ...(await db.select().from(tenants).where(eq(tenants.id, t.id)))[0] };
+    tt.settings = { ...tt.settings, leadsPerDay: 2 };
+    const sun = new Date("2026-10-18T10:00:00Z");
+    const ms = await db.insert(messages).values([
+      { tenantId: t.id, leadId: ids.Anna, leadIds: [ids.Anna, ids.Bert], to: "", batchDate: "2026-10-16", variant: "A", status: "entwurf", sendRank: 1 },
+      { tenantId: t.id, leadId: ids.Dora, leadIds: [ids.Dora], to: "", batchDate: "2026-10-16", variant: "A", status: "entwurf", sendRank: -1 },
+    ]).returning({ id: messages.id });
+    const days = await sendDates(tt, [], [], sun);
+    const room = await roomTonight(tt, sun);
+    await db.delete(messages).where(inArray(messages.id, ms.map(m => m.id)));
+    /* Dora pulled forward takes Monday, Anna and Bert wait behind her; their later day leaves tonight one place next to Dora */
+    expect([days[ids.Dora], days[ids.Anna], days[ids.Bert]]).toEqual(["2026-10-19", "2026-10-20", "2026-10-20"]);
+    expect(room).toBe(1);
   });
 
   it("mit SendPilot fallen LinkedIn-Leads aus dem Mail-Lauf", async () => {

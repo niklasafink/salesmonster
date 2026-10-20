@@ -138,6 +138,68 @@ export async function openaiAsk(ai: { key: string; model?: string }, system: str
   return (j.output || []).filter(o => o.type === "message").flatMap(o => o.content || []).filter(c => c.type === "output_text").map(c => c.text).join("\n");
 }
 
+/* Interactive chats with tools take a fast, cheap model, whatever the tenant picked for research: GPT-5.6 Luna over the account's
+   OpenRouter key (reports the cost), else OpenAI directly, else Requesty */
+export const CHAT_MODEL = "gpt-5.6-luna";
+export type ChatKey = { provider: "openrouter" | "openai" | "requesty"; key: string; model: string };
+export async function chatKey(tenantId: number, userId?: number): Promise<ChatKey | null> {
+  const ks = await keys(tenantId, userId), key = (k: AiKind) => ks.find(x => x.k === k && x.key)?.key;
+  const or = key("openrouter"), oa = key("openai"), rq = key("requesty");
+  return or ? { provider: "openrouter", key: or, model: `openai/${CHAT_MODEL}` } : oa ? { provider: "openai", key: oa, model: CHAT_MODEL }
+    : rq ? { provider: "requesty", key: rq, model: `openai/${CHAT_MODEL}` } : null;
+}
+
+export type Tool = { name: string; description: string; parameters: object; run: (args: Record<string, unknown>) => Promise<unknown> };
+export type ToolMsg = { role: "system" | "user" | "assistant" | "tool"; content: string | null; tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[]; tool_call_id?: string };
+
+/* Chat completions with tools (OpenAI, OpenRouter and Requesty speak the same format): streams the text, runs the tools the model calls,
+   one after the other, and goes on until it answers without a tool. onText gets the answer so far; a failing tool reports its error to the model */
+export async function toolChat(ai: ChatKey, messages: ToolMsg[], tools: Tool[], signal?: AbortSignal, onText?: (text: string) => void): Promise<string> {
+  const name = { openrouter: "OpenRouter", openai: "OpenAI", requesty: "Requesty" }[ai.provider], said: string[] = [];
+  for (let turn = 0; turn < 10; turn++) {
+    const r = await fetch(`${AI_ENV[ai.provider].base}/chat/completions`, {
+      method: "POST", signal,
+      headers: { authorization: `Bearer ${ai.key}`, "content-type": "application/json", "x-title": "Sales Portal", "http-referer": "https://sales-portal-sooty.vercel.app" },
+      body: JSON.stringify({
+        model: ai.model, stream: true, messages, parallel_tool_calls: true,
+        tools: tools.map(t => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })),
+        ...ai.provider === "openrouter" ? { max_tokens: 6000, reasoning: { effort: "low" }, usage: { include: true } }
+          : { max_completion_tokens: 6000, reasoning_effort: "low", ...ai.provider === "openai" ? { stream_options: { include_usage: true } } : {} },
+      }),
+    });
+    if (!r.ok || !r.body) { const j = await r.json().catch(() => ({})) as { error?: { message?: string } }; throw new Error(`${name}: ${j.error?.message || r.status}`); }
+    let text = "", cost: number | null = null;
+    const calls: { id: string; name: string; args: string }[] = [];
+    await sse(r, j => {
+      const e = j as { error?: { message?: string }; usage?: { cost?: number }; choices?: { delta?: { content?: string; tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[] };
+      if (e.error) throw new Error(`${name}: ${e.error.message}`);
+      if (e.usage?.cost != null) cost = e.usage.cost;
+      const d = e.choices?.[0]?.delta;
+      if (d?.content) { text += d.content; onText?.([...said, text].join("\n\n")); }
+      for (const tc of d?.tool_calls ?? []) {
+        const c = calls[tc.index] ??= { id: "", name: "", args: "" };
+        if (tc.id) c.id = tc.id;
+        c.name += tc.function?.name ?? ""; c.args += tc.function?.arguments ?? "";
+      }
+    });
+    spend(cost);
+    if (text.trim()) said.push(text.trim());
+    const todo = calls.filter(Boolean);
+    if (!todo.length) return said.join("\n\n");
+    messages.push({ role: "assistant", content: text || null, tool_calls: todo.map(c => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.args } })) });
+    for (const c of todo) {
+      let out: unknown;
+      try {
+        const tool = tools.find(t => t.name === c.name);
+        if (!tool) throw new Error(`Unbekanntes Werkzeug ${c.name}`);
+        out = await tool.run(JSON.parse(c.args || "{}"));
+      } catch (e) { if (signal?.aborted) throw e; out = { fehler: (e as Error).message }; }
+      messages.push({ role: "tool", tool_call_id: c.id, content: typeof out === "string" ? out : JSON.stringify(out) });
+    }
+  }
+  throw new Error("Die KI hat die Aufgabe nicht abgeschlossen, bitte noch einmal kürzer fragen");
+}
+
 export async function openrouterVerify(key: string) {
   const r = await fetch(`${AI_ENV.openrouter.base}/key`, { headers: { authorization: `Bearer ${key}` } });
   if (!r.ok) throw new Error("Schlüssel ungültig");

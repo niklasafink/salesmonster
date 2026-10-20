@@ -14,7 +14,7 @@ import { refreshRatings, rerate } from "./ratings";
 import { researchRound } from "./strategy";
 import { beta } from "./angles";
 import { FREEMAIL, channelOf } from "./lead-rating";
-import { bouncedDomains, byCompany, linkedinOn, liQueue, mailQueue, perDay, roomTonight, sentToday, type QueueLead } from "./queue";
+import { bouncedDomains, byCompany, draftPlan, linkedinOn, liQueue, mailQueue, perDay, roomTonight, sentToday, type QueueLead } from "./queue";
 import { sendpilotPush } from "./sendpilot";
 import { DAY_NAMES, draftDay, hh, isoWeekday, planOf, sendQuota } from "./schedule";
 import { track } from "./usage";
@@ -234,8 +234,14 @@ export async function approvalMail(t: Tenant) {
 /* Hourly in the tenant's send window: an even share of what was approved, the rest in the last hour; now = everything at once (button) */
 export async function sendApproved(t: Tenant, opts: { now?: boolean } = {}) {
   let rows = await db.select({ m: messages, l: leads }).from(messages).innerJoin(leads, eq(leads.id, messages.leadId))
-    .where(and(eq(messages.tenantId, t.id), eq(messages.status, "freigegeben"), eq(messages.channel, "mail"), isNotNull(messages.senderId))).orderBy(sql`${messages.error} <> ''`, asc(messages.id));
+    .where(and(eq(messages.tenantId, t.id), eq(messages.status, "freigegeben"), eq(messages.channel, "mail"), isNotNull(messages.senderId)))
+    .orderBy(sql`${messages.error} <> ''`, sql`coalesce(${messages.sendRank}, 0)`, asc(messages.id));
   if (!opts.now) {
+    /* a draft pushed behind waits for its own day instead of filling today's room */
+    if (rows.some(({ m }) => (m.sendRank ?? 0) > 0)) {
+      const { byMsg, today } = await draftPlan(t);
+      rows = rows.filter(({ m }) => (m.sendRank ?? 0) <= 0 || (byMsg[m.id] ?? today) <= today);
+    }
     /* at most leadsPerDay people a day; the rest goes out on the next send day */
     let room = perDay(t) - await sentToday(t.id);
     rows = rows.filter(({ m }) => { const k = idsOf(m).length; if (k > room && room < perDay(t)) { room = 0; return false; } room -= k; return true; });

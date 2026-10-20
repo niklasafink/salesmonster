@@ -86,20 +86,23 @@ export async function sentToday(tenantId: number, now = new Date()) {
   return rows.reduce((s, m) => s + (m.leadIds?.length || 1), 0);
 }
 
-/* Waiting mail drafts on the send days ahead, oldest first and leadsPerDay people per day: what has piled up spills onto the following days */
-async function draftPlan(t: Tenant, now: Date) {
+/* Waiting mail drafts on the send days ahead, oldest first and leadsPerDay people per day: what has piled up spills onto the following days.
+   sendRank moves a draft before or behind the others; behind = false leaves out the ones pushed behind (they wait for whatever comes) */
+export async function draftPlan(t: Tenant, now = new Date(), behind = true) {
   const p = planOf(t.settings), n = perDay(t), today = berlinDate(now), first = draftDay(p, addDaysIso(today, -1), now);
-  const drafts = await db.select({ leadId: messages.leadId, leadIds: messages.leadIds, batchDate: messages.batchDate, channel: messages.channel }).from(messages)
-    .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben"]))).orderBy(asc(messages.id));
-  const put = dayFiller(p, first, n), out: Record<number, string> = {};
+  const drafts = await db.select({ id: messages.id, leadId: messages.leadId, leadIds: messages.leadIds, batchDate: messages.batchDate, channel: messages.channel, rank: messages.sendRank }).from(messages)
+    .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben"]), behind ? undefined : sql`coalesce(${messages.sendRank}, 0) <= 0`))
+    .orderBy(sql`coalesce(${messages.sendRank}, 0)`, asc(messages.id));
+  const put = dayFiller(p, first, n), out: Record<number, string> = {}, byMsg: Record<number, string> = {};
   if (first === today && isSendDay(p, today)) { const sent = await sentToday(t.id, now); if (sent) put(Math.min(sent, n)); }
-  for (const m of drafts) if (m.channel === "mail") { const ids = m.leadIds?.length ? m.leadIds : [m.leadId], d = put(ids.length); for (const id of ids) out[id] = d; }
-  return { p, n, today, put, out, ranToday: drafts.some(m => m.batchDate === today) };
+  for (const m of drafts) if (m.channel === "mail") { const ids = m.leadIds?.length ? m.leadIds : [m.leadId], d = put(ids.length); byMsg[m.id] = d; for (const id of ids) out[id] = d; }
+  return { p, n, today, put, out, byMsg, ranToday: drafts.some(m => m.batchDate === today) };
 }
 
-/* How many people tonight's run may still draft: the day it fills keeps leadsPerDay, minus what is already waiting for that day */
+/* How many people tonight's run may still draft: the day it fills keeps leadsPerDay, minus what is already waiting for that day;
+   drafts pushed behind do not block it */
 export async function roomTonight(t: Tenant, now = new Date()) {
-  const { p, n, today, out } = await draftPlan(t, now), day = draftDay(p, today, now);
+  const { p, n, today, out } = await draftPlan(t, now, false), day = draftDay(p, today, now);
   const days = Object.values(out);
   return days.some(d => d > day) ? 0 : Math.max(0, n - days.filter(d => d === day).length);
 }
