@@ -14,7 +14,7 @@ import { AnglesDialog } from "../angles-dialog";
 import { LeadChat, type ChatChange } from "../lead-chat";
 import type { Ctx } from "../types";
 import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
-import { mdTable, parseCsv, toTsv } from "@/lib/sheet";
+import { mdTable, parseCsv, toCsv, toTsv } from "@/lib/sheet";
 import { addDaysIso, berlinDate } from "@/lib/dates";
 import { DAY_NAMES, isoWeekday } from "@/lib/schedule";
 
@@ -332,6 +332,15 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     ? <QueueRow key={r.id} id={r.id} {...rowProps(r)}>{h => cells(r, h)}</QueueRow>
     : <tr key={r.id} {...rowProps(r)}>{cells(r, null)}</tr>;
 
+  /* the ticked leads, else all in view, in the order shown */
+  function csv() {
+    const list = picked.length ? vis.filter(r => sel.has(r.id)) : vis;
+    const day = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" }) : "";
+    const lines = [["Firma", "Anrede", "Vorname", "Nachname", "Rolle", "E-Mail", "Telefon", "LinkedIn", "Website", "Ort", "Status", "Bewertung", "Quelle", "Letzter Kontakt", "Angelegt", "Notiz"],
+      ...list.map(r => [r.company, r.salutation, r.first, r.last, r.role, r.email, r.phone, r.linkedin, r.website, r.city, STATUS[r.status]?.[0] || r.status, r.rating ?? "", r.source, day(r.lastContactAt), day(r.createdAt), r.note])];
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([toCsv(lines)], { type: "text/csv;charset=utf-8" })); a.download = `leads-${t.slug}-${berlinDate()}.csv`; a.click();
+  }
+
   const ok = imp?.rows?.filter(r => !r.dup).length || 0;
   const table = imp?.cols && !imp.rows ? splitTable(imp.text) : null;
   return <>
@@ -344,6 +353,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         </button>
         <button className="btn gh ic" title="Stoppen" aria-label="Stoppen" onClick={stopEnrich}><Icon n="square" /></button>
       </div> : <button className="btn sec" onClick={openEnrich}><Icon n="sparkles" />Anreichern{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>}
+      <button className="btn sec" onClick={csv} disabled={!vis.length}><Icon n="download" /><span className="hide-m">Export</span>{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>
       <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
       <button className="btn pri" onClick={() => { setImp({ text: "", src: "", rows: null, busy: false }); setSheets(null); }}><Icon n="upload" />Importieren</button>

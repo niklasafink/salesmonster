@@ -67,3 +67,11 @@ export function mdTable(text: string): string[][] | null {
   const rows = block.filter(l => !/^\|[\s:|-]+$/.test(l)).map(l => l.replace(/^\||(?<!\\)\|$/g, "").split(/(?<!\\)\|/).map(c => c.replace(/\\\|/g, "|").trim()));
   return rows.length > 1 ? rows : null;
 }
+
+/* Semicolon CSV with BOM, as German Excel opens it. Cells Excel would run as a formula get a leading ' (phone numbers like +49 stay) */
+const csvCell = (v: unknown) => {
+  let s = v == null ? "" : String(v);
+  if (/^[=@\t\r]|^[+-][^\d\s]/.test(s)) s = `'${s}`;
+  return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+export const toCsv = (rows: unknown[][]) => "﻿" + rows.map(r => r.map(csvCell).join(";")).join("\r\n");

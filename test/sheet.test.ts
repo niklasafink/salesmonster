@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mdTable, parseCsv, toTsv, tsvChunks } from "@/lib/sheet";
+import { mdTable, parseCsv, toCsv, toTsv, tsvChunks } from "@/lib/sheet";
 
 describe("parseCsv", () => {
   it("ein Anführungszeichen mitten in der Zelle ist Text und verschluckt keine Trenner", () => {
@@ -65,5 +65,16 @@ describe("mdTable", () => {
 describe("mdTable mit maskierten Pipes", () => {
   it("\\| bleibt in der Zelle", () => {
     expect(mdTable("| Firma | Titel | Ort |\n|---|---|---|\n| Sonntag | Partner \\| WP \\| StB | Augsburg |")).toEqual([["Firma", "Titel", "Ort"], ["Sonntag", "Partner | WP | StB", "Augsburg"]]);
+  });
+});
+
+describe("toCsv", () => {
+  it("Semikolon, BOM, Anführungszeichen und Zeilenumbruch, liest sich mit parseCsv zurück", () => {
+    const rows = [["Firma", "Notiz"], ["Bau AG; Nord", 'sagt "Hallo"\nzweite Zeile']];
+    expect(toCsv(rows).startsWith("\uFEFFFirma;Notiz\r\n")).toBe(true);
+    expect(parseCsv(toCsv(rows))).toEqual(rows);
+  });
+  it("entschärft Formeln, Telefonnummern bleiben", () => {
+    expect(toCsv([["=HYPERLINK(1)", "@SUM(A1)", "-x", "+49 40 123", "-5"]])).toBe("\uFEFF'=HYPERLINK(1);'@SUM(A1);'-x;+49 40 123;-5");
   });
 });
