@@ -227,17 +227,54 @@ td.wfr{white-space:normal; padding:12px 0 16px; line-height:1.6}
 .tname{flex:1; min-width:0; border:0; background:none; outline:none; font-size:15px; font-weight:600; padding:4px 6px; margin-left:-2px; border-radius:6px}
 .tname:hover{background:var(--hover)}
 .tname:focus{background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2)}
-.sgap{display:flex; align-items:center; gap:6px; padding:0 12px; color:var(--fg-3); font-size:12px}
-.sgap svg{width:14px; height:14px}
-.sflow{display:flex; align-items:stretch; overflow-x:auto; padding-bottom:4px}
-.snode{flex:0 0 168px; display:flex; flex-direction:column; gap:6px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); text-align:left; font-size:12.5px}
-button.snode:hover{background:var(--hover)}
-.snode .l{display:flex; align-items:center; gap:6px; color:var(--fg-2); font-weight:500; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.snode .v{font-size:22px; font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1}
-.snode .track{height:3px; border-radius:2px; background:var(--line); overflow:hidden}
-.snode .track i{display:block; height:100%; background:var(--accent)}
-.sarrow{flex:0 0 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:0 8px; color:var(--fg-3); font-size:11.5px; white-space:nowrap}
-.sarrow svg{width:16px; height:16px}
+/* Inbound: second sidebar, pipeline, mail editor */
+.inb{flex:1; min-height:0; display:grid; grid-template-columns:224px minmax(0,1fr)}
+.inb > .scroll{border-left:1px solid var(--line)}
+.subnav{display:flex; flex-direction:column; gap:2px; padding:12px 8px; overflow:auto; min-height:0}
+.subnav .grp{padding:14px 8px 4px; font-size:11.5px; font-weight:600; color:var(--fg-3)}
+.subnav button{display:flex; align-items:center; gap:9px; min-height:32px; padding:4px 8px; border-radius:7px; border:0; background:none; width:100%; text-align:left; color:var(--fg-2); font-weight:500}
+.subnav button:hover{background:var(--hover); color:var(--fg)}
+.subnav button.on{background:var(--hover); color:var(--fg); box-shadow:inset 0 0 0 1px var(--line-2)}
+.subnav .nm{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.subnav .cnt{margin-left:auto; font-size:11.5px; color:var(--fg-3); font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:400}
+.subnav .add{color:var(--fg-3); font-weight:400}
+.subnav .on .vc{background:var(--panel)}
+.mlabel{font-weight:600; margin-bottom:10px} .mlabel .f3{font-weight:400}
+.mailed{display:flex; flex-direction:column; gap:24px; min-width:0}
+.mhead{display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap}
+.mhead .vc{height:30px; min-width:30px; font-size:13px}
+.vcards{display:flex; gap:10px; flex-wrap:wrap}
+.vcard{display:flex; flex-direction:column; gap:4px; min-width:150px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); text-align:left; font-size:12.5px}
+.vcard:hover{background:var(--hover)}
+.vcard.on{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
+.vcard.off{opacity:.65}
+.vcard .top2{display:flex; align-items:center; gap:6px}
+.vcard .big{font-size:22px; font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.2}
+.vcard.add{flex-direction:row; align-items:center; justify-content:center; gap:7px; border-style:dashed; color:var(--fg-2); min-width:0; padding:0 14px}
+.days{display:flex; align-items:flex-end; gap:6px; height:96px; padding:8px 0 0}
+.days > div{flex:1; min-width:0; height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:3px}
+.days i{display:block; width:100%; max-width:28px; min-height:2px; border-radius:3px 3px 0 0; background:var(--accent); opacity:.85}
+.days .n{font-size:11px; color:var(--fg-2); font-variant-numeric:tabular-nums; height:14px}
+.days .d{font-size:10.5px; color:var(--fg-3)}
+.pipe{border:1px solid var(--line); border-radius:12px; overflow:hidden}
+.prow{display:grid; grid-template-columns:28px minmax(120px,1.3fr) 76px 120px 112px minmax(140px,1.4fr); align-items:center; gap:12px; width:100%; min-height:56px; padding:8px 16px; border:0; border-bottom:1px solid var(--line); background:none; text-align:left}
+.prow:last-child{border-bottom:0}
+button.prow:hover{background:var(--hover)}
+.prow.head{min-height:34px; background:var(--hover); color:var(--fg-3); font-size:12px; font-weight:500}
+.prow .rt{text-align:right}
+.prow .pn{display:flex; flex-direction:column; gap:1px; min-width:0}
+.prow .pn b{font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.pv2{display:flex; gap:6px; flex-wrap:wrap}
+.pill.off{opacity:.55}
+@media (max-width: 860px){
+  .inb{grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr)}
+  .inb > .scroll{border-left:0; border-top:1px solid var(--line)}
+  .subnav{flex-direction:row; align-items:center; overflow-x:auto; padding:8px; gap:4px}
+  .subnav .grp{display:none}
+  .subnav button{width:auto; flex:0 0 auto; white-space:nowrap}
+  .subnav .cnt{display:none}
+  .prow{grid-template-columns:28px minmax(0,1fr) 64px 84px; gap:8px; padding:8px 12px}
+}
 .vitem .vn{font-weight:500; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
 /* Settings */
@@ -784,3 +821,5 @@ table.angles tr.off td:not(.sw-c){color:var(--fg-3)}
 table.leads tr.flash td{animation:flash 4s ease-out}
 @keyframes flash{0%,40%{background:color-mix(in srgb, var(--accent) 16%, transparent)}}
 @media (prefers-reduced-motion: reduce){table.leads tr.flash td{animation:none; background:color-mix(in srgb, var(--accent) 12%, transparent)}}
+
+.vstats .act{flex-direction:row; align-items:center; gap:8px; margin-left:auto}

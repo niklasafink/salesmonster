@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MailScore, SeqConfig, SeqStep } from "@/db/schema";
 import { fill, type FillLead } from "@/lib/fill";
 import { Icon, Top, api, pct, rate, useAutosize } from "../ui";
@@ -20,7 +20,8 @@ const who = (p: P) => [p.first, p.last].filter(Boolean).join(" ") || p.email;
 export function Strecken({ ctx }: { ctx: Ctx }) {
   const { st } = ctx, t = st.tenant!;
   const [s, setS] = useState<S | null | undefined>(undefined);
-  const [tab, setTab] = useState<"auswertung" | "mails" | "kontakte" | "einstellungen">("auswertung");
+  const [pane, setPane] = useState<"auswertung" | "mail" | "kontakte" | "einstellungen">("auswertung");
+  const [i, setI] = useState(0);
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
@@ -45,24 +46,37 @@ export function Strecken({ ctx }: { ctx: Ctx }) {
 
   return <>
     <Top title={s.name} onMenu={ctx.openSidebar}>
-      <div className="seg">
-        <button className={tab === "auswertung" ? "on" : ""} onClick={() => setTab("auswertung")}>Auswertung</button>
-        <button className={tab === "mails" ? "on" : ""} onClick={() => setTab("mails")}>Mails</button>
-        <button className={tab === "kontakte" ? "on" : ""} onClick={() => setTab("kontakte")}>Kontakte</button>
-        <button className={tab === "einstellungen" ? "on" : ""} onClick={() => setTab("einstellungen")}>Einstellungen</button>
-      </div>
       {s.active && <button className="btn" disabled={!!busy} onClick={() => act("run", async () => { const r = await api<{ info: string }>(`/api/sequences/${s.id}`, { body: { action: "run" } }); ctx.toast(r.info); })}>
         {busy === "run" ? <Icon n="loader" /> : <Icon n="send" />}Jetzt ausführen</button>}
       <span style={{ display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}><span className="f3">Aktiv</span><button className={`sw ${s.active ? "on" : ""}`} aria-label="Strecke aktiv" disabled={!!busy}
         onClick={() => act("active", () => put({ active: !s.active }), s.active ? "Strecke pausiert" : "Strecke läuft")} /></span>
     </Top>
-    <div className="scroll"><div className="wrap">
-      {s.waiting.length > 0 && <Waiting s={s} busy={!!busy} act={act} />}
-      {tab === "auswertung" ? <Funnel s={s} onStep={() => setTab("mails")} />
-        : tab === "mails" ? <Mails key={s.id} s={s} ctx={ctx} act={act} busy={busy} />
-        : tab === "kontakte" ? <People s={s} />
-        : <Settings key={s.id} s={s} ctx={ctx} act={act} />}
-    </div></div>
+    <div className="inb">
+      <nav className="subnav" aria-label="Inbound">
+        <button className={pane === "auswertung" ? "on" : ""} aria-current={pane === "auswertung" ? "page" : undefined} onClick={() => setPane("auswertung")}><Icon n="layout-dashboard" />Auswertung</button>
+        <div className="grp">Mails nach Registrierung</div>
+        {s.steps.map((x, n) => { const sent = s.templates.filter(y => y.step === n).reduce((a, y) => a + y.sent, 0), on = pane === "mail" && i === n;
+          return <button key={n} className={on ? "on" : ""} aria-current={on ? "page" : undefined} onClick={() => { setPane("mail"); setI(n); }}>
+            <span className="vc">{n + 1}</span><span className="nm">{x.name || `Mail ${n + 1}`}</span><span className="cnt">{n === 0 && x.day === 0 ? "sofort" : `Tag ${x.day}`}{sent ? ` · ${sent}` : ""}</span>
+          </button>; })}
+        <button className="add" disabled={!!busy || s.steps.length >= 12} onClick={() => act("step", async () => {
+          const last = s.steps[s.steps.length - 1];
+          await api(`/api/sequences/${s.id}`, { method: "PUT", body: { steps: [...s.steps, { day: last.day + 5, name: "Neue Mail" }] } });
+          await api(`/api/sequences/${s.id}`, { body: { action: "variant", step: s.steps.length } });
+          setPane("mail"); setI(s.steps.length);
+        })}><Icon n="plus" />Mail hinzufügen</button>
+        <div className="grp">Verwalten</div>
+        <button className={pane === "kontakte" ? "on" : ""} aria-current={pane === "kontakte" ? "page" : undefined} onClick={() => setPane("kontakte")}><Icon n="users" />Kontakte<span className="cnt">{s.people.length || ""}</span></button>
+        <button className={pane === "einstellungen" ? "on" : ""} aria-current={pane === "einstellungen" ? "page" : undefined} onClick={() => setPane("einstellungen")}><Icon n="settings-2" />Einstellungen</button>
+      </nav>
+      <div className="scroll"><div className="wrap">
+        {s.waiting.length > 0 && <Waiting s={s} busy={!!busy} act={act} />}
+        {pane === "auswertung" ? <Funnel s={s} onStep={n => { setI(n); setPane("mail"); }} />
+          : pane === "mail" ? <Mails key={s.id} s={s} ctx={ctx} act={act} busy={busy} step={Math.min(i, s.steps.length - 1)} onStep={setI} />
+          : pane === "kontakte" ? <People s={s} />
+          : <Settings key={s.id} s={s} ctx={ctx} act={act} />}
+      </div></div>
+    </div>
   </>;
 }
 
@@ -81,18 +95,21 @@ function Waiting({ s, busy, act }: { s: S; busy: boolean; act: Act }) {
   </div>;
 }
 
-function Mails({ s, ctx, act, busy }: { s: S; ctx: Ctx; act: Act; busy: string }) {
-  const [i, setI] = useState(0), [k, setK] = useState("A"), [mode, setMode] = useState<"edit" | "preview">("edit");
+function Mails({ s, ctx, act, busy, step, onStep }: { s: S; ctx: Ctx; act: Act; busy: string; step: number; onStep: (n: number) => void }) {
+  const [k, setK] = useState("A"), [mode, setMode] = useState<"edit" | "preview">("edit");
   const [list, setList] = useState(s.templates), [steps, setSteps] = useState(s.steps);
   const ta = useRef<HTMLTextAreaElement>(null), fit = useAutosize();
   useEffect(() => { setList(s.templates); setSteps(s.steps); }, [s]);
   useEffect(() => { fit(ta.current); });
-  const step = Math.min(i, steps.length - 1), vs = list.filter(x => x.step === step);
+  useEffect(() => { setK("A"); }, [step]);
+  const vs = list.filter(x => x.step === step);
   const cur = vs.find(x => x.key === k) || vs[0];
   const sender = ctx.st.users.find(u => u.id === s.config.senderId)?.name || ctx.st.me.name;
   const sample: FillLead = s.people[0] ? { ...SAMPLE, ...s.people[0] } : SAMPLE;
   const set = (p: Partial<V>) => cur && setList(ls => ls.map(x => x.id === cur.id ? { ...x, ...p } : x));
   const setStep = (p: Partial<SeqStep>) => setSteps(ss => ss.map((x, n) => n === step ? { ...x, ...p } : x));
+  /* with two or more variants that have been sent, the one with the best answer rate is marked */
+  const lead = vs.filter(x => x.sent > 0).length > 1 ? vs.reduce((a, x) => rate(x) > rate(a) ? x : a, vs[0]) : null;
 
   async function save() {
     await act("save", async () => {
@@ -108,105 +125,102 @@ function Mails({ s, ctx, act, busy }: { s: S; ctx: Ctx; act: Act; busy: string }
   const add = (action: "variant" | "propose") => act(action, async () => {
     const r = await api<V>(`/api/sequences/${s.id}`, { body: { action, step } }); setK(r.key);
   }, action === "propose" ? "Neue Variante, pausiert bis zur Freigabe" : undefined);
-  const addStep = () => act("step", async () => {
-    const last = steps[steps.length - 1];
-    await api(`/api/sequences/${s.id}`, { method: "PUT", body: { steps: [...steps, { day: last.day + 5, name: "Neue Mail" }] } });
-    await api(`/api/sequences/${s.id}`, { body: { action: "variant", step: steps.length } });
-    setI(steps.length);
-  });
   const dropStep = () => confirm(`Mail ${steps.length} mit allen Varianten löschen?`) && act("drop", async () => {
-    await api(`/api/sequences/${s.id}`, { method: "PUT", body: { steps: steps.slice(0, -1) } }); setI(steps.length - 2);
+    await api(`/api/sequences/${s.id}`, { method: "PUT", body: { steps: steps.slice(0, -1) } }); onStep(steps.length - 2);
   });
 
-  return <div className="tpl">
-    <div className="vlist">
-      {steps.map((x, n) => { const v = list.filter(y => y.step === n), sent = v.reduce((a, y) => a + y.sent, 0), replies = v.reduce((a, y) => a + y.replies, 0);
-        return <Fragment key={n}>{n > 0 && <Gap days={x.day - steps[n - 1].day} />}<button className={`vitem ${n === step ? "on" : ""}`} onClick={() => { setI(n); setK("A"); }}>
-          <span className="top2"><span className="vc">{n + 1}</span><span style={{ fontWeight: 500 }}>{x.name || `Mail ${n + 1}`}</span><span className="rate">Tag {x.day}</span></span>
-          <span className="top2 f3" style={{ fontSize: 12 }}>{v.filter(y => y.active).map(y => y.key).join(" · ")}<span className="rate">{sent ? pct(rate({ sent, replies })) : ""}</span></span>
-        </button></Fragment>; })}
-      <button className="btn gh" disabled={!!busy || steps.length >= 12} onClick={addStep}><Icon n="plus" />Mail hinzufügen</button>
+  return <div className="mailed">
+    <div className="mhead">
+      <span className="vc">{step + 1}</span>
+      <label className="fld" style={{ flex: 1, minWidth: 160 }}><span>Name der Mail</span><input className="inp" value={steps[step].name} onChange={e => setStep({ name: e.target.value })} /></label>
+      <label className="fld" style={{ width: 130 }}><span>Tage nach Registrierung</span><input className="inp num" inputMode="numeric" value={steps[step].day} onChange={e => setStep({ day: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></label>
     </div>
-    <div className="doc">
-      <div style={{ padding: "14px 16px 4px" }}>
-      <div className="row3" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <label className="fld" style={{ width: 90 }}><span>Tag</span><input className="inp num" inputMode="numeric" value={steps[step].day} onChange={e => setStep({ day: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></label>
-        <label className="fld" style={{ flex: 1, minWidth: 160 }}><span>Name</span><input className="inp" value={steps[step].name} onChange={e => setStep({ name: e.target.value })} /></label>
+    <div>
+      <div className="mlabel">A/B-Test: Varianten dieser Mail<span className="f3"> · jede Person bekommt eine Variante, gewinnende werden öfter ausgespielt</span></div>
+      <div className="vcards">
+        {vs.map(x => <button key={x.id} className={`vcard ${x.id === cur?.id ? "on" : ""} ${x.active ? "" : "off"}`} onClick={() => setK(x.key)}>
+          <span className="top2"><b>Variante {x.key}</b>{!x.active && <span className="pill">pausiert</span>}{lead?.id === x.id && <span className="pill g">vorn</span>}</span>
+          <span className="big">{x.sent ? pct(rate(x)) : "–"}</span>
+          <span className="f3">{x.replies} Antworten · {x.sent} gesendet</span>
+        </button>)}
+        <button className="vcard add" onClick={() => add("variant")} disabled={!!busy}><Icon n="plus" />Leere Variante</button>
+        <button className="vcard add" onClick={() => add("propose")} disabled={!!busy}>{busy === "propose" ? <Icon n="loader" /> : <Icon n="sparkles" />}Variante von der KI</button>
       </div>
-      <div className="seg" style={{ marginBottom: 12 }}>
-        {vs.map(x => <button key={x.id} className={x.id === cur?.id ? "on" : ""} onClick={() => setK(x.key)}>{x.key}{!x.active && " (pausiert)"}</button>)}
-        <button onClick={() => add("variant")} disabled={!!busy} aria-label="Leere Variante"><Icon n="plus" /></button>
-        <button onClick={() => add("propose")} disabled={!!busy} aria-label="Variante von der KI">{busy === "propose" ? <Icon n="loader" /> : <Icon n="sparkles" />}</button>
-      </div>
-      </div>
-      {cur && <>
-        <div className="vstats">
-          <div><span className="l">Gesendet</span><span className="v">{cur.sent}</span></div>
-          <div><span className="l">Antworten</span><span className="v">{cur.replies}</span></div>
-          <div><span className="l">Quote</span><span className="v">{pct(rate(cur))}</span></div>
-          <div><span className="l">Jev</span><span className="v" title={cur.score?.weakness}>{cur.score ? `${cur.score.reply.toFixed(1).replace(".", ",")} / 4` : "–"}</span></div>
-          <div className="act">
-            <div className="seg"><button className={cur.tone === "sie" ? "on" : ""} onClick={() => set({ tone: "sie" })}>Sie</button><button className={cur.tone === "du" ? "on" : ""} onClick={() => set({ tone: "du" })}>Du</button></div>
-            <span className="f3">Aktiv</span><button className={`sw ${cur.active ? "on" : ""}`} aria-label="Variante aktiv" disabled={!!busy}
-              onClick={() => act("tpl", () => api(`/api/sequences/templates/${cur.id}`, { method: "PUT", body: { active: !cur.active } }))} />
-          </div>
+    </div>
+    {cur && <div className="doc">
+      <div className="vstats">
+        <div><span className="l">Jev</span><span className="v" title={cur.score?.weakness}>{cur.score ? `${cur.score.reply.toFixed(1).replace(".", ",")} / 4` : "–"}</span></div>
+        <div className="act">
+          <div className="seg"><button className={cur.tone === "sie" ? "on" : ""} onClick={() => set({ tone: "sie" })}>Sie</button><button className={cur.tone === "du" ? "on" : ""} onClick={() => set({ tone: "du" })}>Du</button></div>
+          <span className="f3">Variante aktiv</span><button className={`sw ${cur.active ? "on" : ""}`} aria-label="Variante aktiv" disabled={!!busy}
+            onClick={() => act("tpl", () => api(`/api/sequences/templates/${cur.id}`, { method: "PUT", body: { active: !cur.active } }))} />
         </div>
-        {mode === "edit" ? <>
-          <input className="subj" value={cur.subject} onChange={e => set({ subject: e.target.value })} aria-label="Betreff" />
-          <textarea ref={ta} className="body" value={cur.body} onChange={e => { set({ body: e.target.value }); fit(e.target); }} aria-label="Text" />
-          <div className="phs"><span className="f3" style={{ fontSize: 12 }}>Einfügen</span>{PH.map(p => <button key={p} className="ph" onClick={() => insert(p)}>{p}</button>)}</div>
-        </> : <>
-          <div className="subj">{fill(cur.subject, sample, cur, sender)}</div>
-          <div className="pv">{fill(cur.body, sample, cur, sender)}{"\n\n--\nKeine weiteren Mails: …"}</div>
-        </>}
-        <div className="row3" style={{ gap: 8, padding: "12px 16px 16px", flexWrap: "wrap" }}>
-          <button className="btn pri" disabled={!!busy} onClick={save}>Speichern</button>
-          <div className="seg"><button className={mode === "edit" ? "on" : ""} onClick={() => setMode("edit")}>Bearbeiten</button><button className={mode === "preview" ? "on" : ""} onClick={() => setMode("preview")}>Vorschau</button></div>
-          <button className="btn" disabled={!!busy} onClick={() => act("score", () => api(`/api/sequences/${s.id}`, { body: { action: "score", templateId: cur.id } }))}>
-            {busy === "score" ? <Icon n="loader" /> : <Icon n="target" />}Mit Jev bewerten</button>
-          <span className="sp" />
-          {vs.length > 1 && <button className="btn gh" disabled={!!busy} onClick={() => confirm(`Variante ${cur.key} löschen?`) && act("del", () => api(`/api/sequences/templates/${cur.id}`, { method: "DELETE" }))}>Variante löschen</button>}
-          {steps.length > 1 && step === steps.length - 1 && <button className="btn gh" disabled={!!busy} onClick={dropStep}>Mail löschen</button>}
-        </div>
+      </div>
+      {mode === "edit" ? <>
+        <input className="subj" value={cur.subject} onChange={e => set({ subject: e.target.value })} aria-label="Betreff" />
+        <textarea ref={ta} className="body" value={cur.body} onChange={e => { set({ body: e.target.value }); fit(e.target); }} aria-label="Text" />
+        <div className="phs"><span className="f3" style={{ fontSize: 12 }}>Einfügen</span>{PH.map(p => <button key={p} className="ph" onClick={() => insert(p)}>{p}</button>)}</div>
+      </> : <>
+        <div className="subj">{fill(cur.subject, sample, cur, sender)}</div>
+        <div className="pv">{fill(cur.body, sample, cur, sender)}{"\n\n--\nKeine weiteren Mails: …"}</div>
       </>}
-    </div>
+      <div className="row3" style={{ gap: 8, padding: "12px 16px 16px", flexWrap: "wrap" }}>
+        <button className="btn pri" disabled={!!busy} onClick={save}>Speichern</button>
+        <div className="seg"><button className={mode === "edit" ? "on" : ""} onClick={() => setMode("edit")}>Bearbeiten</button><button className={mode === "preview" ? "on" : ""} onClick={() => setMode("preview")}>Vorschau</button></div>
+        <button className="btn" disabled={!!busy} onClick={() => act("score", () => api(`/api/sequences/${s.id}`, { body: { action: "score", templateId: cur.id } }))}>
+          {busy === "score" ? <Icon n="loader" /> : <Icon n="target" />}Mit Jev bewerten</button>
+        <span className="sp" />
+        {vs.length > 1 && <button className="btn gh" disabled={!!busy} onClick={() => confirm(`Variante ${cur.key} löschen?`) && act("del", () => api(`/api/sequences/templates/${cur.id}`, { method: "DELETE" }))}>Variante löschen</button>}
+        {steps.length > 1 && step === steps.length - 1 && <button className="btn gh" disabled={!!busy} onClick={dropStep}>Mail löschen</button>}
+      </div>
+    </div>}
   </div>;
 }
 
-/* The arrow between two mails: how long the sequence waits before the next one */
-function Gap({ days }: { days: number }) {
-  return <div className="sgap"><Icon n="arrow-down" /><span>{days === 1 ? "1 Tag später" : `${days} Tage später`}</span></div>;
-}
-
-/* Who registered in the period, how many each mail reached and how many answered after it */
-function Funnel({ s, onStep }: { s: S; onStep: () => void }) {
+/* The pipeline: who registered in the period, and for each mail how many got it, how many wait for it, how many answered, per variant */
+function Funnel({ s, onStep }: { s: S; onStep: (n: number) => void }) {
   const [period, setPeriod] = useState("30");
   const f = useMemo(() => {
-    const from = period === "all" ? 0 : Date.now() - Number(period) * 864e5;
+    const now = Date.now(), from = period === "all" ? 0 : now - Number(period) * 864e5;
     const ppl = s.flow.filter(p => new Date(p.at).getTime() >= from);
-    const steps = s.steps.map((x, n) => ({ ...x, sent: ppl.filter(p => p.sent.includes(n)).length, replied: ppl.filter(p => p.replied.includes(n)).length }));
-    return { n: ppl.length, reached: ppl.filter(p => p.sent.length).length, replied: ppl.filter(p => p.replied.length).length, bought: ppl.filter(p => p.status === "gekauft").length, steps };
+    const open = s.people.filter(p => p.status === "aktiv");
+    const steps = s.steps.map((x, n) => {
+      const wait = open.filter(p => p.step === n), due = wait.filter(p => new Date(p.startedAt).getTime() + x.day * 864e5 <= now);
+      return { ...x, sent: ppl.filter(p => p.sent.includes(n)).length, replied: ppl.filter(p => p.replied.includes(n)).length, wait: wait.length, due: due.length,
+        vars: s.templates.filter(v => v.step === n && (v.active || v.sent)) };
+    });
+    /* registrations per day over the last 14 days */
+    const days = Array.from({ length: 14 }, (_, d) => { const at = new Date(now - (13 - d) * 864e5), key = at.toDateString();
+      return { at, n: s.flow.filter(p => new Date(p.at).toDateString() === key).length }; });
+    return { n: ppl.length, reached: ppl.filter(p => p.sent.length).length, replied: ppl.filter(p => p.replied.length).length, bought: ppl.filter(p => p.status === "gekauft").length, steps, days };
   }, [s, period]);
   const q = (a: number, b: number) => b ? pct(a / b * 100) : "–";
+  const peak = Math.max(1, ...f.days.map(d => d.n));
   return <>
-    <div className="row3" style={{ marginBottom: 16 }}><div className="seg">{PERIODS.map(([k, n]) => <button key={k} className={period === k ? "on" : ""} aria-pressed={period === k} onClick={() => setPeriod(k)}>{n}</button>)}</div></div>
-    <div className="kpis" style={{ marginBottom: 16 }}>
+    <div className="row3"><div className="seg">{PERIODS.map(([k, n]) => <button key={k} className={period === k ? "on" : ""} aria-pressed={period === k} onClick={() => setPeriod(k)}>{n}</button>)}</div></div>
+    <div className="kpis">
       <div className="kpi"><span className="l">Registriert</span><span className="v">{f.n}</span></div>
       <div className="kpi"><span className="l">Angeschrieben</span><span className="v">{f.reached}</span></div>
       <div className="kpi"><span className="l">Geantwortet</span><span className="v">{f.replied}<span className="f3" style={{ fontSize: 14, fontWeight: 500 }}> {q(f.replied, f.reached)}</span></span></div>
       <div className="kpi"><span className="l">Pro gekauft</span><span className="v">{f.bought}<span className="f3" style={{ fontSize: 14, fontWeight: 500 }}> {q(f.bought, f.n)}</span></span></div>
     </div>
-    <div className="sflow">
-      <div className="snode"><span className="l">Registriert</span><span className="v">{f.n}</span></div>
-      {f.steps.map((x, n) => <Fragment key={n}>
-        <div className="sarrow"><Icon n="arrow-right" /><span>{n === 0 ? `Tag ${x.day}` : `+${x.day - f.steps[n - 1].day} Tage`}</span></div>
-        <button className="snode" onClick={onStep}>
-          <span className="l"><span className="vc">{n + 1}</span>{x.name || `Mail ${n + 1}`}</span>
-          <span className="v">{x.sent}</span>
-          <span className="track"><i style={{ width: `${f.n ? x.sent / f.n * 100 : 0}%` }} /></span>
-          <span className="f3">{x.replied} {x.replied === 1 ? "Antwort" : "Antworten"} · {q(x.replied, x.sent)}</span>
-        </button>
-      </Fragment>)}
+    <div>
+      <div className="mlabel">Neue Registrierungen pro Tag<span className="f3"> · letzte 14 Tage</span></div>
+      <div className="days">{f.days.map((d, n) => <div key={n} title={`${day(d.at.toISOString())}: ${d.n}`}><span className="n">{d.n || ""}</span><i style={{ height: `${d.n / peak * 100}%` }} /><span className="d">{d.at.getDate()}.</span></div>)}</div>
+    </div>
+    <div>
+      <div className="mlabel">Pipeline<span className="f3"> · eine Zeile je Mail, ein Klick öffnet Text und A/B-Test</span></div>
+      <div className="pipe">
+        <div className="prow head"><span /><span>Mail</span><span className="rt">Gesendet</span><span className="rt hide-m">Wartet</span><span className="rt">Antworten</span><span className="hide-m">Varianten (Antwortquote)</span></div>
+        {f.steps.map((x, n) => <button key={n} className="prow" onClick={() => onStep(n)}>
+          <span className="vc">{n + 1}</span>
+          <span className="pn"><b>{x.name || `Mail ${n + 1}`}</b><span className="f3">{x.day === 0 ? "bei Registrierung" : `Tag ${x.day}`}</span></span>
+          <span className="rt num">{x.sent}</span>
+          <span className="rt num hide-m">{x.wait ? <>{x.wait}{x.due > 0 && <span className="pill a" style={{ marginLeft: 6 }}>{x.due} fällig</span>}</> : <span className="f3">0</span>}</span>
+          <span className="rt num">{x.replied}<span className="f3"> {q(x.replied, x.sent)}</span></span>
+          <span className="pv2 hide-m">{x.vars.map(v => <span key={v.id} className={`pill ${v.active ? "" : "off"}`} title={`Variante ${v.key}: ${v.sent} gesendet, ${v.replies} Antworten`}>{v.key} {v.sent ? pct(rate(v)) : "–"}</span>)}</span>
+        </button>)}
+      </div>
     </div>
   </>;
 }

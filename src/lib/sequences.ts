@@ -53,16 +53,16 @@ const footer = (id: number) => `\n\n--\nKeine weiteren Mails: ${process.env.APP_
 
 export function defaultSequence(t: Tenant, trialDays = 14) {
   const steps: SeqStep[] = [
-    { day: 0, name: "Willkommen" }, { day: 5, name: "Erste Schritte" }, { day: 10, name: "Endspurt" },
-    { day: trialDays - 1, name: "Test endet" }, { day: trialDays + 6, name: "Nach dem Test" },
+    { day: 0, name: "Willkommen" }, { day: 4, name: "Erste Schritte" }, { day: 10, name: "Endspurt" },
+    { day: trialDays, name: "Test endet" }, { day: trialDays + 6, name: "Nach dem Test" },
   ];
   const sig = "\n\nViele Grüße\n{{absender}}";
   const left = trialDays - 10;
   const texts: [string, string][] = [
     [`Willkommen bei ${t.name}`, `{{anrede}}\n\ndanke für Ihre Registrierung. Ihr Zugang ist ab heute ${trialDays} Tage lang für alle Pro-Funktionen freigeschaltet.\n\nWofür möchten Sie ${t.name} vor allem nutzen? Wenn Sie mir das in einem Satz schreiben, schicke ich Ihnen den passenden Einstieg.`],
-    ["Wie läuft der Test?", `{{anrede}}\n\nSie nutzen ${t.name} jetzt seit fünf Tagen. Wenn Sie bei der Einrichtung irgendwo nicht weiterkommen, antworten Sie einfach auf diese Mail. Ich helfe Ihnen direkt.\n\nWas haben Sie bisher ausprobiert?`],
+    ["Wie läuft der Test?", `{{anrede}}\n\nSie nutzen ${t.name} jetzt seit vier Tagen. Wenn Sie bei der Einrichtung irgendwo nicht weiterkommen, antworten Sie einfach auf diese Mail. Ich helfe Ihnen direkt.\n\nWas haben Sie bisher ausprobiert?`],
     [`Noch ${left} Tage Pro`, `{{anrede}}\n\nIhr Pro-Zugang läuft noch ${left} Tage.\n\nIst vor Ihrer Entscheidung noch eine Frage zu ${t.name} offen?`],
-    ["Ihr Test endet morgen", `{{anrede}}\n\nmorgen endet Ihr Pro-Test. Danach nutzen Sie ${t.name} in der kostenlosen Version weiter.\n\nMöchten Sie Pro behalten? Dann antworten Sie kurz auf diese Mail, und ich schicke Ihnen Preis und Ablauf.`],
+    ["Ihr Test endet heute", `{{anrede}}\n\nheute endet Ihr Pro-Test. Danach nutzen Sie ${t.name} in der kostenlosen Version weiter.\n\nMöchten Sie Pro behalten? Dann antworten Sie kurz auf diese Mail, und ich schicke Ihnen Preis und Ablauf.`],
     ["Kurze Frage", `{{anrede}}\n\nIhr Pro-Test ist seit einigen Tagen vorbei. Was hat gefehlt, damit Sie Pro weiter nutzen?\n\nEin Satz als Antwort genügt.`],
   ];
   return { steps, texts: texts.map(([subject, body]) => ({ subject, body: body + sig })) };
