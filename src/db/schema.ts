@@ -119,8 +119,12 @@ export const companies = pgTable("companies", {
   name: text("name").notNull(),
   mode: text("mode").notNull().default(""),
   email: text("email").notNull().default(""),
+  /* the company record in HubSpot (the leading system) and its domain, both empty when unknown */
+  hubspotId: text("hubspot_id").notNull().default(""),
+  domain: text("domain").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, t => [uniqueIndex("companies_key").on(t.tenantId, t.key)]);
+}, t => [uniqueIndex("companies_key").on(t.tenantId, t.key), uniqueIndex("companies_hubspot").on(t.tenantId, t.hubspotId).where(sql`${t.hubspotId} <> ''`),
+  index("companies_domain").on(t.tenantId, t.domain)]);
 
 /* what a web search can fill in; person = salutation, first and last name (with the role when it is empty too) */
 export type EnrichField = "person" | "role" | "email" | "phone" | "linkedin" | "website" | "city";
@@ -165,8 +169,15 @@ export const leads = pgTable("leads", {
   channel: text("channel").notNull().default(""),
   queueRank: integer("queue_rank"),
   sendpilotAt: timestamp("sendpilot_at", { withTimezone: true }),
+  /* lib/lead-kind.ts: a lead is someone we look for to write to (prospect); CRM is someone who registered on the website, as HubSpot
+     says (crmAt, hsContactId, lifecycle stage). A person can be both: found as a lead and registered later */
+  prospect: boolean("prospect").notNull().default(true),
+  crmAt: timestamp("crm_at", { withTimezone: true }),
+  hsContactId: text("hs_contact_id").notNull().default(""),
+  stage: text("stage").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, t => [index("leads_tenant").on(t.tenantId, t.status), index("leads_rating").on(t.tenantId, t.rating)]);
+}, t => [index("leads_tenant").on(t.tenantId, t.status), index("leads_rating").on(t.tenantId, t.rating), index("leads_company").on(t.companyId),
+  index("leads_email").on(t.tenantId, sql`lower(${t.email})`), uniqueIndex("leads_hs_contact").on(t.tenantId, t.hsContactId).where(sql`${t.hsContactId} <> ''`)]);
 
 /* A search direction of the research (e.g. an industry plus a trigger). Thompson sampling picks one per round by how its leads did;
    the AI adds new ones and pauses weak ones it made, the user's own ones only the user pauses. origin: start | ki | nutzer */
@@ -473,3 +484,33 @@ export const aiUsage = pgTable("ai_usage", {
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("ai_usage_tenant").on(t.tenantId, t.createdAt)]);
+
+/* Reading the registered users from HubSpot into the tenant's CRM contacts. Registered = the contact has `property` (= `value` when set);
+   cursor = lastmodifieddate of the newest contact read, the next step reads only what changed after it. status: aus | bereit | läuft | fehler */
+export const crmSyncs = pgTable("crm_syncs", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }).unique(),
+  property: text("property").notNull().default(""),
+  value: text("value").notNull().default(""),
+  cursor: text("cursor").notNull().default(""),
+  status: text("status").notNull().default("bereit"),
+  imported: integer("imported").notNull().default(0),
+  updated: integer("updated").notNull().default(0),
+  error: text("error").notNull().default(""),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* Who is never written to (again): an address, every address of a domain, or a LinkedIn profile. Checked before research drafts,
+   before every send, in sequences, imports and SendPilot. reason: abgemeldet | unzustellbar | hubspot (opted out there) | manuell */
+export const suppressions = pgTable("suppressions", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  value: text("value").notNull(),
+  reason: text("reason").notNull().default("manuell"),
+  note: text("note").notNull().default(""),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex("suppressions_key").on(t.tenantId, t.kind, t.value)]);

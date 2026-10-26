@@ -116,3 +116,20 @@ export async function hubspotContactsRead(token: string, ids: string[], properti
   }
   return out;
 }
+
+/* One page of contacts that match the rule and changed since `since` (ms), oldest change first */
+export async function hubspotContactsChanged(token: string, m: { property: string; value: string }, since: number, properties: string[], after?: string) {
+  const j = await hs(token, "/crm/v3/objects/contacts/search", { method: "POST", body: JSON.stringify({
+    filterGroups: [{ filters: [filterOf(m), { propertyName: "lastmodifieddate", operator: "GTE", value: String(since) }] }],
+    sorts: [{ propertyName: "lastmodifieddate", direction: "ASCENDING" }], properties, limit: 100, after }) });
+  return { results: (j.results || []) as HsContact[], total: Number(j.total) || 0, after: j.paging?.next?.after as string | undefined };
+}
+
+export async function hubspotCompaniesRead(token: string, ids: string[], properties: string[]): Promise<HsContact[]> {
+  const out: HsContact[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const j = await hs(token, "/crm/v3/objects/companies/batch/read", { method: "POST", body: JSON.stringify({ properties, inputs: ids.slice(i, i + 100).map(id => ({ id })) }) });
+    out.push(...(j.results || []));
+  }
+  return out;
+}

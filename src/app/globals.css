@@ -647,7 +647,7 @@ table.leads th{position:relative; overflow:hidden; text-overflow:ellipsis}
 table.leads th .rsz{position:absolute; top:6px; bottom:6px; right:0; width:7px; cursor:col-resize; touch-action:none; border-right:1px solid var(--line)}
 table.leads th .rsz:hover{border-right:2px solid var(--fg-3)}
 table.leads th.co{width:var(--w-co,180px)} table.leads th.pn{width:var(--w-pn,160px)} table.leads th.c-role{width:var(--w-c-role,160px)}
-table.leads th.c-em{width:var(--w-c-em,210px)} table.leads th.c-hook{width:var(--w-c-hook,auto)} table.leads th.c-src{width:var(--w-c-src,130px)}
+table.leads th.c-em{width:var(--w-c-em,210px)} table.leads th.c-hook{width:var(--w-c-hook,240px)} table.leads th.c-src{width:var(--w-c-src,130px)}
 table.leads td.co{font-weight:500}
 table.leads td.c-em{font-size:12.5px}
 table.leads td.act,table.leads th.act{width:84px; padding:0; text-align:right}
@@ -823,3 +823,20 @@ table.leads tr.flash td{animation:flash 4s ease-out}
 @media (prefers-reduced-motion: reduce){table.leads tr.flash td{animation:none; background:color-mix(in srgb, var(--accent) 12%, transparent)}}
 
 .vstats .act{flex-direction:row; align-items:center; gap:8px; margin-left:auto}
+
+/* Leads: kind and level as tabs that open a choice, the kind column, colleagues per company, the companies table */
+.filters .ftab{position:relative; display:inline-flex; align-items:center; border:1px solid var(--line-2); background:var(--panel); border-radius:7px; height:28px; color:var(--fg-2); font-weight:500}
+.filters .ftab select{appearance:none; border:0; background:none; color:inherit; font:inherit; height:100%; padding:0 26px 0 10px; cursor:pointer; outline:none}
+.filters .ftab .lucide{position:absolute; right:8px; width:13px; height:13px; pointer-events:none; opacity:.7}
+.filters .ftab.on{background:var(--fg); color:var(--panel); border-color:var(--fg)}
+.filters .ftab:focus-within{box-shadow:0 0 0 2px var(--ring)}
+.filters .ftab select option{color:var(--fg); background:var(--panel)}
+.filters .fsep{width:1px; align-self:stretch; margin:4px 2px; background:var(--line-2)}
+table.leads th.c-kind{width:var(--w-c-kind,90px)} table.leads td.c-kind .pill{height:19px; padding:0 6px; font-size:11.5px}
+table.leads td.co .cnum{margin-left:6px; border:0; background:var(--hover); color:var(--fg-2); border-radius:5px; height:18px; min-width:18px; padding:0 5px; font-size:11.5px; font-weight:500; font-variant-numeric:tabular-nums; cursor:pointer; vertical-align:1px}
+table.leads td.co .cnum:hover{background:var(--line-2); color:var(--fg)}
+table.leads.firms th.co{width:var(--w-co,220px)} table.leads.firms th.c-n{width:76px} table.leads.firms th.c-st{width:90px} table.leads.firms th.c-dom{width:170px}
+table.leads.firms th.c-src{width:140px} table.leads.firms th.c-kind{width:90px} table.leads.firms th.c-last{width:120px} table.leads.firms td.c-st .sd+.sd{margin-left:4px}
+@media (max-width:640px){ table.leads .c-kind{display:none} table.leads.firms .c-dom,table.leads.firms .c-src,table.leads.firms .c-last{display:none} }
+/* a list-box row whose field sits under its label (block list) */
+.row2.col{flex-direction:column; align-items:stretch; gap:6px} .row2.col textarea{width:100%; resize:vertical; min-height:72px; font-family:var(--mono, ui-monospace, monospace); font-size:12.5px}

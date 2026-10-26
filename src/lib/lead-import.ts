@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { blockedOf, blockedWhy } from "./suppress";
 import { db, leads } from "@/db";
 import { attachCompanies, norm } from "@/lib/companies";
 import { HubSpotError, domainOf, hubspotKnown, hubspotToken, type Known } from "@/lib/hubspot";
@@ -145,7 +146,7 @@ export async function checkLeads(tenantId: number, input: LeadRow[]): Promise<Ch
   const hub = await hubspotToken(tenantId);
   /* unreachable is not "not in HubSpot": such rows are held back instead of imported blindly */
   const inHub = hub ? await pool(rows.map((r, i) => ({ r, i })), 4, ({ r, i }) => rep[i] !== i ? Promise.resolve(null) : hubKnown(hub, r).catch(e => { console.error(e); return HUB_DOWN; })) : rows.map(() => null);
-  const seen = new Set<string>();
+  const seen = new Set<string>(), blocked = await blockedOf(tenantId);
   const out = rows.map((r, i) => {
     const sal = salutationOf(r.sal || "");
     if (rep[i] !== i) return { ...r, sal, dup: "Doppelt in der Datei", extra: "" };
@@ -155,7 +156,8 @@ export async function checkLeads(tenantId: number, input: LeadRow[]): Promise<Ch
     const isKnown = [w.co && `n:${w.co}`, w.dom && `d:${w.dom}`].some(k => k && (coKnown.has(k) || seen.has(k))) || !!hit;
     const o = oldOf[i] >= 0 ? prev[oldOf[i]] : null;
     const fill = o && o.s !== "papierkorb" ? fillOf(r, o as unknown as Record<string, string>) : {};
-    const dup = o?.s === "papierkorb" ? "Im Papierkorb" : o ? (Object.keys(fill).length ? "" : "Schon in der Liste")
+    const stop = blockedWhy(blocked, { email: valid(r.email), website: r.web, linkedin: r.li });
+    const dup = stop ? `Sperrliste: ${stop}` : o?.s === "papierkorb" ? "Im Papierkorb" : o ? (Object.keys(fill).length ? "" : "Schon in der Liste")
       : h === HUB_DOWN ? HUB_DOWN : hit?.why === "Kontakt in HubSpot" ? "Kontakt in HubSpot" : isKnown && !w.email && !w.n.length ? "Firma bekannt" : "";
     const extra = dup ? "" : o ? "Wird ergänzt" : unsure.has(i) ? "Möglicherweise doppelt" : bad ? "E-Mail ungültig" : isKnown ? "Weiterer Kontakt" : "";
     if (w.co) seen.add(`n:${w.co}`); if (w.dom) seen.add(`d:${w.dom}`);

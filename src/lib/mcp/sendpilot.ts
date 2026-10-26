@@ -35,7 +35,7 @@ export async function sendpilotTools(server: McpServer) {
   }, async (args, user) => sendpilotCampaigns((await sendpilotConfig((await tenantBySlug(args.tenant, user)).id)).key));
 
   tool(server, "sendpilot_push", {
-    description: "Gibt Leads aus dem Portal (ids aus leads_list) in eine SendPilot-Kampagne; SendPilot schreibt sie dann auf LinkedIn an. Leads ohne LinkedIn-Profil oder im Papierkorb werden übersprungen, "
+    description: "Gibt Leads aus dem Portal (ids aus leads_list) in eine SendPilot-Kampagne; SendPilot schreibt sie dann auf LinkedIn an. Leads ohne LinkedIn-Profil, im Papierkorb, auf der Sperrliste oder auf der Website registriert werden übersprungen, "
       + "Dubletten überspringt SendPilot. Antwort: added, duplicates, invalid, skipped. Antworten auf LinkedIn setzen den Lead später auf beantwortet. Vor dem Aufruf Kampagne und Leads mit dem Nutzer abstimmen.",
     input: z.object({ tenant, campaignId: z.string().describe("id aus sendpilot_campaigns"), leadIds: z.array(z.number().int()).min(1).max(1000) }),
   }, async (args, user) => sendpilotPush((await tenantBySlug(args.tenant, user)).id, args.campaignId, args.leadIds));

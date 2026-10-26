@@ -1,6 +1,7 @@
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, leads, messages, tenants } from "@/db";
 import { addDaysIso, berlinDate, berlinWeekday } from "./dates";
+import { blockedOf, blockedWhy } from "./suppress";
 import { getInteg } from "./integrations";
 import { channelOf, domain } from "./lead-rating";
 import { batchDays, draftDay, isSendDay, planOf, sendDayFrom, type SendPlan } from "./schedule";
@@ -18,17 +19,17 @@ export async function bouncedDomains(tenantId: number) {
 export const linkedinOn = async (tenantId: number) => !!await getInteg(tenantId, "sendpilot");
 
 /* Open leads in the order the evening run drafts mails for them: the place set by drag and drop first, then the rating.
-   Left out: leads that went to SendPilot and every contact of their company, and, with SendPilot connected, leads whose channel is LinkedIn.
+   Left out: people who registered on the website (CRM) or are on the block list, leads that went to SendPilot and every contact of their company, and, with SendPilot connected, leads whose channel is LinkedIn.
    held = grade A waiting for Tuesday/Wednesday (holdTop); those come last and only fill the batch after new research. */
 export async function mailQueue(t: Tenant, now = new Date()): Promise<QueueLead[]> {
   const tomorrow = berlinWeekday(new Date(now.getTime() + 864e5)), hold = !!t.settings.holdTop && !["Tue", "Wed"].includes(tomorrow);
-  const rows = await db.select({ id: leads.id, companyId: leads.companyId, email: leads.email, emailType: leads.emailType, linkedin: leads.linkedin, channel: leads.channel,
+  const rows = await db.select({ id: leads.id, companyId: leads.companyId, email: leads.email, emailType: leads.emailType, linkedin: leads.linkedin, website: leads.website, channel: leads.channel,
     queueRank: leads.queueRank, grade: sql<string>`coalesce(${leads.ratingInfo}->>'grade', '')` }).from(leads)
-    .where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`))
+    .where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`, isNull(leads.crmAt)))
     .orderBy(sql`${leads.queueRank} asc nulls last`, sql`${leads.rating} desc nulls last`, asc(leads.createdAt), asc(leads.id));
-  const onLi = await linkedinOn(t.id), bounced = onLi ? await bouncedDomains(t.id) : [];
+  const onLi = await linkedinOn(t.id), bounced = onLi ? await bouncedDomains(t.id) : [], blocked = await blockedOf(t.id);
   const gone = new Set((await db.selectDistinct({ c: leads.companyId }).from(leads).where(and(eq(leads.tenantId, t.id), isNotNull(leads.sendpilotAt)))).map(r => r.c));
-  const out = rows.filter(r => !gone.has(r.companyId) && !(onLi && channelOf(r, bounced).ch === "linkedin"))
+  const out = rows.filter(r => !gone.has(r.companyId) && !(onLi && channelOf(r, bounced).ch === "linkedin") && !blockedWhy(blocked, r))
     .map(r => ({ id: r.id, companyId: r.companyId, held: hold && r.grade === "A" && r.queueRank === null }));
   return [...out.filter(r => !r.held), ...out.filter(r => r.held)];
 }
@@ -60,9 +61,10 @@ export const nextUp = (q: QueueLead[], n: number) => batches(q, n)[0] ?? [];
 export async function liQueue(t: Tenant) {
   if (!t.settings.sendpilotCampaign || !await linkedinOn(t.id)) return [];
   const bounced = await bouncedDomains(t.id);
-  const open = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`))
+  const open = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`, isNull(leads.crmAt)))
     .orderBy(sql`${leads.queueRank} asc nulls last`, sql`${leads.rating} desc nulls last`, asc(leads.createdAt), asc(leads.id));
-  return open.filter(l => channelOf(l, bounced).ch === "linkedin").map(l => l.id);
+  const blocked = await blockedOf(t.id);
+  return open.filter(l => channelOf(l, bounced).ch === "linkedin" && !blockedWhy(blocked, l)).map(l => l.id);
 }
 
 export const perDay = (t: Tenant) => Math.max(1, Math.min(30, t.settings.leadsPerDay || 10));

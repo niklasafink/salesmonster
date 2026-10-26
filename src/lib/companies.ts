@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { companies, db, leads } from "@/db";
 import { addrsOf, modeOf } from "./company-mode";
 
@@ -6,25 +6,28 @@ type Lead = typeof leads.$inferSelect;
 
 export const norm = (s: string) => s.toLowerCase().replace(/gmbh\s*&\s*co\.?\s*kg|gmbh|ag|kg|se|e\.k\.|ug|\(haftungsbeschränkt\)|[^a-z0-9äöüß]/g, "");
 
-/* Puts every lead of the tenant that has no company yet into one, by normalized name */
+/* Puts every lead of the tenant that has no company yet into one, by normalized name; set-based, so ten thousand loose leads
+   cost a handful of statements instead of one per lead */
 export async function attachCompanies(tenantId: number) {
   const loose = await db.select({ id: leads.id, company: leads.company }).from(leads).where(and(eq(leads.tenantId, tenantId), isNull(leads.companyId)));
   if (!loose.length) return;
-  const have = new Map((await db.select().from(companies).where(eq(companies.tenantId, tenantId))).map(c => [c.key, c.id]));
   const groups = new Map<string, { name: string; ids: number[] }>();
   for (const l of loose) {
     const key = norm(l.company) || `lead-${l.id}`;
     const g = groups.get(key) || { name: l.company.trim(), ids: [] };
     g.ids.push(l.id); groups.set(key, g);
   }
-  for (const [key, g] of groups) {
-    let id = have.get(key);
-    if (!id) {
-      const [c] = await db.insert(companies).values({ tenantId, key, name: g.name }).onConflictDoNothing().returning();
-      id = c?.id ?? (await db.select().from(companies).where(and(eq(companies.tenantId, tenantId), eq(companies.key, key))))[0].id;
-      have.set(key, id);
-    }
-    for (const lid of g.ids) await db.update(leads).set({ companyId: id }).where(eq(leads.id, lid));
+  const keys = [...groups.keys()];
+  for (let i = 0; i < keys.length; i += 1000)
+    await db.insert(companies).values(keys.slice(i, i + 1000).map(key => ({ tenantId, key, name: groups.get(key)!.name || "–" }))).onConflictDoNothing();
+  const have = new Map<string, number>();
+  for (let i = 0; i < keys.length; i += 1000)
+    for (const c of await db.select({ id: companies.id, key: companies.key }).from(companies).where(and(eq(companies.tenantId, tenantId), inArray(companies.key, keys.slice(i, i + 1000)))))
+      have.set(c.key, c.id);
+  const pairs = [...groups].flatMap(([key, g]) => g.ids.map(id => [id, have.get(key)!] as const)).filter(([, c]) => c);
+  for (let i = 0; i < pairs.length; i += 1000) {
+    const values = sql.join(pairs.slice(i, i + 1000).map(([id, c]) => sql`(${id}::int, ${c}::int)`), sql`, `);
+    await db.execute(sql`update leads set company_id = v.c from (values ${values}) as v(id, c) where leads.id = v.id and leads.company_id is null`);
   }
 }
 

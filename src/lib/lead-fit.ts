@@ -118,7 +118,7 @@ async function fit(tenantId: number, only?: number[]): Promise<FitRun> {
   if (!key) return { judged: 0, failed: 0, error: "Kein OpenRouter-Schlüssel" };
   const icp = await icpOf(tenantId);
   if (!icp) return { judged: 0, failed: 0, error: "Kein Zielkundenprofil" };
-  const all = await db.select(COLS).from(leads).where(and(eq(leads.tenantId, tenantId), inArray(leads.status, RATED), only ? inArray(leads.id, only.length ? only : [0]) : undefined));
+  const all = await db.select(COLS).from(leads).where(and(eq(leads.tenantId, tenantId), eq(leads.prospect, true), inArray(leads.status, RATED), only ? inArray(leads.id, only.length ? only : [0]) : undefined));
   const todo = all.filter(l => l.fitInfo?.hash !== fitHash(icp, l)).slice(0, MAX);
   const batches: Lead[][] = [];
   for (let i = 0; i < todo.length; i += BATCH) batches.push(todo.slice(i, i + BATCH));

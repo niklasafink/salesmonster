@@ -17,14 +17,27 @@ import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-c
 import { mdTable, parseCsv, toCsv, toTsv } from "@/lib/sheet";
 import { addDaysIso, berlinDate } from "@/lib/dates";
 import { DAY_NAMES, isoWeekday } from "@/lib/schedule";
+import { KIND_LABEL, inKind, kindOf, kindOfAll, type Kind, type KindFilter } from "@/lib/lead-kind";
 
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number; enrichMiss: Partial<Record<EnrichField, string>>;
-  channelRec: { ch: "mail" | "linkedin" | "none"; text: string }; sendpilotAt: string | null };
+  channelRec: { ch: "mail" | "linkedin" | "none"; text: string }; sendpilotAt: string | null; prospect: boolean; crmAt: string | null; stage: string; hsContactId: string };
 type Sheet = { sheet: string; data: unknown[][] };
-type Company = { id: number; name: string; mode: string; email: string };
+type Company = { id: number; name: string; mode: string; email: string; hubspotId: string; domain: string };
 type Campaign = { id: string; name: string; status: string; totalLeads: number };
 type Parsed = { co: string; sal?: string; p: string; role: string; email: string; phone?: string; web: string; city: string; note?: string; dup: string; extra: string };
+/* rows drawn at first, and added per step while scrolling */
+const PAGE = 50;
 const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
+
+/* someone only in the CRM comes with the shown columns; the rest are the values a lead without them has */
+const CRM_DEFAULTS: Omit<Lead, "id" | "company" | "createdAt"> = { companyId: null, salutation: "", first: "", last: "", role: "", email: "", emailType: "person", phone: "", linkedin: "", website: "", city: "",
+  hook: "", note: "", sourceUrl: "", status: "kontakt", tenders: [], source: "HubSpot", lastContactAt: null, rating: null, ratingInfo: null, vote: 0, enrichMiss: {}, channel: "",
+  channelRec: { ch: "none", text: "Registriert, wird nicht kalt angeschrieben" }, sendpilotAt: null, prospect: false, crmAt: null, stage: "", hsContactId: "" };
+
+/* the kind filter (leads, CRM, both) and whether the list shows people or companies; both stay per browser */
+const KINDS: [KindFilter, string][] = [["alle", "Leads + CRM"], ["lead", "Leads"], ["crm", "CRM"]];
+const LEVELS: [string, string][] = [["person", "Personen"], ["firma", "Firmen"]];
+const KindTag = ({ k }: { k: Kind }) => <span className={`pill ${k === "lead" ? "b" : k === "crm" ? "g" : "a"}`}>{KIND_LABEL[k]}</span>;
 
 /* we already had contact: a mail went out, an answer came in, or the mailbox knows them */
 const warm = (r: Lead) => !!r.lastContactAt || r.source === "Postfach" || ["angeschrieben", "beantwortet", "kontakt"].includes(r.status);
@@ -41,6 +54,23 @@ const sorters: Record<string, (a: Lead, b: Lead) => number> = {
 };
 const keep = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
 export const reasonText = (r: { pts: number; text: string; learned?: boolean }) => `${r.pts > 0 ? "+" : "−"}${Math.abs(r.pts)} ${r.text}${r.learned ? " (gelernt)" : ""}`;
+
+type Firm = { key: string; id: number | null; name: string; domain: string; people: Lead[]; sources: string[]; last: string | null };
+/* people grouped by company, in the order the first of each comes in the list */
+function firmsOf(people: Lead[], cos: Company[]): Firm[] {
+  const byId = new Map(cos.map(c => [c.id, c])), out = new Map<string, Firm>();
+  for (const r of people) {
+    const key = r.companyId == null ? `l${r.id}` : `c${r.companyId}`;
+    let f = out.get(key);
+    if (!f) { const c = r.companyId == null ? undefined : byId.get(r.companyId); f = { key, id: r.companyId, name: c?.name || r.company, domain: c?.domain || "", people: [], sources: [], last: null }; out.set(key, f); }
+    f.people.push(r);
+    if (!f.sources.includes(r.source)) f.sources.push(r.source);
+    if (!f.domain && r.website) { try { f.domain = new URL(httpUrl(r.website) || "x:").hostname.replace(/^www\./, ""); } catch { /* no domain */ } }
+    const at = [r.lastContactAt, r.crmAt].filter(Boolean).sort().pop() || null;
+    if (at && (!f.last || at > f.last)) f.last = at;
+  }
+  return [...out.values()];
+}
 
 /* the channel a lead is written on: set by hand, else as recommended */
 const chOf = (r: Lead) => r.sendpilotAt ? "linkedin" : (r.channel === "mail" && r.email) || (r.channel === "linkedin" && r.linkedin) ? r.channel : r.channelRec.ch;
@@ -74,6 +104,11 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [edit, setEdit] = useState<EditLead | null>(null), [allCols, setAllCols] = useState(false);
   const [order, setOrder] = useState<number[]>([]), [days, setDays] = useState<Record<number, string>>({});
   const [widths, setWidths] = useState<Record<string, number>>({});
+  const [shown, setShown] = useState(PAGE), more = useRef<HTMLTableRowElement>(null);
+  const [kind, setKindS] = useState<KindFilter>("alle"), [level, setLevelS] = useState("person"), [coF, setCoF] = useState<number | null>(null);
+  useEffect(() => { const k = keep.get("leads-kind"), l = keep.get("leads-level"); if (KINDS.some(([x]) => x === k)) setKindS(k as KindFilter); if (l === "firma") setLevelS(l); }, []);
+  const setKind = (v: KindFilter) => { setKindS(v); keep.set("leads-kind", v); };
+  const setLevel = (v: string) => { setLevelS(v); keep.set("leads-level", v); if (v === "firma") setCoF(null); };
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   const [sort, setSortState] = useState("versand"), [angles, setAngles] = useState(false);
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
@@ -102,8 +137,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const seq = useRef(0);
   const load = useCallback(() => {
     const n = ++seq.current;
-    return api<{ rows: Lead[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string> }>(`/api/leads?t=${t.slug}`)
-      .then(r => { if (n !== seq.current) return; setRows(r.rows); setCos(r.companies); setOrder(r.order); setDays(r.days || {}); })
+    return api<{ rows: Lead[]; crm?: Partial<Lead>[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string> }>(`/api/leads?t=${t.slug}`)
+      .then(r => { if (n !== seq.current) return; setRows([...r.rows, ...(r.crm || []).map(c => ({ ...CRM_DEFAULTS, ...c }) as Lead)]); setCos(r.companies); setOrder(r.order); setDays(r.days || {}); })
       .catch(e => { if (n === seq.current) ctx.toast(e.message, { error: true }); });
   }, [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
@@ -134,7 +169,12 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
 
   const srcs = [...new Set(rows.map(r => r.source))];
   const inFilter = (r: Lead, s: string) => s === "alle" ? r.status !== "papierkorb" : r.status === s;
-  const cnt = (s: string) => rows.filter(r => inFilter(r, s)).length;
+  /* status counts follow the kind and company chosen, so the tabs add up to what the list shows */
+  const scoped = rows.filter(r => inKind(r, kind) && (coF == null || r.companyId === coF));
+  const cnt = (s: string) => scoped.filter(r => inFilter(r, s)).length;
+  /* people per company, to show colleagues next to the company name */
+  const perCo = new Map<number, number>();
+  for (const r of rows) if (r.companyId != null && r.status !== "papierkorb") perCo.set(r.companyId, (perCo.get(r.companyId) || 0) + 1);
   /* Versand: by send day, drafts waiting for approval included; within a day the queue order, where further contacts of a company
      follow its first one, as the evening run takes them; leads without a day come last by rating */
   const coId = new Map(rows.map(r => [r.id, r.companyId == null ? `l${r.id}` : `c${r.companyId}`]));
@@ -143,9 +183,28 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const queue = order.map((id, i) => ({ id, k: first.get(coId.get(id) ?? `l${id}`)!, i })).sort((a, b) => a.k - b.k || a.i - b.i).map(x => x.id);
   const pos = new Map(queue.map((id, i) => [id, i]));
   const byQueue = (a: Lead, b: Lead) => (days[a.id] || "9").localeCompare(days[b.id] || "9") || (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity) || sorters.bewertung(a, b);
-  const vis = rows.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q)).sort(sort === "versand" ? byQueue : sorters[sort]);
+  const vis = scoped.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q)).sort(sort === "versand" ? byQueue : sorters[sort]);
   /* dragging only where the whole queue is in view, so a move means the same as in the list */
-  const canDrag = sort === "versand" && src === "alle" && !q.trim() && (filter === "alle" || filter === "neu");
+  const canDrag = sort === "versand" && src === "alle" && !q.trim() && (filter === "alle" || filter === "neu") && kind !== "crm" && coF == null;
+  /* the companies view: the people that pass the filters, one row per company, in the order of their first person */
+  const firms = level === "firma" ? firmsOf(vis, cos) : [];
+  const total = level === "firma" ? firms.length : vis.length;
+  /* only the first rows are drawn; the rest follow as the end of the table is scrolled into view */
+  const shownRows = vis.slice(0, shown);
+  useEffect(() => { setShown(PAGE); }, [filter, src, q, sort, kind, level, coF]);
+  useEffect(() => {
+    const el = more.current;
+    if (!el || shown >= total) return;
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) setShown(n => n + PAGE); }, { root: el.closest(".scroll"), rootMargin: "600px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shown, total]);
+  /* rows the chat changed or the palette opened may lie below what is drawn yet */
+  useEffect(() => {
+    const at = vis.reduce((m, r, i) => flash.has(r.id) ? i : m, -1);
+    if (at >= shown) setShown(at + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flash]);
   /* a line under the last lead of each send day */
   const dayEnd = new Set(sort === "versand" ? vis.filter((r, i) => days[r.id] && days[vis[i + 1]?.id] !== days[r.id]).map(r => r.id) : []);
   async function moved(e: DragEndEvent) {
@@ -163,7 +222,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
 
   /* the trash keeps the lead, so research and import recognise it and nobody writes to it */
   async function trash(r: Lead, back = false) {
-    const status = back ? (warm({ ...r, status: "" }) ? "kontakt" : "neu") : "papierkorb";
+    const status = back ? (warm({ ...r, status: "" }) || r.crmAt ? "kontakt" : "neu") : "papierkorb";
     setRows(rs => rs.map(x => x.id === r.id ? { ...x, status } : x));
     try { await api(`/api/leads/${r.id}`, { method: "PATCH", body: { status } }); ctx.toast(back ? "Wiederhergestellt" : "In den Papierkorb gelegt"); }
     catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
@@ -292,6 +351,9 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
 
+  /* a company row opens its people */
+  const openFirm = (f: Firm) => { if (f.id != null) { setCoF(f.id); setLevel("person"); } else if (f.people[0]) setEdit(f.people[0]); };
+  const kindTitle = (r: Lead) => [r.prospect && `Lead, Quelle ${r.source}`, r.crmAt && `Registriert am ${new Date(r.crmAt).toLocaleDateString("de-DE")}${r.stage ? `, HubSpot: ${r.stage}` : ""}`].filter(Boolean).join("\n");
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
   const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
   /* the page the lead was found on, shown as its domain; leads from the mailbox say E-Mail */
@@ -313,12 +375,14 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
     {chCell(r)}
     <td className="dotc"><Dot s={r.status} /></td>
-    <td className="co" title={r.company}>{r.company}</td>
+    <td className="co" title={r.company}>{r.company || <span className="f3">–</span>}{r.companyId != null && (perCo.get(r.companyId) || 0) > 1 &&
+      <button className="cnum" title={`${perCo.get(r.companyId)} Personen bei ${r.company || "dieser Firma"}`} onClick={e => { e.stopPropagation(); setCoF(r.companyId); }}>{perCo.get(r.companyId)}</button>}</td>
     <td className="pn" title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
     <td className="c-role f2" title={r.role || undefined}>{r.role || <span className="f3">–</span>}</td>
     <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td>
     <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
     <td className="c-src f2">{srcCell(r)}</td>
+    <td className="c-kind" title={kindTitle(r)}><KindTag k={kindOf(r)} /></td>
     <td className="act">{r.status !== "papierkorb" && r.rating !== null && <>
       <button className={`btn gh ic${r.vote > 0 ? " on" : ""}`} title="Guter Lead" aria-label="Guter Lead" aria-pressed={r.vote > 0} onClick={e => { e.stopPropagation(); vote(r, 1); }}><Icon n="thumbs-up" /></button>
       <button className={`btn gh ic${r.vote < 0 ? " on" : ""}`} title="Schlechter Lead" aria-label="Schlechter Lead" aria-pressed={r.vote < 0} onClick={e => { e.stopPropagation(); vote(r, -1); }}><Icon n="thumbs-down" /></button>
@@ -336,8 +400,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   function csv() {
     const list = picked.length ? vis.filter(r => sel.has(r.id)) : vis;
     const day = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" }) : "";
-    const lines = [["Firma", "Anrede", "Vorname", "Nachname", "Rolle", "E-Mail", "Telefon", "LinkedIn", "Website", "Ort", "Status", "Bewertung", "Quelle", "Letzter Kontakt", "Angelegt", "Notiz"],
-      ...list.map(r => [r.company, r.salutation, r.first, r.last, r.role, r.email, r.phone, r.linkedin, r.website, r.city, STATUS[r.status]?.[0] || r.status, r.rating ?? "", r.source, day(r.lastContactAt), day(r.createdAt), r.note])];
+    const lines = [["Firma", "Anrede", "Vorname", "Nachname", "Rolle", "E-Mail", "Telefon", "LinkedIn", "Website", "Ort", "Status", "Bewertung", "Quelle", "Art", "Registriert", "Letzter Kontakt", "Angelegt", "Notiz"],
+      ...list.map(r => [r.company, r.salutation, r.first, r.last, r.role, r.email, r.phone, r.linkedin, r.website, r.city, STATUS[r.status]?.[0] || r.status, r.rating ?? "", r.source, KIND_LABEL[kindOf(r)], day(r.crmAt), day(r.lastContactAt), day(r.createdAt), r.note])];
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([toCsv(lines)], { type: "text/csv;charset=utf-8" })); a.download = `leads-${t.slug}-${berlinDate()}.csv`; a.click();
   }
 
@@ -360,18 +424,39 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     </Top>
     <div className="scroll"><div className="wrap wide full lc-room">
       <div className="toolbar">
-        <div className="filters">{FILTERS.map(k => <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></button>)}</div>
+        <div className="filters">
+          {/* Leads, CRM or both, and people or companies, as tabs that open a choice */}
+          <label className={`ftab${kind !== "alle" ? " on" : ""}`}><select value={kind} onChange={e => setKind(e.target.value as KindFilter)} aria-label="Leads oder CRM">{KINDS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select><Icon n="chevron-down" /></label>
+          <label className="ftab"><select value={level} onChange={e => setLevel(e.target.value)} aria-label="Personen oder Firmen">{LEVELS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select><Icon n="chevron-down" /></label>
+          <span className="fsep" aria-hidden />
+          {FILTERS.map(k => <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></button>)}
+          {coF != null && <span className="chip">{(cos.find(c => c.id === coF)?.name || rows.find(r => r.companyId === coF)?.company || "Firma")}<button onClick={() => setCoF(null)} aria-label="Firmenfilter entfernen"><Icon n="x" /></button></span>}
+        </div>
         <div className="row3">
           <select className="inp sel" value={sort} onChange={e => setSort(e.target.value)} aria-label="Sortieren">{SORTS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>
           <select className="inp sel" value={src} onChange={e => setSrc(e.target.value)} aria-label="Quelle"><option value="alle">Alle Quellen</option>{srcs.map(s => <option key={s}>{s}</option>)}</select>
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Verschieben"></th><th className="c-day">Versand</th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="c-ch" aria-label="Kanal"></th><th className="dotc"></th>{th("co", "Firma")}{th("pn", "Ansprechpartner")}{th("c-role", "Rolle")}{th("c-em", "E-Mail")}{th("c-hook", t.tenders ? "Ausschreibungen" : "Anlass")}{th("c-src", "Quelle")}<th className="act"></th></tr></thead><tbody>
+      {level === "firma" ? <div className="tbl"><table className="leads firms"><thead><tr><th className="co">Firma</th><th className="c-n">Personen</th><th className="pn">Ansprechpartner</th><th className="c-st">Status</th><th className="c-dom">Domain</th><th className="c-src">Quelle</th><th className="c-kind">Art</th><th className="c-last">Letzter Kontakt</th></tr></thead><tbody>
+        {firms.length ? firms.slice(0, shown).map(f => <tr key={f.key} className="click" tabIndex={0} onClick={() => openFirm(f)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openFirm(f); } }}>
+          <td className="co" title={f.name}>{f.name || <span className="f3">–</span>}</td>
+          <td className="c-n num">{f.people.length}</td>
+          <td className="pn" title={f.people.map(person).filter(Boolean).join(", ")}>{f.people.map(r => person(r) || r.email).filter(Boolean).slice(0, 3).join(", ") || <span className="f3">–</span>}{f.people.length > 3 && <span className="f3"> +{f.people.length - 3}</span>}</td>
+          <td className="c-st">{[...new Set(f.people.map(r => r.status))].map(st => <Dot key={st} s={st} />)}</td>
+          <td className="c-dom f2">{f.domain || <span className="f3">–</span>}</td>
+          <td className="c-src f2" title={f.sources.join(", ")}>{f.sources.join(", ")}</td>
+          <td className="c-kind"><KindTag k={kindOfAll(f.people)} /></td>
+          <td className="c-last f2">{f.last ? new Date(f.last).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" }) : <span className="f3">–</span>}</td>
+        </tr>) : <tr><td colSpan={8} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+        {shown < firms.length && <tr ref={more} aria-hidden><td colSpan={8} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {firms.length}</td></tr>}
+      </tbody></table></div> :
+      <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Verschieben"></th><th className="c-day">Versand</th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="c-ch" aria-label="Kanal"></th><th className="dotc"></th>{th("co", "Firma")}{th("pn", "Ansprechpartner")}{th("c-role", "Rolle")}{th("c-em", "E-Mail")}{th("c-hook", t.tenders ? "Ausschreibungen" : "Anlass")}{th("c-src", "Quelle")}{th("c-kind", "Art")}<th className="act"></th></tr></thead><tbody>
         {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved}>
-          <SortableContext items={canDrag ? vis.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{vis.map(row)}</SortableContext>
-        </DndContext> : <tr><td colSpan={14} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
-      </tbody></table></div>
+          <SortableContext items={canDrag ? shownRows.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{shownRows.map(row)}</SortableContext>
+        </DndContext> :<tr><td colSpan={15} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+        {shown < vis.length && <tr ref={more} aria-hidden><td colSpan={15} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {vis.length}</td></tr>}
+      </tbody></table></div>}
     </div></div>
     <LeadChat slug={t.slug} onChanged={chatChanged} toast={ctx.toast} />
 

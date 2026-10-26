@@ -7,7 +7,7 @@ import { Icon, api, useDialog } from "./ui";
 
 export type EditLead = {
   id?: number; company: string; salutation: string; first: string; last: string; role: string; email: string; emailType: string; phone: string;
-  linkedin: string; website: string; city: string; hook: string; note: string; sourceUrl: string; research: string; status: string; tenders: Tender[]; source?: string;
+  linkedin: string; website: string; city: string; hook: string; note: string; sourceUrl: string; research?: string; status: string; tenders: Tender[]; source?: string;
   /* mail | linkedin set by hand, "" = as recommended */
   channel?: string; channelRec?: { ch: string; text: string };
 };
@@ -39,7 +39,7 @@ type Co = { id: number; mode: string; email: string };
 type Mate = { id?: number; first: string; last: string; role: string; email: string; status: string };
 type Act = { at: string; kind: string; title: string; text?: string; by?: string };
 
-const ACT_ICON: Record<string, string> = { sent: "send", reply: "mail", bounce: "triangle-alert", draft: "file-text", mailbox: "inbox", created: "plus", linkedin: "linkedin" };
+const ACT_ICON: Record<string, string> = { crm: "user-check", sent: "send", reply: "mail", bounce: "triangle-alert", draft: "file-text", mailbox: "inbox", created: "plus", linkedin: "linkedin" };
 const when = (iso: string) => new Date(iso).toLocaleDateString("de-DE", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/Berlin" });
 const nameOf = (x: { first: string; last: string }) => [x.first, x.last].filter(Boolean).join(" ");
 
@@ -92,9 +92,10 @@ function EnrichMenu({ lead, slug, miss = {}, onFound }: { lead: EditLead; slug: 
   </span>;
 }
 
-function Activity({ id }: { id: number }) {
+function Activity({ id, onResearch }: { id: number; onResearch?: (text: string) => void }) {
   const [items, setItems] = useState<Act[] | null>(null), [err, setErr] = useState(""), [open, setOpen] = useState<number | null>(null);
-  useEffect(() => { api<{ items: Act[] }>(`/api/leads/${id}`).then(r => setItems(r.items)).catch(e => setErr((e as Error).message)); }, [id]);
+  const got = useRef(onResearch); got.current = onResearch;
+  useEffect(() => { api<{ items: Act[]; research?: string }>(`/api/leads/${id}`).then(r => { setItems(r.items); got.current?.(r.research ?? ""); }).catch(e => setErr((e as Error).message)); }, [id]);
   if (err) return <div className="warn"><Icon n="triangle-alert" />{err}</div>;
   if (!items) return <div className="f3"><Icon n="loader" /></div>;
   return <ol className="acts">{items.map((a, i) => <li key={i} className={`k-${a.kind}`}>
@@ -172,9 +173,12 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
         {!tenders && <Prop l="Anlass"><textarea className="pv" rows={1} value={f.hook} placeholder="–" onChange={set("hook")} /></Prop>}
         <Prop l="Link zur Quelle" link={httpUrl(f.sourceUrl) || undefined}><input className="pv" value={f.sourceUrl} placeholder="https://" onChange={set("sourceUrl")} /></Prop>
         <Prop l="Notiz"><textarea className="pv" rows={1} value={f.note} placeholder="–" onChange={set("note")} /></Prop>
-        {(f.id || f.research) && <Prop l="Original"><textarea className="pv f2" rows={1} value={f.research} placeholder="–" onChange={set("research")} /></Prop>}
+        {(f.id || f.research) && <Prop l="Original"><textarea className="pv f2" rows={1} value={f.research ?? ""} placeholder="–" onChange={set("research")} /></Prop>}
       </section>
-      {f.id && <section className="feed"><h3>Aktivitäten</h3><Activity id={f.id} /></section>}
+      {f.id && <section className="feed"><h3>Aktivitäten</h3><Activity id={f.id} onResearch={lead0.research === undefined ? research => {
+        /* the list does not carry the research text; it arrives with the activities and counts as saved */
+        setLead(l => ({ ...l, research })); setF(x => x.research === undefined ? { ...x, research } : x);
+      } : undefined} /></section>}
       <section className="props">
         {rating?.ratingInfo && rating.rating !== null && <div className="rating">
           <h3>Bewertung</h3>

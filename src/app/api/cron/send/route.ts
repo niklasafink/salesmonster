@@ -1,6 +1,7 @@
 import { db, tenants } from "@/db";
 import { cronAuthorized } from "@/lib/api";
 import { sendApproved } from "@/lib/outreach";
+import { syncCrm } from "@/lib/crm-sync";
 
 export const maxDuration = 300;
 
@@ -9,5 +10,8 @@ export async function GET(req: Request) {
   if (!cronAuthorized(req)) return new Response("Unauthorized", { status: 401 });
   const all = await db.select().from(tenants);
   const out = await Promise.allSettled(all.map(async t => ({ t: t.slug, ...await sendApproved(t) })));
-  return Response.json(out.map(o => o.status === "fulfilled" ? o.value : { error: String(o.reason?.message || o.reason) }));
+  /* then the registered users from HubSpot, once an hour like the sending */
+  const crm = await Promise.allSettled(all.map(async t => { const s = await syncCrm(t, 60_000); return s && { t: t.slug, crm: s.status, error: s.error || undefined }; }));
+  return Response.json([...out.map(o => o.status === "fulfilled" ? o.value : { error: String(o.reason?.message || o.reason) }),
+    ...crm.flatMap((o): unknown[] => o.status === "fulfilled" ? (o.value ? [o.value] : []) : [{ error: String(o.reason?.message || o.reason) }])]);
 }

@@ -9,6 +9,7 @@ import { hubspotContactsRead, hubspotContactsWhere, hubspotToken, type HsContact
 import { jevKey, scoreMail } from "./jev";
 import { salutationOf } from "./lead-fields";
 import { hasBounce, hasReply, sendAs } from "./mail";
+import { blockedOf, blockedWhy, suppressEmail } from "./suppress";
 import { thompson } from "./thompson";
 import { track } from "./usage";
 
@@ -142,6 +143,7 @@ async function inbox(s: Seq, active: Enr[], now: Date) {
     }
     if (now.getTime() - e.lastSentAt!.getTime() < 3 * DAY && await hasBounce(s.tenantId, sender, e.email, e.lastSentAt!).catch(() => null)) {
       await db.update(enrollments).set({ status: "unzustellbar" }).where(eq(enrollments.id, e.id));
+      await suppressEmail(s.tenantId, e.email, "unzustellbar", s.name);
       const m = await lastMail(e.id);
       if (m) await db.update(sequenceMails).set({ bouncedAt: now }).where(eq(sequenceMails.id, m.id));
       e.status = "unzustellbar"; bounces++;
@@ -158,9 +160,11 @@ async function send(s: Seq, active: Enr[], now: Date) {
   if (!due.length) return { sent: 0, failed: 0, error: "" };
   const tpls = await db.select().from(sequenceTemplates).where(and(eq(sequenceTemplates.sequenceId, s.id), eq(sequenceTemplates.active, true))).orderBy(asc(sequenceTemplates.key));
   const stats = await stepStats(s.id);
-  const name = await senderName(sender);
+  const name = await senderName(sender), blocked = await blockedOf(s.tenantId);
   let sent = 0, failed = 0, error = "";
   for (const e of due.slice(0, 200)) {
+    /* on the block list: the person leaves the sequence like after an unsubscribe */
+    if (blockedWhy(blocked, { email: e.email })) { await db.update(enrollments).set({ status: "abgemeldet" }).where(eq(enrollments.id, e.id)); continue; }
     const opts = tpls.filter(x => x.step === e.step);
     const k = thompson(Object.fromEntries(opts.map(x => [x.key, stats(e.step, x.key)])));
     const tpl = opts.find(x => x.key === k);

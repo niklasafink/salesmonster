@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { blockedAddresses, suppressEmail } from "./suppress";
 import { claims, companies, db, leads, members, messages, runs, templates, tenants, users } from "@/db";
 import { attachCompanies, norm, plan, type Unit } from "./companies";
 import { salutationOf } from "./lead-fields";
@@ -258,6 +259,9 @@ export async function sendApproved(t: Tenant, opts: { now?: boolean } = {}) {
     try {
       const to = recipients(m, l);
       if (!to.length) throw new Error("E-Mail fehlt");
+      /* the block list wins over an approval given before the address landed on it */
+      const stop = await blockedAddresses(t.id, to);
+      if (stop.length) { await db.update(messages).set({ status: "gesperrt", error: `Gesperrt: ${stop.join(", ")}` }).where(eq(messages.id, m.id)); continue; }
       await sendAs(t.id, m.senderId!, { to: to.join(", "), subject: m.finalSubject || "", text: m.finalBody || "" });
       out = true;
       const covered = await db.select().from(leads).where(inArray(leads.id, idsOf(m)));
@@ -309,6 +313,8 @@ export async function checkReplies(t: Tenant) {
 
 export async function setLeadStatus(tenantId: number, leadId: number, status: string) {
   await db.update(leads).set({ status }).where(and(eq(leads.id, leadId), eq(leads.tenantId, tenantId)));
+  /* an address that bounced goes on the block list, so no other run or sequence tries it again */
+  if (status === "unzustellbar") { const [l] = await db.select({ email: leads.email }).from(leads).where(and(eq(leads.id, leadId), eq(leads.tenantId, tenantId))); if (l?.email) await suppressEmail(tenantId, l.email, "unzustellbar"); }
   const [m] = await db.select().from(messages).where(and(or(eq(messages.leadId, leadId), sql`${messages.leadIds} @> ${JSON.stringify([leadId])}::jsonb`), inArray(messages.status, ["gesendet", "beantwortet", "unzustellbar"]))).orderBy(desc(messages.sentAt)).limit(1);
   if (!m) return;
   if (status === "beantwortet") await db.update(messages).set({ status, repliedAt: m.repliedAt || new Date() }).where(eq(messages.id, m.id));

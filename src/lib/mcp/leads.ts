@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ilike, inArray, or, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, isNotNull, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db, leads } from "@/db";
@@ -45,7 +45,7 @@ const edit = z.object({
 });
 
 const FIELDS = { id: leads.id, companyId: leads.companyId, company: leads.company, salutation: leads.salutation, first: leads.first, last: leads.last, role: leads.role, email: leads.email, emailType: leads.emailType,
-  linkedin: leads.linkedin, website: leads.website, phone: leads.phone, lastContactAt: leads.lastContactAt, city: leads.city, hook: leads.hook, note: leads.note, status: leads.status, source: leads.source, sourceUrl: leads.sourceUrl, createdAt: leads.createdAt };
+  linkedin: leads.linkedin, website: leads.website, phone: leads.phone, lastContactAt: leads.lastContactAt, city: leads.city, hook: leads.hook, note: leads.note, status: leads.status, source: leads.source, sourceUrl: leads.sourceUrl, prospect: leads.prospect, crmAt: leads.crmAt, stage: leads.stage, createdAt: leads.createdAt };
 const MISSING = { email: [leads.email], person: [leads.first, leads.last], role: [leads.role], website: [leads.website], salutation: [leads.salutation], linkedin: [leads.linkedin], city: [leads.city], hook: [leads.hook], note: [leads.note] };
 
 export function leadTools(server: McpServer) {
@@ -54,19 +54,22 @@ export function leadTools(server: McpServer) {
       + "Felder: companyId, company (Firma), salutation (Anrede mit Titel, z. B. „Frau Dr.“), first/last (Vor-/Nachname), role, email, emailType (person = persönliche Adresse, info = Firmenadresse), "
       + "linkedin, website, phone (Telefon aus der Signatur), lastContactAt (letzte E-Mail), city (Ort), hook (Aufhänger für die erste Mail), note (Notiz), status, source (Quelle), sourceUrl (Fundstelle). "
       + "Status: neu (noch nicht angeschrieben), freigabe (Entwurf wartet auf Freigabe), angeschrieben, beantwortet, unzustellbar, dublette, kontakt (bestehender Kontakt aus dem Postfach, wird nie kalt angeschrieben). "
-      + "Mit missing findest du Leads, denen ein Feld fehlt (z. B. email), um sie mit leads_update anzureichern. Rückgabe: total (Treffer gesamt) und rows; mit offset weiterblättern.",
+      + "Art: prospect = Lead (über Recherche oder Import gefunden), crmAt = auf der Website registriert (CRM, kommt aus HubSpot, stage = Lifecycle dort); beides zugleich ist möglich. "
+      + "Registrierte (crmAt gesetzt) werden nie kalt angeschrieben. Mit missing findest du Leads, denen ein Feld fehlt (z. B. email), um sie mit leads_update anzureichern. Rückgabe: total (Treffer gesamt) und rows; mit offset weiterblättern.",
     input: z.object({
       tenant,
       status: z.enum(STATUS).optional().describe("Nur Leads mit diesem Status"),
       query: s("Suchtext in Firma, Name, E-Mail, Ort, Website"),
       companyId: z.number().int().optional().describe("Nur die Kontakte dieser Firma"),
+      kind: z.enum(["lead", "crm"]).optional().describe("lead = nur Leads, crm = nur Registrierte; ohne = alle"),
       missing: z.enum(Object.keys(MISSING) as [keyof typeof MISSING]).optional().describe("Nur Leads, bei denen dieses Feld leer ist (person = kein Name)"),
       limit: z.number().int().min(1).max(200).default(50).describe("Höchstens 200, Standard 50"),
       offset: z.number().int().min(0).default(0),
     }),
-  }, async ({ tenant: slug, status, query, companyId, missing, limit, offset }, user) => {
+  }, async ({ tenant: slug, status, query, companyId, kind, missing, limit, offset }, user) => {
     const t = await tenantBySlug(slug, user), q = query && `%${query.replace(/[\\%_]/g, m => `\\${m}`)}%`;
-    const where = and(eq(leads.tenantId, t.id), status && eq(leads.status, status), companyId !== undefined ? eq(leads.companyId, companyId) : undefined, missing && and(...MISSING[missing].map(c => eq(c, ""))),
+    const where = and(eq(leads.tenantId, t.id), status && eq(leads.status, status), companyId !== undefined ? eq(leads.companyId, companyId) : undefined,
+      kind === "lead" ? eq(leads.prospect, true) : kind === "crm" ? isNotNull(leads.crmAt) : undefined, missing && and(...MISSING[missing].map(c => eq(c, ""))),
       q ? or(...[leads.company, leads.first, leads.last, leads.email, leads.city, leads.website].map(c => ilike(c, q))) : undefined) as SQL;
     const [{ n }] = await db.select({ n: count() }).from(leads).where(where);
     return { total: n, rows: await db.select(FIELDS).from(leads).where(where).orderBy(desc(leads.createdAt), desc(leads.id)).limit(limit).offset(offset) };

@@ -43,8 +43,10 @@ export const GET = route<Ctx>(async (_req, { params }, me) => {
     out.push({ at: c.lastAt.toISOString(), kind: "mailbox", title: `${n(c.sent, "Mail", "Mails")} gesendet, ${n(c.received, "Mail", "Mails")} erhalten`,
       text: c.firstAt ? `Seit ${c.firstAt.toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}` : undefined, by: by || undefined });
   }
-  out.push({ at: l.createdAt.toISOString(), kind: "created", title: l.source === "Postfach" ? "Aus dem Postfach übernommen" : `Angelegt, Quelle ${l.source}` });
-  return { items: out.sort((a, b) => b.at.localeCompare(a.at)) };
+  if (l.crmAt) out.push({ at: l.crmAt.toISOString(), kind: "crm", title: "Auf der Website registriert", text: l.stage ? `Lifecycle in HubSpot: ${l.stage}` : undefined });
+  out.push({ at: l.createdAt.toISOString(), kind: "created", title: l.source === "Postfach" ? "Aus dem Postfach übernommen" : l.source === "HubSpot" ? "Aus HubSpot übernommen" : `Angelegt, Quelle ${l.source}` });
+  /* research is left out of the list, so the dialog gets it here */
+  return { items: out.sort((a, b) => b.at.localeCompare(a.at)), research: l.research };
 });
 
 /* Status change and/or edited fields; a new company name moves the contact to that company */

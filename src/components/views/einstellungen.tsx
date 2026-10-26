@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AI_PROVIDERS, INTEG, isAi, type Field } from "@/lib/integ-meta";
 import { Logo, hasLogo } from "../logos";
 import { Icon, Top, api, useDialog } from "../ui";
@@ -12,12 +12,12 @@ const when = (s: string) => new Date(s).toLocaleString("de-DE", { day: "2-digit"
 export function Einstellungen({ ctx }: { ctx: Ctx }) {
   const t = ctx.st.tenant!;
   const [tab, setTab] = useState("ablauf");
-  const tabs: [string, string][] = [["ablauf", "Ablauf"], ["integrationen", "Integrationen"], ["team", "Team"], ["kosten", "Kosten"], ...(t.invoice ? [["rechnungen", "Rechnungen"] as [string, string]] : [])];
+  const tabs: [string, string][] = [["ablauf", "Ablauf"], ["integrationen", "Integrationen"], ["sperrliste", "Sperrliste"], ["team", "Team"], ["kosten", "Kosten"], ...(t.invoice ? [["rechnungen", "Rechnungen"] as [string, string]] : [])];
   return <>
     <Top title="Einstellungen" onMenu={ctx.openSidebar} />
     <div className="scroll"><div className="wrap narrow">
       <div className="tabs">{tabs.map(([k, n]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{n}</button>)}</div>
-      {tab === "ablauf" ? <Ablauf ctx={ctx} /> : tab === "integrationen" ? <Integ ctx={ctx} /> : tab === "team" ? <Team ctx={ctx} /> : tab === "kosten" ? <Kosten ctx={ctx} /> : <Billing ctx={ctx} />}
+      {tab === "ablauf" ? <Ablauf ctx={ctx} /> : tab === "integrationen" ? <Integ ctx={ctx} /> : tab === "sperrliste" ? <Blocklist ctx={ctx} /> : tab === "team" ? <Team ctx={ctx} /> : tab === "kosten" ? <Kosten ctx={ctx} /> : <Billing ctx={ctx} />}
     </div></div>
   </>;
 }
@@ -170,6 +170,7 @@ function Integ({ ctx }: { ctx: Ctx }) {
       </div>)}</div>
       {group === "mail" && (on("outlook") || on("imap")) && <Contacts ctx={ctx} />}
       {group === "ki" && <><AiPick ctx={ctx} /><Connector ctx={ctx} /></>}
+      {group === "sonstiges" && on("hubspot") && <CrmSync ctx={ctx} />}
     </>}
     {form && <div className="ov" onClick={e => e.target === e.currentTarget && setForm(null)}><form className="dlg" ref={ref} role="dialog" aria-modal="true" aria-label={`${form.name} verbinden`} onSubmit={connect}>
       <div className="dlg-h">{form.name} verbinden<button type="button" className="btn gh ic" onClick={() => setForm(null)} aria-label="Schließen"><Icon n="x" /></button></div>
@@ -232,6 +233,78 @@ function Contacts({ ctx }: { ctx: Ctx }) {
         {!run && <button className="btn sec" onClick={start}>{s ? "Aktualisieren" : "Importieren"}</button>}</span></div>
     {s?.status === "fehler" && <div className="row2"><span className="f2">{s.error}</span></div>}
   </div>;
+}
+
+type Crm = { hubspot: boolean; property: string; value: string; status: string; error: string; lastRunAt: string | null; imported: number; updated: number; contacts: number };
+
+/* Registered users from HubSpot (the leading system) as CRM contacts: which property marks a registration, and the sync driven while the page is open */
+function CrmSync({ ctx }: { ctx: Ctx }) {
+  const t = ctx.st.tenant!;
+  const [s, setS] = useState<Crm | null>(null), [prop, setProp] = useState(""), [val, setVal] = useState(""), [busy, setBusy] = useState(false);
+  useEffect(() => { api<Crm>(`/api/crm?t=${t.slug}`).then(r => { setS(r); setProp(r.property); setVal(r.value); }).catch(e => ctx.toast((e as Error).message, { error: true })); }, [t.slug]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function run() {
+    setBusy(true);
+    try {
+      let cur = await api<Crm>("/api/crm", { method: "PUT", body: { t: t.slug, property: prop, value: val } });
+      setS(cur);
+      if (cur.property) do { cur = await api<Crm>("/api/crm", { body: { t: t.slug } }); setS(cur); } while (cur.status === "läuft");
+      if (cur.status === "fehler") ctx.toast(cur.error, { error: true });
+      else if (cur.property) ctx.toast(`${n(cur.contacts)} Kontakte im CRM`, { label: "Anzeigen", href: "#leads" });
+      else ctx.toast("Abgleich ausgeschaltet");
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); }
+    setBusy(false);
+  }
+  if (!s) return null;
+  const changed = prop.trim() !== s.property || val.trim() !== s.value;
+  return <div className="list-box">
+    <div className="row2 int"><span className="nm"><Icon n="user-check" />CRM aus HubSpot{s.status === "fehler" && <span className="pill r">Fehler</span>}</span>
+      <span className="row3"><span className="f2 num">{busy && <Icon n="loader" />}{s.property ? `${n(s.contacts)} registriert` : "Aus"}</span>
+        <button className="btn sec" onClick={run} disabled={busy || (!prop.trim() && !s.property)}>{!prop.trim() && s.property ? "Ausschalten" : changed ? "Speichern und abgleichen" : "Jetzt abgleichen"}</button></span></div>
+    <label className="row2"><span>Registriert, wenn diese HubSpot-Eigenschaft gesetzt ist</span><input className="inp" value={prop} placeholder="z. B. signup_datum" onChange={e => setProp(e.target.value)} /></label>
+    <label className="row2"><span>und diesen Wert hat (leer = beliebig)</span><input className="inp" value={val} placeholder="beliebig" onChange={e => setVal(e.target.value)} /></label>
+    <div className="row2"><span className="f3">Jede Stunde gleicht Sales Monster neue und geänderte Kontakte ab. Registrierte bekommen keine Kaltakquise mehr.{s.lastRunAt && ` Zuletzt ${when(s.lastRunAt)}.`}</span></div>
+    {s.status === "fehler" && <div className="row2"><span className="f2">{s.error}</span></div>}
+  </div>;
+}
+
+type Sup = { id: number; kind: string; value: string; reason: string; note: string; createdAt: string };
+const SUP_KIND: Record<string, string> = { email: "Adresse", domain: "Domain", linkedin: "LinkedIn" };
+const SUP_WHY: Record<string, string> = { abgemeldet: "Abgemeldet", unzustellbar: "Unzustellbar", hubspot: "Opt-out in HubSpot", manuell: "Von Hand" };
+
+/* Who is never written to: added here, by unsubscribes, bounces and HubSpot opt-outs; checked before every draft, send, sequence mail, import and SendPilot */
+function Blocklist({ ctx }: { ctx: Ctx }) {
+  const t = ctx.st.tenant!;
+  const [d, setD] = useState<{ total: number; rows: Sup[] } | null>(null), [q, setQ] = useState(""), [text, setText] = useState(""), [busy, setBusy] = useState(false);
+  const load = useCallback(() => api<{ total: number; rows: Sup[] }>(`/api/suppressions?t=${t.slug}&q=${encodeURIComponent(q.trim())}`).then(setD).catch(e => ctx.toast((e as Error).message, { error: true })), [t.slug, q, ctx]);
+  useEffect(() => { const h = setTimeout(load, 200); return () => clearTimeout(h); }, [load]);
+  async function add() {
+    setBusy(true);
+    try {
+      const r = await api<{ added: number; invalid: string[] }>("/api/suppressions", { body: { t: t.slug, entries: text } });
+      ctx.toast([`${n(r.added)} gesperrt`, r.invalid.length && `${r.invalid.length} nicht erkannt: ${r.invalid.slice(0, 3).join(", ")}`].filter(Boolean).join(", "), r.invalid.length ? { error: true } : undefined);
+      if (!r.invalid.length) setText(""); else setText(r.invalid.join("\n"));
+      load();
+    } catch (e) { ctx.toast((e as Error).message, { error: true }); }
+    setBusy(false);
+  }
+  async function remove(id: number) {
+    try { await api(`/api/suppressions?t=${t.slug}&id=${id}`, { method: "DELETE" }); load(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
+  }
+  return <>
+    <div className="list-box">
+      <label className="row2 col"><span>Adressen, Domains oder LinkedIn-Profile, eine pro Zeile</span>
+        <textarea className="inp" rows={3} value={text} placeholder={"max@firma.de\nwettbewerber.de\nlinkedin.com/in/name"} onChange={e => setText(e.target.value)} /></label>
+      <div className="row2"><span className="f3">Gesperrte bekommen keine Entwürfe, keine Mails, keine Strecken-Mails und kommen nicht zu SendPilot. Freemail-Domains wie gmail.com lassen sich nur als einzelne Adresse sperren.</span>
+        <button className="btn" onClick={add} disabled={busy || !text.trim()}>{busy && <Icon n="loader" />}Sperren</button></div>
+    </div>
+    <div className="list-box">
+      <div className="row2"><div className="search"><Icon n="search" /><input className="inp" placeholder="Suchen" value={q} onChange={e => setQ(e.target.value)} aria-label="Sperrliste durchsuchen" /></div>
+        <span className="f3 num">{d ? `${n(d.total)} Einträge` : ""}</span></div>
+      {d?.rows.map(r => <div key={r.id} className="row2"><span><span className="mono">{r.value}</span> <span className="f3">{SUP_KIND[r.kind] || r.kind} · {SUP_WHY[r.reason] || r.reason}{r.note && ` · ${r.note}`} · {when(r.createdAt)}</span></span>
+        <button className="btn gh act" onClick={() => remove(r.id)}>Entfernen</button></div>)}
+      {d && !d.rows.length && <div className="row2"><span className="f3">{q ? "Keine Treffer." : "Noch niemand gesperrt."}</span></div>}
+    </div>
+  </>;
 }
 
 type Grant = { id: number; clientName: string; createdAt: string; lastUsedAt: string | null };
