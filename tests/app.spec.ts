@@ -1,15 +1,15 @@
 import { expect, test } from "@playwright/test";
 
 test("Navigation über die Sidebar", async ({ page }) => {
-  await page.goto("/#freigabe");
-  for (const name of ["Übersicht", "Leads", "Vorlagen", "Einstellungen", "Freigabe"]) {
+  await page.goto("/#statistik");
+  for (const name of ["Übersicht", "Leads", "Vorlagen", "Einstellungen", "Übersicht"]) {
     await page.locator(".sb .nav", { hasText: name }).click();
     await expect(page.locator(".sb .nav.on")).toContainText(name);
   }
 });
 
 test("Befehlspalette mit ⌘K", async ({ page }) => {
-  await page.goto("/#freigabe");
+  await page.goto("/#statistik");
   await expect(page.locator(".sb .ws")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
   const input = page.getByLabel("Befehl suchen");
@@ -26,7 +26,7 @@ test("Befehlspalette mit ⌘K", async ({ page }) => {
 });
 
 test("Hell/Dunkel umschalten bleibt nach Reload", async ({ page }) => {
-  await page.goto("/#freigabe");
+  await page.goto("/#statistik");
   await page.locator(".sb .me").click();
   await page.getByRole("button", { name: "Hell / Dunkel" }).click();
   const theme = await page.evaluate(() => document.documentElement.dataset.theme);
@@ -36,7 +36,7 @@ test("Hell/Dunkel umschalten bleibt nach Reload", async ({ page }) => {
 });
 
 test("QA sieht nur den eigenen Mandanten", async ({ page }) => {
-  await page.goto("/#freigabe");
+  await page.goto("/#statistik");
   await page.locator(".sb .ws").click();
   const list = page.getByRole("dialog", { name: "Unternehmen" });
   await expect(list).toBeVisible();
@@ -60,7 +60,7 @@ test("fremder Mandant per API nicht lesbar", async ({ request }) => {
 });
 
 test("Passwort-Dialog lehnt falsches aktuelles Passwort ab", async ({ page }) => {
-  await page.goto("/#freigabe");
+  await page.goto("/#statistik");
   await page.locator(".sb .me").click();
   await page.getByRole("button", { name: "Passwort ändern" }).click();
   await page.getByLabel("Aktuelles Passwort").fill("definitiv-falsch");

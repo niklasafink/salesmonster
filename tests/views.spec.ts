@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const VIEWS = ["einrichtung", "freigabe", "statistik", "leads", "vorlagen", "einstellungen"];
+const VIEWS = ["einrichtung", "statistik", "leads", "vorlagen", "einstellungen"];
 
 for (const v of VIEWS) {
   test(`Ansicht ${v} lädt ohne Fehler`, async ({ page }) => {

@@ -19,7 +19,7 @@ async function withLead(request: APIRequestContext, run: (tag: string, co: strin
 }
 
 test("Zurück und Vor wechseln zwischen Ansichten", async ({ page }) => {
-  await page.goto("/#freigabe");
+  await page.goto("/#statistik");
   await expect(page.locator(".sb .ws")).toContainText("QA Testfirma");
   await page.locator(".sb .nav", { hasText: "Leads" }).click();
   await page.locator(".sb .nav", { hasText: "Übersicht" }).click();
@@ -27,8 +27,8 @@ test("Zurück und Vor wechseln zwischen Ansichten", async ({ page }) => {
   await page.goBack();
   await expect(page.locator(".sb .nav.on")).toContainText("Leads");
   await page.goBack();
-  await expect(page.locator(".sb .nav.on")).toContainText("Freigabe");
-  await expect(page).toHaveURL(/#freigabe/);
+  await expect(page.locator(".sb .nav.on")).toContainText("Übersicht");
+  await expect(page).toHaveURL(/#statistik/);
   await page.goForward();
   await expect(page.locator(".sb .nav.on")).toContainText("Leads");
 });
@@ -113,7 +113,7 @@ test("Leads: Suche ignoriert Akzente und Umlaute", async ({ page, request }) => 
 
 test("⌘K findet Leads und öffnet sie", async ({ page, request }) => {
   await withLead(request, async tag => {
-    await page.goto("/#freigabe");
+    await page.goto("/#statistik");
     await expect(page.locator(".sb .ws")).toBeVisible();
     await page.keyboard.press("ControlOrMeta+k");
     await page.getByLabel("Befehl suchen").fill(tag.toLowerCase());

@@ -99,8 +99,7 @@ svg.lucide{width:15px; height:15px; stroke-width:1.75; flex-shrink:0}
 .av.lg{width:40px; height:40px; font-size:14px; border-radius:10px}
 .vc{display:inline-grid; place-items:center; min-width:20px; height:20px; padding:0 5px; border-radius:5px; background:var(--hover); font-family:var(--mono); font-size:11.5px; font-weight:500; color:var(--fg-2)}
 
-/* Review (Freigabe) */
-.review{display:grid; grid-template-columns:320px minmax(0,1fr); flex:1; min-height:0}
+/* Review */
 .list{border-right:1px solid var(--line); overflow:auto; display:flex; flex-direction:column}
 .li{display:flex; gap:11px; align-items:center; padding:12px 16px; border:0; background:none; width:100%; text-align:left; border-bottom:1px solid var(--line)}
 .li:hover{background:var(--hover)}
@@ -110,25 +109,6 @@ svg.lucide{width:15px; height:15px; stroke-width:1.75; flex-shrink:0}
 .li .ok{color:var(--g); flex:none; width:15px; height:15px}
 .li.skip .t,.li.skip .s{text-decoration:line-through; color:var(--fg-3)}
 .li .m{min-width:0; flex:1}
-.list-foot{padding:14px; font-size:12px; color:var(--fg-3); display:flex; flex-direction:column; gap:10px}
-.list-foot b{color:var(--fg-2); font-weight:500}
-.list-foot .dn{color:var(--fg-2)}
-.detail{display:flex; flex-direction:column; min-width:0; min-height:0}
-.d-head{display:flex; align-items:center; gap:12px; padding:16px 24px; border-bottom:1px solid var(--line)}
-.d-head .n{font-size:16px; font-weight:600; letter-spacing:-.01em}
-.d-head .p{color:var(--fg-3); font-size:12.5px; margin-top:1px}
-.d-head .nav2{margin-left:auto; display:flex; align-items:center; gap:2px; color:var(--fg-3); font-size:12px}
-.d-body{display:grid; grid-template-columns:minmax(0,1fr) 260px; flex:1; min-height:0; overflow:auto}
-.compose{padding:20px 28px 28px; display:flex; flex-direction:column; gap:14px; min-width:0}
-.abbar{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
-.abopt{display:flex; flex-direction:column; align-items:flex-start; gap:2px; border:1px solid var(--line-2); background:var(--panel); border-radius:9px; padding:7px 11px; min-width:110px; text-align:left}
-.abopt:hover{background:var(--hover)}
-.abopt.on{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
-.abopt .l{display:flex; gap:6px; align-items:center; font-weight:500}
-.abopt .r{font-size:12px; color:var(--fg-3); font-variant-numeric:tabular-nums; margin-left:6px}
-.abopt .r b{color:var(--fg); font-weight:600}
-.abopt .bar{height:3px; width:100%; border-radius:2px; background:var(--line); margin-top:4px; overflow:hidden}
-.abopt .bar i{display:block; height:100%; background:var(--accent)}
 .doc{border:1px solid var(--line-2); border-radius:12px; overflow:hidden; background:var(--panel); min-width:0}
 .doc-meta{display:grid; grid-template-columns:52px minmax(0,1fr); gap:6px 8px; padding:12px 16px; border-bottom:1px solid var(--line); font-size:12.5px}
 .doc-meta span:nth-child(odd){color:var(--fg-3)}
@@ -388,7 +368,7 @@ button.prow:hover{background:var(--hover)}
 .mob{display:none}
 
 /* Responsive */
-@media (max-width: 1100px){ .d-body{grid-template-columns:minmax(0,1fr)} .props{border-left:0; border-top:1px solid var(--line)} .split,.tpl{grid-template-columns:minmax(0,1fr)} }
+@media (max-width: 1100px){ .props{border-left:0; border-top:1px solid var(--line)} .split,.tpl{grid-template-columns:minmax(0,1fr)} }
 @media (max-width: 860px){
   #app{grid-template-columns:minmax(0,1fr)}
   .sb{position:fixed; inset:0 auto 0 0; width:264px; z-index:80; background:var(--bg); transform:translateX(-102%); transition:transform .2s ease; padding-top:calc(10px + env(safe-area-inset-top,0px))}
@@ -396,17 +376,14 @@ button.prow:hover{background:var(--hover)}
   #app.sbo::after{content:""; position:fixed; inset:0; background:var(--overlay); z-index:79}
   .main{margin:0; border-radius:0}
   .mob{display:inline-flex}
-  .review{grid-template-columns:minmax(0,1fr)}
-  .review.det .list{display:none} .review:not(.det) .detail{display:none}
   .list{border-right:0}
   .wrap{padding:20px 16px 40px}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr))} .kpi:nth-child(2){border-right:0} .kpi:nth-child(-n+2){border-bottom:1px solid var(--line)} .kpis.three .kpi{border-bottom:0; padding:12px} .kpis.three .kpi:nth-child(2){border-right:1px solid var(--line)} .kpis.three .kpi .v{font-size:18px} .cost-per{min-width:0; font-size:12.5px} .cost-bar .seg button{padding:0 8px}
   .set{grid-template-columns:minmax(0,1fr); gap:10px}
   .tiles{grid-template-columns:minmax(0,1fr)}
-  .compose{padding:16px} .d-head{padding:12px 16px} .actions{padding-left:16px; padding-right:16px}
+  .actions{padding-left:16px; padding-right:16px}
   .hide-m{display:none}
   .search,.search .inp{width:100%}
-  .abopt{min-width:0; flex:1}
 }
 
 /* Invoice module (from rechnung.html), scoped under .inv */
