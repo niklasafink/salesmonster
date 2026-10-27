@@ -2,15 +2,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Calendar, Check, CheckCheck, CircleAlert, ChevronDown, ChevronUp, ChevronsUpDown, Copy, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe, GripVertical,
-  Inbox, KeyRound, Landmark, LayoutDashboard, ListTodo, LoaderCircle, LogOut, Mail, Menu, Phone, Plus, Presentation, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, StickyNote, SunMoon,
+  ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Calendar, Check, CheckCheck, CircleAlert, ChevronDown, ChevronUp, ChevronsUpDown, Columns3, Copy, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe, GripVertical,
+  Inbox, KeyRound, Landmark, LayoutDashboard, ListFilter, ListTodo, LoaderCircle, LogOut, Mail, Menu, Phone, Plus, Presentation, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, StickyNote, SunMoon,
   Target, ThumbsDown, ThumbsUp, Trash2, TriangleAlert, Undo2, Upload, User, UserCheck, UserPlus, Users, Workflow, X, type LucideIcon,
 } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
   "arrow-down": ArrowDown, "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-up": ArrowUp, bell: Bell, "building-2": Building2, calendar: Calendar, check: Check, "check-check": CheckCheck, "circle-alert": CircleAlert, "chevron-down": ChevronDown,
-  "chevron-up": ChevronUp, "chevrons-up-down": ChevronsUpDown, copy: Copy, database: Database, dot: Dot, download: Download, "external-link": ExternalLink, "file-check-2": FileCheck2, "file-text": FileText,
-  globe: Globe, "grip-vertical": GripVertical, inbox: Inbox, "key-round": KeyRound, landmark: Landmark, "layout-dashboard": LayoutDashboard, "list-todo": ListTodo, loader: LoaderCircle, "log-out": LogOut, mail: Mail,
+  "chevron-up": ChevronUp, "chevrons-up-down": ChevronsUpDown, "columns-3": Columns3, copy: Copy, database: Database, dot: Dot, download: Download, "external-link": ExternalLink, "file-check-2": FileCheck2, "file-text": FileText,
+  globe: Globe, "grip-vertical": GripVertical, inbox: Inbox, "key-round": KeyRound, landmark: Landmark, "layout-dashboard": LayoutDashboard, "list-filter": ListFilter, "list-todo": ListTodo, loader: LoaderCircle, "log-out": LogOut, mail: Mail,
   menu: Menu, phone: Phone, plus: Plus, presentation: Presentation, "receipt-text": ReceiptText, search: Search, send: Send, server: Server, "settings-2": Settings2, sparkles: Sparkles, square: Square, "sticky-note": StickyNote, "sun-moon": SunMoon,
   target: Target, "thumbs-down": ThumbsDown, "thumbs-up": ThumbsUp, "trash-2": Trash2, "triangle-alert": TriangleAlert, "undo-2": Undo2, upload: Upload, user: User, "user-check": UserCheck, "user-plus": UserPlus, users: Users, workflow: Workflow, x: X,
 };
@@ -83,8 +83,9 @@ export function Top({ title, onMenu, children }: { title: string; onMenu: () => 
   return <div className="top"><button className="btn gh ic mob" onClick={e => { e.stopPropagation(); onMenu(); }} aria-label="Menü"><Icon n="menu" /></button><h1>{title}</h1><span className="sp" />{children}</div>;
 }
 
-/* a choice as a button: the whole button opens it, the list always drops below; options are [value, label] */
-export function Select({ value, onChange, options, label, className, disabled }: { value: string; onChange: (v: string) => void; options: [string, React.ReactNode][]; label: string; className?: string; disabled?: boolean }) {
+/* a choice as a button: the whole button opens it, the list always drops below; options are [value, label].
+   children replace what the button shows (the current choice and a chevron), e.g. a filter icon in a table header */
+export function Select({ value, onChange, options, label, className, disabled, children }: { value: string; onChange: (v: string) => void; options: [string, React.ReactNode][]; label: string; className?: string; disabled?: boolean; children?: React.ReactNode }) {
   const [at, setAt] = useState<{ top: number; left: number; width: number; max: number; room: number } | null>(null);
   const btn = useRef<HTMLButtonElement>(null), list = useRef<HTMLDivElement>(null);
   const shut = (focus = true) => { setAt(null); if (focus) btn.current?.focus(); };
@@ -110,7 +111,7 @@ export function Select({ value, onChange, options, label, className, disabled }:
   return <>
     <button ref={btn} type="button" className={className} disabled={disabled} aria-label={label} aria-haspopup="listbox" aria-expanded={isOpen}
       onClick={() => isOpen ? shut() : open()} onKeyDown={e => { if (!isOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); open(); } }}>
-      <span className="sv">{cur}</span><Icon n="chevron-down" /></button>
+      {children ?? <><span className="sv">{cur}</span><Icon n="chevron-down" /></>}</button>
     {at && createPortal(<div ref={list} className="pop sel-pop" role="listbox" aria-label={label} onKeyDown={keys}
       style={{ top: at.top, left: at.left, minWidth: at.width, maxHeight: at.max, maxWidth: at.room }}>
       {options.map(([v, l]) => <button key={v} type="button" role="option" aria-selected={v === value} onClick={() => { onChange(v); shut(); }}>{l}{v === value && <Icon n="check" className="end" />}</button>)}

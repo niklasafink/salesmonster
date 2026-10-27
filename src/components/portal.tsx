@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, api, useDialog } from "./ui";
 import type { Ctx, State, ToastOpt } from "./types";
-import { Freigabe, approveAllDrafts } from "./views/freigabe";
 import { Uebersicht } from "./views/uebersicht";
 import { Leads, matches } from "./views/leads";
 import { Vorlagen } from "./views/vorlagen";
@@ -14,7 +13,7 @@ import { Strecken } from "./views/strecken";
 
 const VIEWS: Record<string, [string, string]> = {
   einrichtung: ["Einrichtung", "sparkles"],
-  freigabe: ["Freigabe", "inbox"], statistik: ["Übersicht", "layout-dashboard"], leads: ["Leads", "users"],
+  statistik: ["Übersicht", "layout-dashboard"], leads: ["Leads", "users"],
   vorlagen: ["Vorlagen", "file-text"], strecken: ["Inbound", "send"], workflows: ["Workflows", "workflow"], rechnungen: ["Rechnungen", "receipt-text"], einstellungen: ["Einstellungen", "settings-2"],
 };
 
@@ -30,13 +29,13 @@ type Toast = { m: string; action?: { label: string; href: string }; error?: bool
 export default function Portal() {
   const [st, setSt] = useState<State | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
-  const [view, setViewS] = useState("freigabe");
+  const [view, setViewS] = useState("statistik");
   const [pop, setPop] = useState<null | "me">(null);
   const [sbo, setSbo] = useState(false);
   const [pal, setPal] = useState(false), [palQ, setPalQ] = useState(""), [palI, setPalI] = useState(0);
   const [toastS, setToast] = useState<Toast>(null);
   const [dlg, setDlg] = useState<null | "ws" | "tenant" | "pw">(null);
-  const [focusLead, setFocusLead] = useState<number | null>(null), [leadFocus, setLeadFocus] = useState<number | null>(null);
+  const [leadFocus, setLeadFocus] = useState<number | null>(null);
   const [palLeads, setPalLeads] = useState<{ id: number; company: string; first: string; last: string; email: string }[]>([]);
   const tt = useRef<ReturnType<typeof setTimeout>>(undefined);
   const wsRef = useDialog(() => setDlg(null));
@@ -66,7 +65,7 @@ export default function Portal() {
     (inv ? api("/api/invites", { body: { accept: inv } }).then(() => toast("Einladung angenommen"), e => toast((e as Error).message, { error: true })) : Promise.resolve())
       .then(() => load(s)).catch(e => toast(e.message, { error: true }));
     /* Back/Forward between views; Back to the bare URL is the default view */
-    const onHash = () => { const v = location.hash.slice(1); if (VIEWS[v]) setViewS(v); else if (!v) setViewS("freigabe"); };
+    const onHash = () => { const v = location.hash.slice(1); if (VIEWS[v]) setViewS(v); else if (!v) setViewS("statistik"); };
     /* restored from bfcache (e.g. Back after logout): reload so the session is checked again */
     const onShow = (e: PageTransitionEvent) => { if (e.persisted) location.reload(); };
     addEventListener("hashchange", onHash); addEventListener("popstate", onHash); addEventListener("pageshow", onShow);
@@ -79,7 +78,7 @@ export default function Portal() {
 
   const hasInvoice = !!st?.tenant?.invoice;
   const navKeys = Object.keys(VIEWS).filter(v => (v !== "rechnungen" || hasInvoice));
-  const curView = view === "rechnungen" && st && !hasInvoice ? "freigabe" : view;
+  const curView = view === "rechnungen" && st && !hasInvoice ? "statistik" : view;
 
   const ctx: Ctx | null = st ? { st, reload, toast, setView, openSidebar: () => setSbo(true) } : null;
 
@@ -89,18 +88,16 @@ export default function Portal() {
     const c: { g: string; ic: string; n: string; run: () => void }[] = [
       ...navKeys.map(v => ({ g: "Gehe zu", ic: VIEWS[v][1], n: VIEWS[v][0], run: () => setView(v) })),
       ...st.tenants.filter(t => t.slug !== st.tenant?.slug).map(t => ({ g: "Mandant", ic: "building-2", n: `Wechseln zu ${t.name}`, run: () => switchTenant(t.slug) })),
-      { g: "Aktion", ic: "check-check", n: "Alle freigeben", run: async () => { setView("freigabe"); try { const n = await approveAllDrafts(st); await reload(); toast(n ? `${n} Nachrichten freigegeben` : "Alles ist schon freigegeben"); } catch (e) { toast((e as Error).message, { error: true }); } } },
       { g: "Aktion", ic: "target", n: "Zielgruppe bearbeiten", run: () => setView("einstellungen") },
       { g: "Aktion", ic: "sparkles", n: "Mit KI einrichten", run: () => setView("einrichtung") },
       { g: "Aktion", ic: "sun-moon", n: "Hell / Dunkel umschalten", run: () => toggleTheme() },
-      ...st.drafts.map(d => ({ g: "Leads heute", ic: "user", n: d.lead.company, run: () => { setView("freigabe"); setFocusLead(d.id); } })),
     ];
     const hit = c.filter(x => matches(x.n, palQ));
     /* leads are searched by company, person and email, but only once something is typed */
     const leads = palQ.trim() ? palLeads.filter(l => matches(`${l.company} ${l.first} ${l.last} ${l.email}`, palQ)).slice(0, 20)
       .map(l => ({ g: "Leads", ic: "user", n: [l.company, [l.first, l.last].filter(Boolean).join(" ")].filter(Boolean).join(" · "), run: () => { setView("leads"); setLeadFocus(l.id); } })) : [];
     return [...hit, ...leads];
-  }, [st, palQ, palLeads, navKeys, setView, switchTenant, reload, toast]);
+  }, [st, palQ, palLeads, navKeys, setView, switchTenant]);
 
   /* lead list for the palette, fetched when it opens */
   const tslug = st?.tenant?.slug;
@@ -131,10 +128,9 @@ export default function Portal() {
   if (!st || !ctx) return <div id="app"><aside className="sb" /><main className="main" /></div>;
 
   const t = st.tenant;
-  const open = st.drafts.filter(d => d.status === "entwurf").length;
   const nav = (v: string) => (
     <button key={v} className={`nav ${curView === v ? "on" : ""}`} aria-current={curView === v ? "page" : undefined} onClick={() => setView(v)}>
-      <Icon n={VIEWS[v][1]} />{VIEWS[v][0]}{v === "freigabe" && open ? <span className="cnt">{open}</span> : null}
+      <Icon n={VIEWS[v][1]} />{VIEWS[v][0]}
     </button>);
 
   let g = "";
@@ -158,7 +154,6 @@ export default function Portal() {
         </aside>
         <main className="main" onClick={() => pop && setPop(null)}>
           {!t ? <div className="empty"><div><div className="h2">Noch kein Mandant</div><button className="btn pri" onClick={() => setDlg("tenant")}><Icon n="plus" />Mandant hinzufügen</button></div></div>
-            : curView === "freigabe" ? <Freigabe key={t.slug} ctx={ctx} focus={focusLead} onFocused={() => setFocusLead(null)} />
             : curView === "statistik" ? <Uebersicht key={t.slug} ctx={ctx} />
             : curView === "leads" ? <Leads key={t.slug} ctx={ctx} focus={leadFocus} onFocused={clearLeadFocus} />
             : curView === "vorlagen" ? <Vorlagen key={t.slug} ctx={ctx} />

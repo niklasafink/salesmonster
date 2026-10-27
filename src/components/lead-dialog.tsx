@@ -168,8 +168,6 @@ type Rated = { rating: number | null; vote: number; touch?: Touch | null; rating
 
 /* individual contact as Jev read it from the HubSpot activities */
 export const TOUCHES = [["demo", "Demo", "presentation"], ["call", "Telefonat", "phone"], ["mail", "E-Mail", "mail"]] as const;
-const touchText = (t: Touch) => [TOUCHES.filter(([k]) => t[k]).map(([, l]) => l).join(", ") || "Noch kein persönlicher Kontakt",
-  t.box && (t.box.sent || t.box.direct) ? `Postfach: ${t.box.sent} gesendet, ${t.box.direct} direkt erhalten` : ""].filter(Boolean).join(" · ");
 
 export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rating, miss, onVote, onClose, onSaved, onDeleted, onTrash, onAdd, onOpen, onEnriched }: {
   lead: EditLead; slug: string; tenders: boolean; co?: Co; contacts?: Mate[]; rating?: Rated; miss?: Partial<Record<EnrichField, string>>; onVote?: (v: number) => void; onClose: () => void; onSaved: (l: EditLead) => void; onDeleted?: (id: number) => void; onTrash?: () => void; onAdd?: (company: string) => void; onOpen?: (id: number) => void;
@@ -268,10 +266,7 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
               <button className={`btn gh ic${rating.vote < 0 ? " on" : ""}`} aria-pressed={rating.vote < 0} onClick={() => onVote(-1)} aria-label="Schlechter Lead" title="Schlechter Lead"><Icon n="thumbs-down" /></button>
             </span>}
           </div>
-          {(rating.ratingInfo.type || rating.ratingInfo.why) && <p className="why f2">{[rating.ratingInfo.type && `Note ${rating.ratingInfo.grade}, ${rating.ratingInfo.type}`, rating.ratingInfo.why].filter(Boolean).join(": ")}</p>}
-          <ul className="rsn">{rating.ratingInfo.reasons.slice(0, 6).map((r, i) => <li key={i}><span className={`num ${r.pts > 0 ? "up" : "down"}`}>{r.pts > 0 ? "+" : "−"}{Math.abs(r.pts)}</span>{r.text}</li>)}</ul>
-          {rating.touch && <p className="f2 tch" title={rating.touch.last ? `Letzte Aktivität ${new Date(rating.touch.last).toLocaleDateString("de-DE")}` : undefined}>
-            {TOUCHES.filter(([k]) => rating.touch![k]).map(([k, , ic]) => <Icon key={k} n={ic} />)}{touchText(rating.touch)}</p>}
+          {!!rating.ratingInfo.reasons.length && <ul className="rsn">{rating.ratingInfo.reasons.slice(0, 6).map((r, i) => <li key={i}><span className={`num ${r.pts > 0 ? "up" : "down"}`}>{r.pts > 0 ? "+" : "−"}{Math.abs(r.pts)}</span>{r.text}</li>)}</ul>}
         </div>}
         <Group t="Unternehmen" link={hs?.coUrl || undefined} copy={lines([["Firma", f.company], ["Website", f.website], ["Ort", f.city], ...(hs?.company || [])])}>
           <Prop l="Firma" copy={f.company}><input className="pv" value={f.company} placeholder="–" onChange={set("company")} /></Prop>

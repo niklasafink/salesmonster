@@ -1,5 +1,7 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { functionalUpdate, getCoreRowModel, useReactTable, type VisibilityState } from "@tanstack/react-table";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -46,23 +48,68 @@ type TouchKey = "demo" | "call" | "mail" | "none";
 const TOUCH_OPTS: [TouchKey, string, string][] = [...TOUCHES.map(([k, l, ic]) => [k, l, ic] as [TouchKey, string, string]), ["none", "Kein Kontakt", "x"]];
 const touched = (t: Touch | null, k: TouchKey) => k === "none" ? !t || !(t.demo || t.call || t.mail) : !!t?.[k];
 
-/* the contact filter: a button that opens a list to tick */
+/* the contact filter in the header of its column: an icon that opens a list to tick; the list sits on the page, as the header cuts off what overflows */
 function TouchFilter({ value, onChange }: { value: TouchKey[]; onChange: (v: TouchKey[]) => void }) {
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null), btn = useRef<HTMLButtonElement>(null), pop = useRef<HTMLDivElement>(null);
+  const isOpen = !!at;
+  const place = () => { const r = btn.current!.getBoundingClientRect(); return { top: r.bottom + 4, left: Math.max(8, Math.min(r.left, innerWidth - 218)) }; };
+  useEffect(() => {
+    if (!isOpen) return;
+    const off = (e: MouseEvent) => { if (!pop.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) setAt(null); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { setAt(null); btn.current?.focus(); } };
+    /* the list follows its button when the table scrolls, e.g. sideways to bring the button into view */
+    const away = (e: Event) => { if (!pop.current?.contains(e.target as Node)) setAt(place()); };
+    document.addEventListener("mousedown", off); document.addEventListener("keydown", esc); addEventListener("scroll", away, true); addEventListener("resize", away);
+    return () => { document.removeEventListener("mousedown", off); document.removeEventListener("keydown", esc); removeEventListener("scroll", away, true); removeEventListener("resize", away); };
+  }, [isOpen]);
+  const label = value.length ? TOUCH_OPTS.filter(([k]) => value.includes(k)).map(([, l]) => l).join(", ") : "Jeder Kontakt";
+  return <>
+    <button ref={btn} type="button" className={`thf${value.length ? " on" : ""}`} onClick={() => setAt(isOpen ? null : place())} aria-expanded={isOpen} aria-label={`Kontakt filtern: ${label}`} title={label}><Icon n="list-filter" /></button>
+    {at && createPortal(<div ref={pop} className="pop tf-pop" role="dialog" aria-label="Kontakt" style={{ top: at.top, left: at.left }}>
+      {TOUCH_OPTS.map(([k, l, ic]) => <label key={k} className="ck"><input type="checkbox" checked={value.includes(k)}
+        onChange={() => onChange(value.includes(k) ? value.filter(x => x !== k) : [...value, k])} /><Icon n={ic} />{l}</label>)}
+      <button className="btn sec wide" onClick={() => { onChange([]); setAt(null); }} disabled={!value.length}>Alle zeigen</button>
+    </div>, document.body)}
+  </>;
+}
+
+/* A column of the people list. Fixed ones (selection, drag handle, actions) keep their place; the others can be hidden and moved under "Spalten".
+   head replaces the label in the header, filter sits next to it, size lets the header edge be dragged. */
+type Col = { id: string; label: string; head?: ReactNode; aria?: string; fixed?: boolean; size?: boolean; filter?: ReactNode; td: (r: Lead, handle: ReactNode) => ReactNode };
+/* columns that only show when switched on */
+const COLS_OFF: VisibilityState = { "c-type": false, "c-city": false, "c-new": false };
+/* saved choice per browser; the version goes up when the default changes, so the new default reaches everyone */
+const COLS_KEY = "leads-cols-2";
+
+function ColItem({ id, children }: { id: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return <div ref={setNodeRef} className={`colp-i${isDragging ? " drag" : ""}`} style={{ transform: CSS.Translate.toString(transform), transition }}>
+    <button type="button" className="btn gh ic grip" ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label="Verschieben"><Icon n="grip-vertical" /></button>{children}</div>;
+}
+
+/* "Spalten": tick the columns to show, drag them into order; the choice stays per browser */
+function ColPicker({ cols, onToggle, onMove, onReset }: { cols: { id: string; label: string; on: boolean }[]; onToggle: (id: string) => void; onMove: (ids: string[]) => void; onReset: () => void }) {
   const [open, setOpen] = useState(false), ref = useRef<HTMLSpanElement>(null);
+  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   useEffect(() => {
     if (!open) return;
     const off = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape" && !(e.target as HTMLElement).closest?.(".grip")) setOpen(false); };
     document.addEventListener("mousedown", off); document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", off); document.removeEventListener("keydown", esc); };
   }, [open]);
-  const label = value.length ? TOUCH_OPTS.filter(([k]) => value.includes(k)).map(([, l]) => l).join(", ") : "Jeder Kontakt";
+  const ids = cols.map(c => c.id);
+  const moved = (e: DragEndEvent) => { const from = ids.indexOf(String(e.active.id)), to = e.over ? ids.indexOf(String(e.over.id)) : -1; if (from >= 0 && to >= 0 && from !== to) onMove(arrayMove(ids, from, to)); };
+  const off = cols.filter(c => !c.on).length;
   return <span className="tf-at" ref={ref}>
-    <button className={`btn sec${value.length ? " on" : ""}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-label={`Kontakt: ${label}`}>{label}<Icon n="chevron-down" /></button>
-    {open && <div className="pop tf-pop" role="dialog" aria-label="Kontakt">
-      {TOUCH_OPTS.map(([k, l, ic]) => <label key={k} className="ck"><input type="checkbox" checked={value.includes(k)}
-        onChange={() => onChange(value.includes(k) ? value.filter(x => x !== k) : [...value, k])} /><Icon n={ic} />{l}</label>)}
-      <button className="btn sec wide" onClick={() => { onChange([]); setOpen(false); }} disabled={!value.length}>Alle zeigen</button>
+    <button className="btn sec" onClick={() => setOpen(!open)} aria-expanded={open}><Icon n="columns-3" /><span className="hide-m">Spalten</span>{off > 0 && <span className="num f3">{cols.length - off}/{cols.length}</span>}</button>
+    {open && <div className="pop colp" role="dialog" aria-label="Spalten">
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved}>
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          {cols.map(c => <ColItem key={c.id} id={c.id}><label className="ck"><input type="checkbox" checked={c.on} onChange={() => onToggle(c.id)} />{c.label}</label></ColItem>)}
+        </SortableContext>
+      </DndContext>
+      <button className="btn sec wide" onClick={onReset}>Standard</button>
     </div>}
   </span>;
 }
@@ -148,6 +195,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const setGrade = (v: string) => { setGradeS(v); keep.set("leads-grade", v); };
   const setCtype = (v: string) => { setCtypeS(v); keep.set("leads-ctype", v); };
   const setTf = (v: TouchKey[]) => { setTfS(v); keep.set("leads-touch", JSON.stringify(v)); };
+  /* which columns show and in what order; columns added later show unless they start switched off */
+  const [colVis, setColVisS] = useState<VisibilityState>(COLS_OFF), [colOrder, setColOrderS] = useState<string[]>([]);
+  useEffect(() => { try { const v = JSON.parse(keep.get(COLS_KEY) || "null"); if (v?.vis) setColVisS({ ...COLS_OFF, ...v.vis }); if (Array.isArray(v?.order)) setColOrderS(v.order); } catch { /* defaults */ } }, []);
+  const setCols = (vis: VisibilityState, order: string[]) => { setColVisS(vis); setColOrderS(order); keep.set(COLS_KEY, JSON.stringify({ vis, order })); };
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
   const liRef = useDialog(() => setLi(null));
   const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean; picked: boolean }>(null), [sel, setSel] = useState<Set<number>>(new Set());
@@ -167,7 +218,6 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     el.addEventListener("pointermove", move); el.addEventListener("pointerup", up, { once: true });
   }
   const unsize = (k: string) => setWidths(cur => { const n = { ...cur }; delete n[k]; keep.set("leads-widths", JSON.stringify(n)); return n; });
-  const th = (k: string, label: ReactNode) => <th className={k}>{label}<span className="rsz" aria-hidden onPointerDown={e => resize(k, e)} onDoubleClick={() => unsize(k)} /></th>;
   const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
   const impRef = useDialog(() => setImp(null));
   /* only the newest read is shown: an older answer that arrives late never overwrites a newer one */
@@ -400,7 +450,6 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const openFirm = (f: Firm) => { if (f.id != null) { setCoF(f.id); setLevel("person"); } else if (f.people[0]) setEdit(f.people[0]); };
   const kindTitle = (r: Lead) => [r.prospect && `Lead, Quelle ${r.source}`, r.crmAt && `Registriert am ${new Date(r.crmAt).toLocaleDateString("de-DE")}${r.stage ? `, HubSpot: ${r.stage}` : ""}`].filter(Boolean).join("\n");
   const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
-  const hookCell = (r: Lead) => t.tenders ? (r.tenders.length ? `${r.tenders.length} Ausschreibung${r.tenders.length > 1 ? "en" : ""}` : <span className="f3">fehlt</span>) : r.hook || <span className="f3">fehlt</span>;
   /* the page the lead was found on, shown as its domain; leads from the mailbox say E-Mail */
   const srcCell = (r: Lead) => {
     if (r.source === "Postfach") return "E-Mail";
@@ -412,33 +461,53 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     const ch = chOf(r), title = r.sendpilotAt ? `In SendPilot seit ${new Date(r.sendpilotAt).toLocaleDateString("de-DE")}` : ch === "none" ? r.channelRec.text : `${ch === "mail" ? "E-Mail" : "LinkedIn"}: ${r.channel ? "von Hand gesetzt" : r.channelRec.text}`;
     return <td className={`c-ch${r.sendpilotAt ? " on" : ""}`} title={title}>{ch === "none" ? <span className="f3">–</span> : <Icon n={ch === "mail" ? "mail" : "linkedin"} />}</td>;
   };
-  const cells = (r: Lead, handle: ReactNode) => <>
-    <td className="c-sel" onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.company} auswählen`} /></td>
-    <td className="c-q">{handle}</td>
-    <td className="c-day f2">{dayCell(days[r.id])}</td>
-    <td className="c-rt">{r.rating !== null && r.ratingInfo ? <RatingBar value={r.rating} title={[`${r.rating} von 100, Note ${r.ratingInfo.grade}${r.ratingInfo.type ? `, ${r.ratingInfo.type}` : ""}`, r.ratingInfo.why, ...r.ratingInfo.reasons.slice(0, 3).map(reasonText)].filter(Boolean).join("\n")} /> : <span className="f3">–</span>}</td>
-    <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td>
-    {chCell(r)}
-    <td className="dotc"><Dot s={r.status} /></td>
-    <td className="co" title={r.company}>{r.company || <span className="f3">–</span>}{r.companyId != null && (perCo.get(r.companyId) || 0) > 1 &&
-      <button className="cnum" title={`${perCo.get(r.companyId)} Personen bei ${r.company || "dieser Firma"}`} onClick={e => { e.stopPropagation(); setCoF(r.companyId); }}>{perCo.get(r.companyId)}</button>}</td>
-    <td className="pn" title={person(r) || undefined}>{person(r) || <span className="f3">–</span>}</td>
-    <td className="c-role f2" title={r.role || undefined}>{r.role || <span className="f3">–</span>}</td>
-    <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td>
-    <td className="c-hook f2" title={t.tenders ? undefined : r.hook || undefined}>{hookCell(r)}</td>
-    <td className="c-src f2">{srcCell(r)}</td>
-    <td className="c-kind" title={kindTitle(r)}><KindTag k={kindOf(r)} /></td>
-    <td className="c-touch" title={r.touch ? `${TOUCHES.filter(([k]) => r.touch![k]).map(([, l]) => l).join(", ") || "Kein persönlicher Kontakt"}` : undefined}>
-      {r.touch && (r.touch.demo || r.touch.call || r.touch.mail) ? TOUCHES.filter(([k]) => r.touch![k]).map(([k, , ic]) => <Icon key={k} n={ic} />) : <span className="f3">–</span>}</td>
-    <td className="act">{r.status !== "papierkorb" && r.rating !== null && <>
+  const day = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" }) : "";
+  const none = <span className="f3">–</span>;
+  const cols: Col[] = [
+    { id: "c-sel", label: "Auswahl", fixed: true, head: <input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" />,
+      td: r => <td className="c-sel" onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.company} auswählen`} /></td> },
+    { id: "c-q", label: "Verschieben", fixed: true, head: null, aria: "Verschieben", td: (_, handle) => <td className="c-q">{handle}</td> },
+    { id: "c-day", label: "Versand", td: r => <td className="c-day f2">{dayCell(days[r.id])}</td> },
+    { id: "c-rt", label: "Bewertung", filter: <Select className={`thf${grade !== "alle" ? " on" : ""}`} value={grade} onChange={setGrade} label="Note filtern" options={GRADES}><Icon n="list-filter" /></Select>,
+      td: r => <td className="c-rt">{r.rating !== null && r.ratingInfo ? <RatingBar value={r.rating} title={[`${r.rating} von 100, Note ${r.ratingInfo.grade}${r.ratingInfo.type ? `, ${r.ratingInfo.type}` : ""}`, r.ratingInfo.why, ...r.ratingInfo.reasons.slice(0, 3).map(reasonText)].filter(Boolean).join("\n")} /> : none}</td> },
+    { id: "warm", label: "Warm / Kalt", head: null, td: r => <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td> },
+    { id: "c-ch", label: "Kanal", head: null, aria: "Kanal", td: chCell },
+    { id: "dotc", label: "Status", head: null, aria: "Status", td: r => <td className="dotc"><Dot s={r.status} /></td> },
+    { id: "co", label: "Firma", size: true, td: r => <td className="co" title={r.company}>{r.company || none}{r.companyId != null && (perCo.get(r.companyId) || 0) > 1 &&
+      <button className="cnum" title={`${perCo.get(r.companyId)} Personen bei ${r.company || "dieser Firma"}`} onClick={e => { e.stopPropagation(); setCoF(r.companyId); }}>{perCo.get(r.companyId)}</button>}</td> },
+    { id: "pn", label: "Ansprechpartner", size: true, td: r => <td className="pn" title={person(r) || undefined}>{person(r) || none}</td> },
+    { id: "c-em", label: "E-Mail", size: true, td: r => <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td> },
+    { id: "c-tel", label: "Telefon", size: true, td: r => <td className="c-tel f2 num" title={r.phone || undefined}>{r.phone || none}</td> },
+    { id: "c-city", label: "Ort", size: true, td: r => <td className="c-city f2" title={r.city || undefined}>{r.city || none}</td> },
+    /* tenants with tenders see them in the dialog only */
+    ...(t.tenders ? [] : [{ id: "c-hook", label: "Anlass", size: true, td: (r: Lead) => <td className="c-hook f2" title={r.hook || undefined}>{r.hook || <span className="f3">fehlt</span>}</td> }]),
+    { id: "c-type", label: "Firmentyp", size: true, filter: ctypes.length > 0 && <Select className={`thf${ct !== "alle" ? " on" : ""}`} value={ct} onChange={setCtype} label="Firmentyp filtern"
+      options={[["alle", "Alle Firmentypen"], ...ctypes.map(c => [c, c] as [string, string])]}><Icon n="list-filter" /></Select>,
+      td: r => <td className="c-type f2" title={r.ratingInfo?.type || undefined}>{r.ratingInfo?.type || none}</td> },
+    { id: "c-src", label: "Quelle", size: true, filter: <Select className={`thf${src !== "alle" ? " on" : ""}`} value={src} onChange={setSrc} label="Quelle filtern"
+      options={[["alle", "Alle Quellen"], ...srcs.map(s => [s, s] as [string, string])]}><Icon n="list-filter" /></Select>, td: r => <td className="c-src f2">{srcCell(r)}</td> },
+    { id: "c-kind", label: "Art", size: true, td: r => <td className="c-kind" title={kindTitle(r)}><KindTag k={kindOf(r)} /></td> },
+    { id: "c-touch", label: "Kontakt", filter: <TouchFilter value={tf} onChange={setTf} />,
+      td: r => <td className="c-touch" title={r.touch ? `${TOUCHES.filter(([k]) => r.touch![k]).map(([, l]) => l).join(", ") || "Kein persönlicher Kontakt"}` : undefined}>
+        {r.touch && (r.touch.demo || r.touch.call || r.touch.mail) ? TOUCHES.filter(([k]) => r.touch![k]).map(([k, , ic]) => <Icon key={k} n={ic} />) : none}</td> },
+    { id: "c-new", label: "Angelegt", td: r => <td className="c-new f2">{day(r.createdAt)}</td> },
+    { id: "act", label: "Aktionen", fixed: true, head: null, td: r => <td className="act">{r.status !== "papierkorb" && r.rating !== null && <>
       <button className={`btn gh ic${r.vote > 0 ? " on" : ""}`} title="Guter Lead" aria-label="Guter Lead" aria-pressed={r.vote > 0} onClick={e => { e.stopPropagation(); vote(r, 1); }}><Icon n="thumbs-up" /></button>
       <button className={`btn gh ic${r.vote < 0 ? " on" : ""}`} title="Schlechter Lead" aria-label="Schlechter Lead" aria-pressed={r.vote < 0} onClick={e => { e.stopPropagation(); vote(r, -1); }}><Icon n="thumbs-down" /></button>
     </>}{r.status === "papierkorb"
       ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
-      : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td>
-  </>;
+      : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td> },
+  ];
+  /* the movable columns in the order chosen, ones not in a saved order at the end; the table keeps the fixed ones at the edges */
+  const movable = cols.filter(c => !c.fixed).map(c => c.id);
+  const colSeq = [...colOrder.filter(id => movable.includes(id)), ...movable.filter(id => !colOrder.includes(id))];
+  const grid = useReactTable({ data: shownRows, columns: cols.map(c => ({ id: c.id, enableHiding: !c.fixed })), getCoreRowModel: getCoreRowModel(), getRowId: r => String(r.id),
+    state: { columnVisibility: colVis, columnOrder: ["c-sel", "c-q", ...colSeq, "act"] }, onColumnVisibilityChange: u => setCols(functionalUpdate(u, colVis), colSeq) });
+  const colById = new Map(cols.map(c => [c.id, c]));
+  const shownCols = grid.getVisibleLeafColumns().map(c => colById.get(c.id)!);
   const rowProps = (r: Lead) => ({ className: `click${dayEnd.has(r.id) ? " cut" : ""}${flash.has(r.id) ? " flash" : ""}`, tabIndex: 0, onClick: () => setEdit(r),
     onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } } });
+  const cells = (r: Lead, handle: ReactNode) => shownCols.map(c => <Fragment key={c.id}>{c.td(r, handle)}</Fragment>);
   const row = (r: Lead) => canDrag && pos.has(r.id)
     ? <QueueRow key={r.id} id={r.id} {...rowProps(r)}>{h => cells(r, h)}</QueueRow>
     : <tr key={r.id} {...rowProps(r)}>{cells(r, null)}</tr>;
@@ -446,7 +515,6 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   /* the ticked leads, else all in view, in the order shown */
   function csv() {
     const list = picked.length ? vis.filter(r => sel.has(r.id)) : vis;
-    const day = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" }) : "";
     const lines = [["Firma", "Anrede", "Vorname", "Nachname", "Rolle", "E-Mail", "Telefon", "LinkedIn", "Website", "Ort", "Status", "Bewertung", "Note", "Firmentyp", "Persönlicher Kontakt", "Quelle", "Art", "Registriert", "Letzter Kontakt", "Angelegt", "Notiz"],
       ...list.map(r => [r.company, r.salutation, r.first, r.last, r.role, r.email, r.phone, r.linkedin, r.website, r.city, STATUS[r.status]?.[0] || r.status, r.rating ?? "", r.ratingInfo?.grade ?? "", r.ratingInfo?.type ?? "",
         r.touch ? TOUCHES.filter(([k]) => r.touch![k]).map(([, l]) => l).join(", ") : "", r.source, KIND_LABEL[kindOf(r)], day(r.crmAt), day(r.lastContactAt), day(r.createdAt), r.note])];
@@ -479,14 +547,16 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           <span className="fsep" aria-hidden />
           <Select className={`ftab${filter !== "alle" ? " on" : ""}`} value={filter} onChange={setFilter} label="Status"
             options={FILTERS.map(k => [k, <>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></>])} />
+          {/* filters set in a column header, shown here too so they stay visible in the companies view and while their column is hidden */}
+          {([[grade !== "alle", GRADES.find(([k]) => k === grade)?.[1], () => setGrade("alle"), "Notenfilter"], [ct !== "alle", ct, () => setCtype("alle"), "Firmentypfilter"],
+            [tf.length > 0, TOUCH_OPTS.filter(([k]) => tf.includes(k)).map(([, l]) => l).join(", "), () => setTf([]), "Kontaktfilter"], [src !== "alle", `Quelle: ${src}`, () => setSrc("alle"), "Quellenfilter"]] as const)
+            .map(([on, l, clear, what]) => on && <span key={what} className="chip">{l}<button onClick={clear} aria-label={`${what} entfernen`}><Icon n="x" /></button></span>)}
           {coF != null && <span className="chip">{(cos.find(c => c.id === coF)?.name || rows.find(r => r.companyId === coF)?.company || "Firma")}<button onClick={() => setCoF(null)} aria-label="Firmenfilter entfernen"><Icon n="x" /></button></span>}
         </div>
         <div className="row3">
           <Select className="inp sel" value={sort} onChange={setSort} label="Sortieren" options={SORTS} />
-          <Select className="inp sel" value={grade} onChange={setGrade} label="Note" options={GRADES} />
-          {ctypes.length > 0 && <Select className="inp sel" value={ct} onChange={setCtype} label="Firmentyp" options={[["alle", "Alle Firmentypen"], ...ctypes.map(c => [c, c] as [string, string])]} />}
-          <TouchFilter value={tf} onChange={setTf} />
-          <Select className="inp sel" value={src} onChange={setSrc} label="Quelle" options={[["alle", "Alle Quellen"], ...srcs.map(s => [s, s] as [string, string])]} />
+          {level === "person" && <ColPicker cols={colSeq.map(id => ({ id, label: colById.get(id)!.label, on: colVis[id] !== false }))}
+            onToggle={id => grid.getColumn(id)?.toggleVisibility()} onMove={ids => setCols(colVis, ids)} onReset={() => setCols(COLS_OFF, [])} />}
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
@@ -503,11 +573,13 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         </tr>) : <tr><td colSpan={8} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
         {shown < firms.length && <tr ref={more} aria-hidden><td colSpan={8} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {firms.length}</td></tr>}
       </tbody></table></div> :
-      <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Verschieben"></th><th className="c-day">Versand</th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="c-ch" aria-label="Kanal"></th><th className="dotc"></th>{th("co", "Firma")}{th("pn", "Ansprechpartner")}{th("c-role", "Rolle")}{th("c-em", "E-Mail")}{th("c-hook", t.tenders ? "Ausschreibungen" : "Anlass")}{th("c-src", "Quelle")}{th("c-kind", "Art")}<th className="c-touch">Kontakt</th><th className="act"></th></tr></thead><tbody>
+      <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr>
+        {shownCols.map(c => <th key={c.id} className={c.id} aria-label={c.aria}>{c.head !== undefined ? c.head : <div className="thc"><span>{c.label}</span>{c.filter}</div>}
+          {c.size && <span className="rsz" aria-hidden onPointerDown={e => resize(c.id, e)} onDoubleClick={() => unsize(c.id)} />}</th>)}</tr></thead><tbody>
         {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved} accessibility={{ container: typeof document === "undefined" ? undefined : document.body }}>
-          <SortableContext items={canDrag ? shownRows.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{shownRows.map(row)}</SortableContext>
-        </DndContext> :<tr><td colSpan={16} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
-        {shown < vis.length && <tr ref={more} aria-hidden><td colSpan={16} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {vis.length}</td></tr>}
+          <SortableContext items={canDrag ? shownRows.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{grid.getRowModel().rows.map(x => row(x.original))}</SortableContext>
+        </DndContext> :<tr><td colSpan={shownCols.length} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+        {shown < vis.length && <tr ref={more} aria-hidden><td colSpan={shownCols.length} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {vis.length}</td></tr>}
       </tbody></table></div>}
     </div></div>
     <LeadChat slug={t.slug} onChanged={chatChanged} toast={ctx.toast} />

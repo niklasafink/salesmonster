@@ -646,7 +646,7 @@ table.leads td{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 table.leads th{position:relative; overflow:hidden; text-overflow:ellipsis}
 table.leads th .rsz{position:absolute; top:6px; bottom:6px; right:0; width:7px; cursor:col-resize; touch-action:none; border-right:1px solid var(--line)}
 table.leads th .rsz:hover{border-right:2px solid var(--fg-3)}
-table.leads th.co{width:var(--w-co,180px)} table.leads th.pn{width:var(--w-pn,160px)} table.leads th.c-role{width:var(--w-c-role,160px)}
+table.leads th.co{width:var(--w-co,180px)} table.leads th.pn{width:var(--w-pn,160px)}
 table.leads th.c-em{width:var(--w-c-em,210px)} table.leads th.c-hook{width:var(--w-c-hook,240px)} table.leads th.c-src{width:var(--w-c-src,130px)}
 table.leads td.co{font-weight:500}
 table.leads td.c-em{font-size:12.5px}
@@ -657,7 +657,7 @@ table.leads td.c-q .grip{width:20px; height:24px; cursor:grab; touch-action:none
 /* the grip only shows on the row under the pointer; touch screens without hover keep it */
 @media (hover:hover){ table.leads td.c-q .grip{opacity:0; transition:opacity .12s} table.leads tr:hover td.c-q .grip, table.leads tr.drag td.c-q .grip, table.leads td.c-q .grip:focus-visible{opacity:1} }
 table.leads th.c-day{width:72px} table.leads td.c-day{font-size:12.5px; white-space:nowrap}
-table.leads th.c-rt{width:76px} table.leads td.c-rt,table.leads th.c-rt{padding-right:4px}
+table.leads th.c-rt{width:108px} table.leads td.c-rt,table.leads th.c-rt{padding-right:4px}
 table.leads th.warm{width:42px} table.leads td.warm,table.leads th.warm{font-size:12.5px; padding-left:4px; padding-right:0}
 table.leads th.c-ch{width:30px} table.leads td.c-ch{color:var(--fg-3); padding-right:0} table.leads td.c-ch.on{color:var(--fg)}
 table.leads td.c-ch svg{width:15px; height:15px; vertical-align:middle}
@@ -665,7 +665,6 @@ table.leads tr.cut td{border-bottom:1px solid var(--line-2)}
 table.leads tr.drag{position:relative; z-index:1; background:var(--bg); box-shadow:0 4px 16px rgb(0 0 0 / .12)}
 table.leads td.act .btn.on{opacity:1; color:var(--fg)}
 @media (max-width:1560px){ table.leads .c-hook{display:none} }
-@media (max-width:1360px){ table.leads .c-role{display:none} }
 @media (max-width:1100px){ table.leads .c-src{display:none} }
 @media (max-width:640px){ table.leads .c-em{display:none} table.leads th.co,table.leads th.pn{width:auto} table.leads th .rsz{display:none} table.leads th.c-rt{width:70px} table.leads .rbar i{width:3px} table.leads td.act,table.leads th.act{width:34px} table.leads td.act .btn:not(:last-child){display:none} table.leads td,table.leads th{padding-left:6px; padding-right:6px} table.leads th.warm{width:40px} table.leads th.dotc{width:22px} table.leads th.c-day{width:52px} }
 table.leads td.act .btn{width:26px; height:26px; color:var(--fg-3); opacity:0}
@@ -831,16 +830,16 @@ select.pv:disabled{cursor:default; opacity:1}
 .score{font-variant-numeric:tabular-nums; font-weight:600}
 .score.hi{color:var(--g)} .score.mid{color:var(--a)} .score.lo{color:var(--r)}
 
-/* rating block in the contact dialog: grade and score, then the reasons with their points */
+/* rating block in the contact dialog: score and votes; the reasons with their points appear on hover */
 .rating .gr{display:flex; align-items:center; gap:8px}
 .rating .gr .num{font-size:12.5px}
 .rating .votes{display:flex; gap:2px; margin-left:auto}
 .rating .votes .btn{width:24px; height:24px}
 .rating .votes .btn.on{background:var(--n-bg); color:var(--fg)}
-.rating .why{margin:8px 0 0; font-size:12.5px; line-height:1.45}
-.rating .rsn{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:3px; font-size:12.5px; color:var(--fg-2)}
+.rating{position:relative}
+.rating .rsn{display:none; position:absolute; left:0; right:0; top:100%; z-index:40; list-style:none; margin:4px 0 0; padding:8px 10px; flex-direction:column; gap:3px; font-size:12.5px; color:var(--fg-2); background:var(--panel); border-radius:10px; box-shadow:var(--shadow-lg)}
+.rating:hover .rsn,.rating:focus-within .rsn{display:flex}
 .rating .rsn .num{display:inline-block; min-width:34px; font-variant-numeric:tabular-nums} .rating .rsn .up{color:var(--g)} .rating .rsn .down{color:var(--r)}
-.rating .tch{display:flex; align-items:center; gap:5px; margin:8px 0 0; font-size:12.5px} .rating .tch .lucide{width:13px; height:13px}
 table.angles td.n,table.angles th.n{text-align:right; font-variant-numeric:tabular-nums; width:84px}
 table.angles td.sw-c{width:52px; text-align:right}
 table.angles tr.off td:not(.sw-c){color:var(--fg-3)}
@@ -884,16 +883,28 @@ table.leads tr.flash td{animation:flash 4s ease-out}
 .filters .ftab:focus-visible{outline:none; box-shadow:0 0 0 2px var(--ring)}
 .filters .ftab .sv{display:inline-flex; align-items:center; gap:6px}
 .filters .fsep{width:1px; align-self:stretch; margin:4px 2px; background:var(--line-2)}
-table.leads th.c-touch{width:76px} table.leads td.c-touch .lucide{width:14px; height:14px; color:var(--fg-2)} table.leads td.c-touch .lucide+.lucide{margin-left:5px}
+table.leads th.c-touch{width:98px} table.leads td.c-touch .lucide{width:14px; height:14px; color:var(--fg-2)} table.leads td.c-touch .lucide+.lucide{margin-left:5px}
 .tf-at{position:relative} .tf-at .btn.on{background:var(--fg); color:var(--panel); border-color:var(--fg)}
-.tf-at .tf-pop{left:auto; right:0; top:calc(100% + 6px); width:210px; display:flex; flex-direction:column; gap:9px; padding:12px}
-.tf-at .tf-pop .ck .lucide{width:14px; height:14px; color:var(--fg-2)}
+.tf-pop{position:fixed; right:auto; z-index:100; width:210px; display:flex; flex-direction:column; gap:9px; padding:12px; animation:pop .1s ease}
+.tf-pop .ck .lucide{width:14px; height:14px; color:var(--fg-2)}
+/* a header with its filter: the label shortens, the filter icon stays; an active filter is tinted */
+table.leads th .thc{display:flex; align-items:center; gap:2px; min-width:0} table.leads th .thc>span{overflow:hidden; text-overflow:ellipsis}
+.thf{flex:none; display:inline-grid; place-items:center; width:20px; height:20px; padding:0; border:0; border-radius:5px; background:none; color:var(--fg-3); cursor:pointer}
+.thf:hover{background:var(--hover); color:var(--fg)} .thf:focus-visible{outline:none; box-shadow:0 0 0 2px var(--ring)}
+.thf.on{color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent)}
+.thf .lucide{width:13px; height:13px}
+/* the column picker: tick to show, drag by the handle to move */
+.tf-at .colp{left:auto; right:0; top:calc(100% + 6px); width:230px; display:flex; flex-direction:column; gap:2px; padding:8px; max-height:min(70vh, 560px); overflow:auto}
+.colp-i{display:flex; align-items:center; gap:4px; border-radius:6px; background:var(--panel)} .colp-i.drag{position:relative; z-index:1; box-shadow:var(--shadow-lg)}
+.colp-i .grip{width:20px; height:26px; cursor:grab; touch-action:none; color:var(--fg-3)} .colp-i .ck{flex:1; height:26px}
+.colp .btn.wide{margin-top:6px}
+table.leads th.c-type{width:var(--w-c-type,130px)} table.leads th.c-tel{width:var(--w-c-tel,130px)} table.leads th.c-city{width:var(--w-c-city,120px)} table.leads th.c-new{width:90px}
 table.leads th.c-kind{width:var(--w-c-kind,90px)} table.leads td.c-kind .pill{height:19px; padding:0 6px; font-size:11.5px}
 table.leads td.co .cnum{margin-left:6px; border:0; background:var(--hover); color:var(--fg-2); border-radius:5px; height:18px; min-width:18px; padding:0 5px; font-size:11.5px; font-weight:500; font-variant-numeric:tabular-nums; cursor:pointer; vertical-align:1px}
 table.leads td.co .cnum:hover{background:var(--line-2); color:var(--fg)}
 table.leads.firms th.co{width:var(--w-co,220px)} table.leads.firms th.c-n{width:76px} table.leads.firms th.c-st{width:90px} table.leads.firms th.c-dom{width:170px}
 table.leads.firms th.c-src{width:140px} table.leads.firms th.c-kind{width:90px} table.leads.firms th.c-last{width:120px} table.leads.firms td.c-st .sd+.sd{margin-left:4px}
-@media (max-width:640px){ table.leads .c-kind,table.leads .c-touch{display:none} table.leads.firms .c-dom,table.leads.firms .c-src,table.leads.firms .c-last{display:none} }
+@media (max-width:640px){ table.leads .c-kind,table.leads .c-touch,table.leads .c-type,table.leads .c-tel,table.leads .c-city,table.leads .c-new{display:none} table.leads.firms .c-dom,table.leads.firms .c-src,table.leads.firms .c-last{display:none} }
 /* a list-box row whose field sits under its label (block list) */
 .row2.col{flex-direction:column; align-items:stretch; gap:6px} .row2.col textarea{width:100%; resize:vertical; min-height:72px; font-family:var(--mono, ui-monospace, monospace); font-size:12.5px}
 /* Select: a button that opens its list below; chevron at the end, the list fixed under the button above dialogs */
