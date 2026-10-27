@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Calendar, Check, CheckCheck, CircleAlert, ChevronDown, ChevronUp, ChevronsUpDown, Copy, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe, GripVertical,
   Inbox, KeyRound, Landmark, LayoutDashboard, ListTodo, LoaderCircle, LogOut, Mail, Menu, Phone, Plus, Presentation, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, StickyNote, SunMoon,
@@ -80,4 +81,39 @@ export function useAutosize() {
 
 export function Top({ title, onMenu, children }: { title: string; onMenu: () => void; children?: React.ReactNode }) {
   return <div className="top"><button className="btn gh ic mob" onClick={e => { e.stopPropagation(); onMenu(); }} aria-label="Menü"><Icon n="menu" /></button><h1>{title}</h1><span className="sp" />{children}</div>;
+}
+
+/* a choice as a button: the whole button opens it, the list always drops below; options are [value, label] */
+export function Select({ value, onChange, options, label, className, disabled }: { value: string; onChange: (v: string) => void; options: [string, React.ReactNode][]; label: string; className?: string; disabled?: boolean }) {
+  const [at, setAt] = useState<{ top: number; left: number; width: number; max: number; room: number } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null), list = useRef<HTMLDivElement>(null);
+  const shut = (focus = true) => { setAt(null); if (focus) btn.current?.focus(); };
+  const open = () => { const r = btn.current!.getBoundingClientRect(); setAt({ top: r.bottom + 4, left: r.left, width: r.width, max: Math.max(120, innerHeight - r.bottom - 12), room: innerWidth - r.left - 8 }); };
+  const isOpen = !!at;
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = list.current!;
+    (el.querySelector<HTMLElement>("[aria-selected=true]") ?? el.querySelector<HTMLElement>("button"))?.focus();
+    const off = (e: Event) => { if (!el.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) shut(false); };
+    const away = (e: Event) => { if (!el.contains(e.target as Node)) shut(false); };
+    document.addEventListener("mousedown", off); addEventListener("scroll", away, true); addEventListener("resize", away);
+    return () => { document.removeEventListener("mousedown", off); removeEventListener("scroll", away, true); removeEventListener("resize", away); };
+  }, [isOpen]);
+  const keys = (e: React.KeyboardEvent) => {
+    const f = [...list.current!.querySelectorAll<HTMLElement>("button")], i = f.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); shut(); }
+    else if (e.key === "Tab") shut(false);
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); f[Math.min(f.length - 1, Math.max(0, i + (e.key === "ArrowDown" ? 1 : -1)))]?.focus(); }
+    else if (e.key === "Home" || e.key === "End") { e.preventDefault(); f[e.key === "Home" ? 0 : f.length - 1]?.focus(); }
+  };
+  const cur = options.find(([v]) => v === value)?.[1] ?? "";
+  return <>
+    <button ref={btn} type="button" className={className} disabled={disabled} aria-label={label} aria-haspopup="listbox" aria-expanded={isOpen}
+      onClick={() => isOpen ? shut() : open()} onKeyDown={e => { if (!isOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); open(); } }}>
+      <span className="sv">{cur}</span><Icon n="chevron-down" /></button>
+    {at && createPortal(<div ref={list} className="pop sel-pop" role="listbox" aria-label={label} onKeyDown={keys}
+      style={{ top: at.top, left: at.left, minWidth: at.width, maxHeight: at.max, maxWidth: at.room }}>
+      {options.map(([v, l]) => <button key={v} type="button" role="option" aria-selected={v === value} onClick={() => { onChange(v); shut(); }}>{l}{v === value && <Icon n="check" className="end" />}</button>)}
+    </div>, document.body)}
+  </>;
 }

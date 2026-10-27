@@ -4,7 +4,7 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { EnrichField, RatingInfo, Tender, Touch } from "@/db/schema";
-import { Icon, Top, api, useDialog } from "../ui";
+import { Icon, Select, Top, api, useDialog } from "../ui";
 import { hasField, httpUrl } from "@/lib/lead-fields";
 import { EnrichReport, type EnrichDone } from "../enrich-report";
 /* a background enrich run as /api/leads/enrich/jobs reports it */
@@ -254,6 +254,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     const from = queue.indexOf(Number(e.active.id)), to = e.over ? queue.indexOf(Number(e.over.id)) : -1;
     if (from < 0 || to < 0 || from === to) return;
     const nx = arrayMove(queue, from, to);
+    /* the list sorts by day first: the places keep their days, so a lead moved into another day shows there before the server answers */
+    setDays(d => { const n = { ...d }; queue.forEach((id, i) => { if (d[id]) n[nx[i]] = d[id]; }); return n; });
     setOrder(nx);
     /* the moved block keeps its places; what follows stays sorted by rating */
     try { await api("/api/leads/queue", { method: "PUT", body: { t: t.slug, ids: nx.slice(0, Math.max(from, to) + 1) } }); load(); }
@@ -472,18 +474,19 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       <div className="toolbar">
         <div className="filters">
           {/* Leads, CRM or both, and people or companies, as tabs that open a choice */}
-          <label className={`ftab${kind !== "alle" ? " on" : ""}`}><select value={kind} onChange={e => setKind(e.target.value as KindFilter)} aria-label="Leads oder CRM">{KINDS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select><Icon n="chevron-down" /></label>
-          <label className="ftab"><select value={level} onChange={e => setLevel(e.target.value)} aria-label="Personen oder Firmen">{LEVELS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select><Icon n="chevron-down" /></label>
+          <Select className={`ftab${kind !== "alle" ? " on" : ""}`} value={kind} onChange={v => setKind(v as KindFilter)} label="Leads oder CRM" options={KINDS} />
+          <Select className="ftab" value={level} onChange={setLevel} label="Personen oder Firmen" options={LEVELS} />
           <span className="fsep" aria-hidden />
-          {FILTERS.map(k => <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></button>)}
+          <Select className={`ftab${filter !== "alle" ? " on" : ""}`} value={filter} onChange={setFilter} label="Status"
+            options={FILTERS.map(k => [k, <>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></>])} />
           {coF != null && <span className="chip">{(cos.find(c => c.id === coF)?.name || rows.find(r => r.companyId === coF)?.company || "Firma")}<button onClick={() => setCoF(null)} aria-label="Firmenfilter entfernen"><Icon n="x" /></button></span>}
         </div>
         <div className="row3">
-          <select className="inp sel" value={sort} onChange={e => setSort(e.target.value)} aria-label="Sortieren">{SORTS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>
-          <select className="inp sel" value={grade} onChange={e => setGrade(e.target.value)} aria-label="Note">{GRADES.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>
-          {ctypes.length > 0 && <select className="inp sel" value={ct} onChange={e => setCtype(e.target.value)} aria-label="Firmentyp"><option value="alle">Alle Firmentypen</option>{ctypes.map(c => <option key={c}>{c}</option>)}</select>}
+          <Select className="inp sel" value={sort} onChange={setSort} label="Sortieren" options={SORTS} />
+          <Select className="inp sel" value={grade} onChange={setGrade} label="Note" options={GRADES} />
+          {ctypes.length > 0 && <Select className="inp sel" value={ct} onChange={setCtype} label="Firmentyp" options={[["alle", "Alle Firmentypen"], ...ctypes.map(c => [c, c] as [string, string])]} />}
           <TouchFilter value={tf} onChange={setTf} />
-          <select className="inp sel" value={src} onChange={e => setSrc(e.target.value)} aria-label="Quelle"><option value="alle">Alle Quellen</option>{srcs.map(s => <option key={s}>{s}</option>)}</select>
+          <Select className="inp sel" value={src} onChange={setSrc} label="Quelle" options={[["alle", "Alle Quellen"], ...srcs.map(s => [s, s] as [string, string])]} />
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
@@ -501,7 +504,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         {shown < firms.length && <tr ref={more} aria-hidden><td colSpan={8} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {firms.length}</td></tr>}
       </tbody></table></div> :
       <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr><th className="c-sel"><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" /></th><th className="c-q" aria-label="Verschieben"></th><th className="c-day">Versand</th><th className="c-rt">Bewertung</th><th className="warm"></th><th className="c-ch" aria-label="Kanal"></th><th className="dotc"></th>{th("co", "Firma")}{th("pn", "Ansprechpartner")}{th("c-role", "Rolle")}{th("c-em", "E-Mail")}{th("c-hook", t.tenders ? "Ausschreibungen" : "Anlass")}{th("c-src", "Quelle")}{th("c-kind", "Art")}<th className="c-touch">Kontakt</th><th className="act"></th></tr></thead><tbody>
-        {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved}>
+        {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved} accessibility={{ container: typeof document === "undefined" ? undefined : document.body }}>
           <SortableContext items={canDrag ? shownRows.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{shownRows.map(row)}</SortableContext>
         </DndContext> :<tr><td colSpan={16} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
         {shown < vis.length && <tr ref={more} aria-hidden><td colSpan={16} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {vis.length}</td></tr>}

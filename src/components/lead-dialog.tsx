@@ -3,7 +3,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { EnrichField, Tender, Touch } from "@/db/schema";
 import { addrsOf, modeOf } from "@/lib/company-mode";
 import { SALUTATIONS, hasField, httpUrl } from "@/lib/lead-fields";
-import { Icon, api, useDialog } from "./ui";
+import { Icon, Select, api, useDialog } from "./ui";
 
 export type EditLead = {
   id?: number; company: string; salutation: string; first: string; last: string; role: string; email: string; emailType: string; phone: string;
@@ -179,6 +179,7 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
   const [lead, setLead] = useState(lead0);
   const [f, setF] = useState(lead), [tt, setTt] = useState(tendersText(lead.tenders)), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const set = (k: keyof EditLead) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const pick = (k: keyof EditLead) => (v: string) => setF({ ...f, [k]: v });
   const ref = useDialog(onClose);
   contacts = contacts.filter(c => c.status !== "papierkorb");
   const addrs = addrsOf(contacts), m = co && contacts.length > 1 && addrs.length ? modeOf(co, contacts) : null;
@@ -226,21 +227,21 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
       <section className="props side">
         <Group t="Person" copy={card}>
           <Prop l="Name" copy={[f.salutation, f.first, f.last].filter(Boolean).join(" ")}><span className="pv3">
-            <select className="pv sal" value={f.salutation} onChange={set("salutation")} aria-label="Anrede"><option value="">–</option>{SALUTATIONS.map(s => <option key={s}>{s}</option>)}</select>
+            <Select className="pv sal" value={f.salutation} onChange={pick("salutation")} label="Anrede" options={[["", "–"], ...SALUTATIONS.map(s => [s, s] as [string, string])]} />
             <input className="pv" value={f.first} placeholder="Vorname" aria-label="Vorname" onChange={set("first")} />
             <input className="pv" value={f.last} placeholder="Nachname" aria-label="Nachname" onChange={set("last")} /></span></Prop>
           <Prop l="Rolle" copy={f.role}><input className="pv" value={f.role} placeholder="–" onChange={set("role")} /></Prop>
         </Group>
         <Group t="Kontaktdaten" copy={lines([["E-Mail", f.email], ["Telefon", f.phone], ["LinkedIn", f.linkedin]])}>
           <Prop l="E-Mail" copy={f.email} link={f.email.includes("@") ? `mailto:${f.email}` : undefined}><input className="pv mono" value={f.email} placeholder="–" onChange={set("email")} /></Prop>
-          <Prop l="Adresse"><select className="pv" value={f.emailType} onChange={set("emailType")}><option value="person">Persönlich</option><option value="info">Sammeladresse</option></select></Prop>
+          <Prop l="Adresse"><Select className="pv" value={f.emailType} onChange={pick("emailType")} label="Adresse" options={[["person", "Persönlich"], ["info", "Sammeladresse"]]} /></Prop>
           <Prop l="Telefon" copy={f.phone} link={f.phone.trim() ? `tel:${f.phone.replace(/[^+\d]/g, "")}` : undefined}><input className="pv num" value={f.phone} placeholder="–" onChange={set("phone")} /></Prop>
           <Prop l="LinkedIn" copy={f.linkedin} link={httpUrl(f.linkedin) || undefined}><input className="pv" value={f.linkedin} placeholder="–" onChange={set("linkedin")} /></Prop>
         </Group>
         <Group t="Vertrieb">
-          <Prop l="Status" copy={STATUS[f.status]?.[0]}><select className="pv" value={f.status} onChange={set("status")} disabled={!f.id}>{Object.entries(STATUS).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></Prop>
-          {f.id && <Prop l="Kanal"><select className="pv" value={f.channel || ""} onChange={set("channel")}>
-            <option value="">Automatisch{f.channelRec && f.channelRec.ch !== "none" ? `: ${f.channelRec.ch === "mail" ? "E-Mail" : "LinkedIn"}` : ""}</option><option value="mail">E-Mail</option><option value="linkedin">LinkedIn</option></select></Prop>}
+          <Prop l="Status" copy={STATUS[f.status]?.[0]}><Select className="pv" value={f.status} onChange={pick("status")} disabled={!f.id} label="Status" options={Object.entries(STATUS).map(([k, [n]]) => [k, n] as [string, string])} /></Prop>
+          {f.id && <Prop l="Kanal"><Select className="pv" value={f.channel || ""} onChange={pick("channel")} label="Kanal"
+            options={[["", `Automatisch${f.channelRec && f.channelRec.ch !== "none" ? `: ${f.channelRec.ch === "mail" ? "E-Mail" : "LinkedIn"}` : ""}`], ["mail", "E-Mail"], ["linkedin", "LinkedIn"]]} /></Prop>}
           {!tenders && <Prop l="Anlass" copy={f.hook}><textarea className="pv" rows={1} value={f.hook} placeholder="–" onChange={set("hook")} /></Prop>}
         </Group>
         <Group t="Quelle">
@@ -276,11 +277,9 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
           <Prop l="Firma" copy={f.company}><input className="pv" value={f.company} placeholder="–" onChange={set("company")} /></Prop>
           <Prop l="Website" copy={f.website} link={web || undefined}><input className="pv" value={f.website} placeholder="–" onChange={set("website")} /></Prop>
           <Prop l="Ort" copy={f.city}><input className="pv" value={f.city} placeholder="–" onChange={set("city")} /></Prop>
-          {m && <Prop l="Anschreiben"><select className="pv" value={mode} onChange={e => setMode(e.target.value)}>
-            <option value="einzeln">Jede der {contacts.length} Personen einzeln</option>
-            {addrs.length > 1 && <option value="alle">Eine Mail an alle Adressen</option>}
-            {addrs.map(a => <option key={a} value={`eine:${a}`}>Eine Mail an {a}</option>)}
-          </select></Prop>}
+          {m && <Prop l="Anschreiben"><Select className="pv" value={mode} onChange={setMode} label="Anschreiben" options={[
+            ["einzeln", `Jede der ${contacts.length} Personen einzeln`], ...(addrs.length > 1 ? [["alle", "Eine Mail an alle Adressen"] as [string, string]] : []),
+            ...addrs.map(a => [`eine:${a}`, `Eine Mail an ${a}`] as [string, string])]} /></Prop>}
           {tenders && <Prop l="Ausschreibungen"><textarea className="pv" rows={1} value={tt} placeholder="Titel | Vergabestelle | Frist" onChange={e => setTt(e.target.value)} /></Prop>}
           {hs?.company.filter(([l]) => l !== "Ort" || !f.city.trim()).map(([l, v]) => <Ro key={l} l={l} v={v} />)}
         </Group>
