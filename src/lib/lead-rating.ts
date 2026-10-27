@@ -6,7 +6,9 @@ import type { FitInfo, Tender } from "@/db/schema";
    each feature value then learns from this tenant's own replies with a Beta prior worth 30 mails. See specs/lead-priorisierung/spec.md. */
 
 export type RateLead = { status: string; email: string; emailType: string; first: string; last: string; salutation: string; role: string; linkedin: string;
-  hook: string; tenders: Tender[]; fit: number | null; fitInfo?: FitInfo | null; vote: number; skips: number; source: string; angleId: number | null; createdAt: Date };
+  hook: string; tenders: Tender[]; fit: number | null; fitInfo?: FitInfo | null; vote: number; skips: number; source: string; angleId: number | null; createdAt: Date;
+  /* with a rubric: the company's worth as a customer (lib/account-rating.ts), which takes the place of the fit as the starting score */
+  account?: { score: number; reasons: Reason[]; why: string } | null };
 export type Outcome = { lead: RateLead; delivered: boolean; replied: boolean; bounced?: boolean };
 export type Reason = { pts: number; text: string; learned?: boolean };
 export type Part = "fit" | "reach" | "role" | "timing" | "feedback";
@@ -20,7 +22,7 @@ const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
 
 export const FREEMAIL = /@(gmail|googlemail|gmx|web|t-online|outlook|hotmail|live|yahoo|icloud|me|posteo|aol|mail|freenet|online)\.[a-z.]+$/i;
 /* role inboxes that reach a front desk, not a person (cf. reacherhq/check-if-email-exists roles list) */
-const ROLE_BOX = /^(info|kontakt|contact|office|mail|post|service|vertrieb|sales|verkauf|buero|büro|zentrale|empfang|hello|hallo|team|anfrage|anfragen|support|marketing|presse|bewerbung|jobs|karriere|verwaltung|einkauf|auftrag|angebot|angebote|rechnung|buchhaltung|kanzlei|praxis|willkommen|noreply|no-reply)@/i;
+export const ROLE_BOX =/^(info|kontakt|contact|office|mail|post|service|vertrieb|sales|verkauf|buero|büro|zentrale|empfang|hello|hallo|team|anfrage|anfragen|support|marketing|presse|bewerbung|jobs|karriere|verwaltung|einkauf|auftrag|angebot|angebote|rechnung|buchhaltung|kanzlei|praxis|willkommen|noreply|no-reply)@/i;
 
 export const domain = (email: string) => email.split("@")[1]?.toLowerCase() || "";
 
@@ -137,9 +139,10 @@ export function rateLead(l: RateLead, m: Model, now = new Date()): Rating {
 
   const reasons: Reason[] = [];
   const info = l.fit === null ? null : l.fitInfo;
-  let score = 100 * Math.max(0, Math.min(4, l.fit ?? 2)) / 4;
+  let score = l.account ? l.account.score : 100 * Math.max(0, Math.min(4, l.fit ?? 2)) / 4;
   parts.fit = Math.round(score);
-  if (l.fit === null) reasons.push({ pts: parts.fit, text: "Vorläufig, KI-Prüfung steht noch aus" });
+  if (l.account) reasons.push({ pts: parts.fit, text: l.account.why || "Firmenbewertung" }, ...l.account.reasons);
+  else if (l.fit === null) reasons.push({ pts: parts.fit, text: "Vorläufig, KI-Prüfung steht noch aus" });
   else if (info?.ko) reasons.push({ pts: -100, text: info.ko });
   else reasons.push({ pts: parts.fit, text: info?.why || fitText(l.fit) });
   /* each factor moves the score by a share of what it is at that point */
@@ -150,7 +153,7 @@ export function rateLead(l: RateLead, m: Model, now = new Date()): Rating {
   };
   /* how far replies moved a feature from its prior, trusted by the number of mails behind it */
   const lift = (w: { w: number; n: number }, prior: number) => Math.max(0.5, Math.min(2, Math.exp((w.w - prior) * w.n / (w.n + MIN_N))));
-  if (l.fit === null) factor("role", ROLE[rg].or, ROLE[rg].text);
+  if (l.fit === null && !l.account) factor("role", ROLE[rg].or, ROLE[rg].text);
   if (REACH[adr] !== 1) factor("reach", REACH[adr], ADR[adr].text);
   factor("reach", lift(wa, Math.log(ADR[adr].or)), wa.w >= Math.log(ADR[adr].or) ? `${ADR[adr].text} antwortet gut` : `${ADR[adr].text} antwortet schlecht`, wa.learned);
   if (l.email && !l.last) factor("reach", 0.85, "Kein Name");

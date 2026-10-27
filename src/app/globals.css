@@ -770,6 +770,56 @@ select.pv:disabled{cursor:default; opacity:1}
 .acts time{flex:none; font-size:12px}
 .acts .ax{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:2px; width:100%; border:0; background:none; padding:0; text-align:left; color:var(--fg-2); white-space:pre-wrap; cursor:pointer; font-size:12.5px; line-height:18px}
 .acts .ax.on{display:block}
+.rec{grid-template-columns:minmax(0,290px) minmax(0,1fr) minmax(0,290px)}
+.rec .props{gap:14px}
+/* field groups: a small title that copies the group on hover, rows tight */
+.grp{display:flex; flex-direction:column; gap:0}
+.grp h3{display:flex; align-items:center; gap:2px; height:22px; margin:0 0 2px; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--fg-3)}
+.grp h3 span{flex:1}
+.grp h3 .pa,.grp h3 .pc{opacity:0}
+.grp:hover h3 .pa,.grp:hover h3 .pc,.grp h3 .pc:focus-visible{opacity:1}
+.grp .prop .pk{width:72px}
+.pc{flex:none; display:inline-grid; place-items:center; width:22px; height:22px; border:0; border-radius:5px; background:none; color:var(--fg-3); cursor:pointer; padding:0; opacity:0; transition:opacity .12s}
+.pc:hover{background:var(--hover); color:var(--fg)}
+.pc .lucide{width:13px; height:13px}
+.prop:hover > .pc,.prop .pc:focus-visible{opacity:1}
+@media (hover:none){.pc,.grp h3 .pa{opacity:1}}
+.pv3{display:flex; flex:1; min-width:0; gap:8px}
+.pv3 .pv{margin:0; flex:1 1 0; min-width:0} .pv3 .pv.sal{flex:0 0 52px}
+.pv.ro{display:block; white-space:pre-wrap; overflow-wrap:anywhere; cursor:text; user-select:text}
+.pv.ro:hover{background:none}
+/* middle: the note to the contact, then the history */
+.feed{display:flex; flex-direction:column; gap:10px}
+.feed > h3{margin:4px 0 0}
+.note-card{border:1px solid var(--line); border-radius:8px; background:var(--a-bg, var(--hover)); padding:8px 10px}
+.note-card label{display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--fg-2)}
+.note-card label .lucide{width:13px; height:13px}
+.note-card label .pc{margin-left:auto}
+.note-card:hover label .pc{opacity:1}
+.note-card textarea{display:block; width:100%; margin-top:4px; border:0; background:none; outline:none; resize:none; field-sizing:content; min-height:36px; max-height:260px; font:inherit; font-size:13px; line-height:19px; color:var(--fg)}
+.htabs{display:flex; flex-wrap:wrap; gap:4px}
+.htabs button{display:inline-flex; align-items:center; gap:5px; height:24px; padding:0 9px; border:1px solid var(--line); border-radius:999px; background:none; font-size:12px; color:var(--fg-2); cursor:pointer}
+.htabs button:hover{background:var(--hover)}
+.htabs button.on{background:var(--fg); border-color:var(--fg); color:var(--panel)}
+.htabs .num{font-variant-numeric:tabular-nums; opacity:.7}
+.hload{display:flex; align-items:center; gap:6px}
+.acts li.mon{display:block; padding:6px 0 6px; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--fg-3)}
+.acts li.mon::before{display:none}
+.acts li{padding-bottom:12px}
+.acts .ab{font-size:13px}
+.acts .am{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:1px}
+.acts .tag{height:17px; padding:0 6px; border-radius:4px; background:var(--hover); font-size:11px; line-height:17px; color:var(--fg-2)}
+.acts div.ax{display:block; cursor:auto; margin-top:4px; padding:6px 9px; border-radius:6px; background:var(--hover); color:var(--fg); font-size:12.5px; line-height:18px; white-space:pre-wrap; overflow-wrap:anywhere}
+.acts div.ax.cut{display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical; overflow:hidden}
+.acts .more-t{border:0; background:none; padding:2px 0 0; font-size:12px; color:var(--fg-2); cursor:pointer; text-decoration:underline; text-underline-offset:3px}
+.acts .k-note .ai{background:var(--a-bg); color:var(--a)}
+.acts .k-call .ai,.acts .k-meeting .ai{background:var(--g-bg); color:var(--g)}
+.acts .k-hs-out .ai{background:var(--b-bg); color:var(--b)}
+.acts .k-hs-in .ai{background:var(--g-bg); color:var(--g)}
+.acts li.fut .tt::after{content:"geplant"; margin-left:6px; padding:0 5px; border-radius:4px; background:var(--a-bg); color:var(--a); font-size:11px; font-weight:500}
+.deals{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; font-size:12.5px}
+.deals a{display:flex; gap:8px; color:inherit; text-decoration:none} .deals a:hover .nm{text-decoration:underline}
+.deals .nm{flex:1; min-width:0; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 @media (max-width:860px){
   .dlg.xl{height:auto; margin-top:6vh}
   .rec,.dlg.lg2 .rec{grid-template-columns:minmax(0,1fr)}
@@ -787,6 +837,10 @@ select.pv:disabled{cursor:default; opacity:1}
 .rating .votes{display:flex; gap:2px; margin-left:auto}
 .rating .votes .btn{width:24px; height:24px}
 .rating .votes .btn.on{background:var(--n-bg); color:var(--fg)}
+.rating .why{margin:8px 0 0; font-size:12.5px; line-height:1.45}
+.rating .rsn{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:3px; font-size:12.5px; color:var(--fg-2)}
+.rating .rsn .num{display:inline-block; min-width:34px; font-variant-numeric:tabular-nums} .rating .rsn .up{color:var(--g)} .rating .rsn .down{color:var(--r)}
+.rating .tch{display:flex; align-items:center; gap:5px; margin:8px 0 0; font-size:12.5px} .rating .tch .lucide{width:13px; height:13px}
 table.angles td.n,table.angles th.n{text-align:right; font-variant-numeric:tabular-nums; width:84px}
 table.angles td.sw-c{width:52px; text-align:right}
 table.angles tr.off td:not(.sw-c){color:var(--fg-3)}
@@ -832,11 +886,15 @@ table.leads tr.flash td{animation:flash 4s ease-out}
 .filters .ftab:focus-within{box-shadow:0 0 0 2px var(--ring)}
 .filters .ftab select option{color:var(--fg); background:var(--panel)}
 .filters .fsep{width:1px; align-self:stretch; margin:4px 2px; background:var(--line-2)}
+table.leads th.c-touch{width:76px} table.leads td.c-touch .lucide{width:14px; height:14px; color:var(--fg-2)} table.leads td.c-touch .lucide+.lucide{margin-left:5px}
+.tf-at{position:relative} .tf-at .btn.on{background:var(--fg); color:var(--panel); border-color:var(--fg)}
+.tf-at .tf-pop{left:auto; right:0; top:calc(100% + 6px); width:210px; display:flex; flex-direction:column; gap:9px; padding:12px}
+.tf-at .tf-pop .ck .lucide{width:14px; height:14px; color:var(--fg-2)}
 table.leads th.c-kind{width:var(--w-c-kind,90px)} table.leads td.c-kind .pill{height:19px; padding:0 6px; font-size:11.5px}
 table.leads td.co .cnum{margin-left:6px; border:0; background:var(--hover); color:var(--fg-2); border-radius:5px; height:18px; min-width:18px; padding:0 5px; font-size:11.5px; font-weight:500; font-variant-numeric:tabular-nums; cursor:pointer; vertical-align:1px}
 table.leads td.co .cnum:hover{background:var(--line-2); color:var(--fg)}
 table.leads.firms th.co{width:var(--w-co,220px)} table.leads.firms th.c-n{width:76px} table.leads.firms th.c-st{width:90px} table.leads.firms th.c-dom{width:170px}
 table.leads.firms th.c-src{width:140px} table.leads.firms th.c-kind{width:90px} table.leads.firms th.c-last{width:120px} table.leads.firms td.c-st .sd+.sd{margin-left:4px}
-@media (max-width:640px){ table.leads .c-kind{display:none} table.leads.firms .c-dom,table.leads.firms .c-src,table.leads.firms .c-last{display:none} }
+@media (max-width:640px){ table.leads .c-kind,table.leads .c-touch{display:none} table.leads.firms .c-dom,table.leads.firms .c-src,table.leads.firms .c-last{display:none} }
 /* a list-box row whose field sits under its label (block list) */
 .row2.col{flex-direction:column; align-items:stretch; gap:6px} .row2.col textarea{width:100%; resize:vertical; min-height:72px; font-family:var(--mono, ui-monospace, monospace); font-size:12.5px}

@@ -24,6 +24,8 @@ export type TenantSettings = {
   firstPlaces?: string[];
   /* notes from reading the tenant's website once in the setup; read again only when the domain changes */
   site?: { domain: string; notes: string; at: string };
+  /* lib/rubrics.ts: how companies are judged as customers; unset = the default for the tenant, if any */
+  rubric?: string;
 };
 
 /* Jev's judgement of one rendered mail; see lib/jev.ts */
@@ -34,7 +36,17 @@ export type TemplateScore = MailScore & { hash: string; n: number; weaknesses: R
 
 /* lib/lead-fit.ts: the model's judgement behind leads.fit, parts 0–4; hash says on which inputs it was made */
 export type FitInfo = { company: number; person: number; need: number; evidence: number; segment: string; ko: string; why: string; model: string; hash: string; at: string };
-export type RatingInfo = { grade: "A" | "B" | "C" | "D"; expected: number; parts: Record<"fit" | "reach" | "role" | "timing" | "feedback", number>; reasons: { pts: number; text: string; learned?: boolean }[] };
+export type RatingInfo = { grade: "A" | "B" | "C" | "D"; expected: number; parts: Record<"fit" | "reach" | "role" | "timing" | "feedback", number>; reasons: { pts: number; text: string; learned?: boolean }[];
+  /* with a rubric (lib/account-rating.ts): the kind of company and the model's one-line view of it */
+  type?: string; why?: string };
+/* lib/company-profile.ts: the model's view of a company by the tenant's rubric; keys are options of lib/rubrics.ts.
+   sure 0–1; web = it looked the company up; hash says on which inputs and rubric it was made */
+export type CompanyProfile = { type: string; size: string; fit: string; signals: string[]; employees: number | null; why: string; sure: number; web: boolean; sources: string[];
+  model: string; hash: string; at: string };
+/* lib/touches.ts: whether a demo, a phone call or a personal mail took place, as Jev reads the HubSpot activities; hash of what it read */
+export type Touch = { demo: boolean; call: boolean; mail: boolean; n: number; last: string | null; notes: string; hash: string; at: string;
+  /* mails in the team's connected mailboxes (lib/mail-sync.ts): written by us, and received directly from the person */
+  box?: { sent: number; direct: number; last: string | null } };
 
 export type Plan = { key: string; n: string; m: number; label: string; noFree?: boolean };
 
@@ -122,6 +134,7 @@ export const companies = pgTable("companies", {
   /* the company record in HubSpot (the leading system) and its domain, both empty when unknown */
   hubspotId: text("hubspot_id").notNull().default(""),
   domain: text("domain").notNull().default(""),
+  profile: jsonb("profile").$type<CompanyProfile | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [uniqueIndex("companies_key").on(t.tenantId, t.key), uniqueIndex("companies_hubspot").on(t.tenantId, t.hubspotId).where(sql`${t.hubspotId} <> ''`),
   index("companies_domain").on(t.tenantId, t.domain)]);
@@ -175,6 +188,7 @@ export const leads = pgTable("leads", {
   crmAt: timestamp("crm_at", { withTimezone: true }),
   hsContactId: text("hs_contact_id").notNull().default(""),
   stage: text("stage").notNull().default(""),
+  touch: jsonb("touch").$type<Touch | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("leads_tenant").on(t.tenantId, t.status), index("leads_rating").on(t.tenantId, t.rating), index("leads_company").on(t.companyId),
   index("leads_email").on(t.tenantId, sql`lower(${t.email})`), uniqueIndex("leads_hs_contact").on(t.tenantId, t.hsContactId).where(sql`${t.hsContactId} <> ''`)]);

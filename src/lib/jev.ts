@@ -87,7 +87,19 @@ export async function scoreMail(key: string, m: Mail, { wait = true } = {}): Pro
   };
 }
 
-const SAL = { herr: "A man, addressed as Herr", frau: "A woman, addressed as Frau", unklar: "Cannot tell from name and role" } as const;
+/* Whether a demo, a phone call or a personal mail took place with one contact, read from the activities the CRM logged for them (lib/touches.ts).
+   Probabilities 0–1; status fields of HubSpot are unreliable (a call stays "queued" though its notes tell the conversation), so Jev reads the text. */
+export async function judgeTouches(key: string, activities: string): Promise<{ demo: number; call: number; mail: number }> {
+  const a = await decide(key, `CRM activities of one business contact of a German software company, newest first. Times in the future have not happened yet.\n\n${activities}`, {
+    demo: { type: "noul", instructions: "Did a demo, video call or in-person meeting with this contact take place? A logged meeting dated in the past counts, unless its outcome says cancelled, no show or rescheduled. A meeting in the future, one only proposed, or a phone call does not count." },
+    call: { type: "noul", instructions: "Did a real phone conversation with this contact take place? A call note that reports what was said counts even when the status says queued; an attempt, voicemail or no answer does not." },
+    mail: { type: "noul", instructions: "Was there a personal email exchange with this contact: a mail a salesperson wrote to this person individually, or a personal reply from them? Automated welcome, trial, onboarding, invoice or newsletter mails and calendar confirmations do not count." },
+  }, true);
+  const n = (k: string) => Math.round(pick(a[k], "noul").noul * 100) / 100;
+  return { demo: n("demo"), call: n("call"), mail: n("mail") };
+}
+
+const SAL = { herr:"A man, addressed as Herr", frau: "A woman, addressed as Frau", unklar: "Cannot tell from name and role" } as const;
 
 /* Herr or Frau from first name and role (e.g. "Geschäftsführerin"), up to 25 people per call.
    Only answers Jev is at least 90 % sure of; everything else stays "". */

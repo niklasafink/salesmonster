@@ -3,6 +3,7 @@ import { db, leads } from "@/db";
 import { HttpError, body, qp, route, tenantBySlug } from "@/lib/api";
 import { crmSyncOf, setCrmRule, syncCrm } from "@/lib/crm-sync";
 import { hubspotToken } from "@/lib/hubspot";
+import { later, refreshAccounts } from "@/lib/ratings";
 
 async function state(tenantId: number) {
   const [s, [n]] = await Promise.all([crmSyncOf(tenantId), db.select({ n: count() }).from(leads).where(and(eq(leads.tenantId, tenantId), isNotNull(leads.crmAt)))]);
@@ -27,6 +28,8 @@ export const POST = route(async (req, _c, me) => {
   const s = await crmSyncOf(t.id);
   if (!s?.property) throw new HttpError(400, "Erst die HubSpot-Eigenschaft für Registrierungen angeben");
   if (!await hubspotToken(t.id)) throw new HttpError(400, "HubSpot ist nicht verbunden");
-  await syncCrm(t, 25_000);
+  const after = await syncCrm(t, 25_000);
+  /* once the contacts are in: who we spoke to and what the companies are, after the answer */
+  if (after?.status !== "läuft") await later(() => refreshAccounts(t.id));
   return state(t.id);
 });

@@ -20,6 +20,18 @@ export async function hubspotPortal(token: string) {
   return String(j.portalId);
 }
 
+/* for links to records: the portal and the app domain its data lives on (app.hubspot.com, app-eu1.hubspot.com) */
+export async function hubspotAccount(token: string) {
+  const j = await hs(token, "/account-info/v3/details");
+  return { portal: String(j.portalId), ui: String(j.uiDomain || "app.hubspot.com") };
+}
+
+/* deal stage id -> label over all deal pipelines */
+export async function hubspotDealStages(token: string): Promise<Map<string, string>> {
+  const j = await hs(token, "/crm/v3/pipelines/deals").catch(() => ({ results: [] }));
+  return new Map((j.results || []).flatMap((p: { stages?: { id: string; label: string }[] }) => (p.stages || []).map(s => [s.id, s.label])));
+}
+
 export async function hubspotVerify(token: string) {
   const j = await hs(token, "/account-info/v3/details");
   return j.portalId ? `Portal ${j.portalId}` : "Portal verbunden";
@@ -123,6 +135,49 @@ export async function hubspotContactsChanged(token: string, m: { property: strin
     filterGroups: [{ filters: [filterOf(m), { propertyName: "lastmodifieddate", operator: "GTE", value: String(since) }] }],
     sorts: [{ propertyName: "lastmodifieddate", direction: "ASCENDING" }], properties, limit: 100, after }) });
   return { results: (j.results || []) as HsContact[], total: Number(j.total) || 0, after: j.paging?.next?.after as string | undefined };
+}
+
+export type HsActivity = { id: string; properties: Record<string, string | null>; associations?: { contacts?: { results?: { id: string }[] } } };
+
+/* Every activity of one kind (calls, meetings, notes, emails) with the contacts it belongs to, oldest first, up to `max` */
+export async function hubspotActivities(token: string, kind: "calls" | "meetings" | "notes" | "emails", properties: string[], max = 5000): Promise<HsActivity[]> {
+  const out: HsActivity[] = [];
+  let after: string | undefined;
+  while (out.length < max) {
+    const q = new URLSearchParams({ limit: "100", properties: properties.join(","), associations: "contacts", ...(after ? { after } : {}) });
+    const j = await hs(token, `/crm/v3/objects/${kind}?${q}`);
+    out.push(...(j.results || []));
+    after = j.paging?.next?.after;
+    if (!after) break;
+  }
+  return out;
+}
+
+/* Ids of the records of one type associated with a contact or company, up to 500 */
+export async function hubspotAssociated(token: string, from: "contacts" | "companies", id: string, to: string): Promise<string[]> {
+  const j = await hs(token, `/crm/v4/objects/${from}/${id}/associations/${to}?limit=500`);
+  return (j.results || []).map((r: { toObjectId: string | number }) => String(r.toObjectId));
+}
+
+/* Records of any object type by id, 100 per call */
+export async function hubspotRead(token: string, type: string, ids: string[], properties: string[]): Promise<HsContact[]> {
+  const out: HsContact[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const j = await hs(token, `/crm/v3/objects/${type}/batch/read`, { method: "POST", body: JSON.stringify({ properties, inputs: ids.slice(i, i + 100).map(id => ({ id })) }) });
+    out.push(...(j.results || []));
+  }
+  return out;
+}
+
+export async function hubspotContactByEmail(token: string, email: string): Promise<string | null> {
+  const j = await hs(token, "/crm/v3/objects/contacts/search", { method: "POST", body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }], limit: 1 }) });
+  return j.results?.[0]?.id ? String(j.results[0].id) : null;
+}
+
+/* owner id -> name; empty when the token may not read owners */
+export async function hubspotOwners(token: string): Promise<Map<string, string>> {
+  const j = await hs(token, "/crm/v3/owners?limit=500").catch(() => ({ results: [] }));
+  return new Map((j.results || []).map((o: { id: string; firstName?: string; lastName?: string; email?: string }) => [String(o.id), [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || ""]));
 }
 
 export async function hubspotCompaniesRead(token: string, ids: string[], properties: string[]): Promise<HsContact[]> {
