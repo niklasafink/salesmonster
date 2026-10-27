@@ -39,7 +39,9 @@ type Co = { id: number; mode: string; email: string };
 type Mate = { id?: number; first: string; last: string; role: string; email: string; status: string };
 type Act = { at: string; kind: string; title: string; text?: string; by?: string; meta?: string; src?: string; co?: boolean };
 type HsInfo = { url: string; coUrl: string; person: [string, string][]; company: [string, string][]; deals: { name: string; stage: string; amount: string; close: string; url: string }[] };
-type Hist = { items: Act[]; research?: string; hs: HsInfo | null; hsError?: string };
+type Hist = { items: Act[]; hs: HsInfo | null; hsError?: string; crmLoading?: boolean };
+type Own = { items: Act[]; research?: string };
+type Crm = { acts: Act[]; hs: HsInfo | null; hsError?: string };
 
 const ACT_ICON: Record<string, string> = { crm: "user-check", sent: "send", reply: "mail", bounce: "triangle-alert", draft: "file-text", mailbox: "inbox", created: "plus", linkedin: "linkedin",
   note: "sticky-note", call: "phone", meeting: "calendar", "hs-in": "mail", "hs-out": "send", task: "list-todo" };
@@ -119,11 +121,34 @@ function EnrichMenu({ lead, slug, miss = {}, onFound }: { lead: EditLead; slug: 
   </span>;
 }
 
-/* the history and the HubSpot record of one saved contact, loaded once when the dialog opens */
+/* what the portal itself knows of mails; HubSpot has them too once the person is there */
+const MAIL = ["sent", "reply", "bounce", "mailbox"];
+
+/* both requests for one contact, started when the pointer rests on its row and picked up by the dialog;
+   kept half a minute, so reopening does not wait either */
+const pre = new Map<number, { at: number; own: Promise<Own>; crm: Promise<Crm> }>();
+export function prefetchLead(id: number) {
+  const hit = pre.get(id);
+  if (hit && Date.now() - hit.at < 30_000) return hit;
+  const p = { at: Date.now(), own: api<Own>(`/api/leads/${id}`), crm: api<Crm>(`/api/leads/${id}/crm`) };
+  p.own.catch(() => pre.delete(id)); p.crm.catch(() => pre.delete(id));
+  pre.set(id, p);
+  return p;
+}
+
+/* the history and the HubSpot record of one saved contact: the portal's part shows at once, HubSpot's joins when it arrives */
 function useHistory(id: number | undefined, onResearch?: (text: string) => void) {
-  const [h, setH] = useState<Hist | null>(null), [err, setErr] = useState("");
+  const [own, setOwn] = useState<Own | null>(null), [crm, setCrm] = useState<Crm | null>(null), [err, setErr] = useState("");
   const got = useRef(onResearch); got.current = onResearch;
-  useEffect(() => { if (id) api<Hist>(`/api/leads/${id}`).then(r => { setH(r); got.current?.(r.research ?? ""); }).catch(e => setErr((e as Error).message)); }, [id]);
+  useEffect(() => {
+    if (!id) return;
+    const p = prefetchLead(id);
+    p.own.then(r => { setOwn(r); got.current?.(r.research ?? ""); }).catch(e => setErr((e as Error).message));
+    p.crm.then(setCrm).catch(e => setCrm({ acts: [], hs: null, hsError: (e as Error).message }));
+  }, [id]);
+  /* mails only from HubSpot once the person is there, so none shows twice; drafts and LinkedIn stay */
+  const h: Hist | null = own && { hs: crm?.hs ?? null, hsError: crm?.hsError, crmLoading: !crm,
+    items: [...(crm?.hs?.url ? own.items.filter(a => !MAIL.includes(a.kind)) : own.items), ...(crm?.acts ?? [])].sort((a, b) => b.at.localeCompare(a.at)) };
   return { h, err };
 }
 
@@ -134,7 +159,7 @@ const LONG = 320;
 function History({ h, err }: { h: Hist | null; err: string }) {
   const [tab, setTab] = useState(""), [open, setOpen] = useState<Set<number>>(new Set());
   if (err) return <div className="warn"><Icon n="triangle-alert" />{err}</div>;
-  if (!h) return <div className="f3 hload"><Icon n="loader" />Verlauf und HubSpot werden geladen</div>;
+  if (!h) return <div className="f3 hload"><Icon n="loader" />Verlauf wird geladen</div>;
   const kinds = ACT_TABS.find(([k]) => k === tab)?.[2], items = h.items.filter(a => !kinds || kinds.includes(a.kind));
   const now = new Date().toISOString();
   let last = "";
@@ -145,6 +170,7 @@ function History({ h, err }: { h: Hist | null; err: string }) {
         return n > 0 && <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}<span className="num">{n}</span></button>; })}
     </div>
     {h.hsError && <div className="warn"><Icon n="triangle-alert" />HubSpot: {h.hsError}</div>}
+    {h.crmLoading && <div className="f3 hload"><Icon n="loader" />HubSpot wird geladen</div>}
     {!items.length ? <p className="f3">Noch nichts.</p> : <ol className="acts">{items.map((a, i) => {
       const fut = a.at > now, m = fut ? "Geplant" : month(a.at), head = m !== last ? (last = m) : "";
       const long = (a.text?.length ?? 0) > LONG || (a.text?.split("\n").length ?? 0) > 6, on = open.has(i);
@@ -192,6 +218,7 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
     const body = Object.fromEntries(Object.entries(next).filter(([k, v]) => k !== "id" && k !== "source" && JSON.stringify(v) !== JSON.stringify(lead[k as keyof EditLead])));
     try {
       if (f.id) {
+        pre.delete(f.id);
         if (Object.keys(body).length) await api(`/api/leads/${f.id}`, { method: "PATCH", body });
         if (co && mode !== mode0) { const [mo, email = ""] = mode.split(":"); await api(`/api/companies/${co.id}`, { method: "PATCH", body: { mode: mo, email } }); }
         onSaved(next);

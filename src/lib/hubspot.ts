@@ -10,6 +10,18 @@ async function hs(token: string, path: string, init?: RequestInit) {
   return r.json();
 }
 
+/* Lookups that hardly change (account, owners, deal stages, contact ids) kept per token for a while, so the contact dialog
+   does not ask HubSpot for them every time; a failed lookup is not kept */
+const memo = new Map<string, { until: number; v: Promise<unknown> }>();
+function cached<T>(key: string, fn: () => Promise<T>, ms = 10 * 60_000): Promise<T> {
+  const hit = memo.get(key);
+  if (hit && hit.until > Date.now()) return hit.v as Promise<T>;
+  const v = fn();
+  memo.set(key, { until: Date.now() + ms, v });
+  v.catch(() => memo.delete(key));
+  return v;
+}
+
 export async function hubspotToken(tenantId: number) {
   return (await getInteg(tenantId, "hubspot"))?.token || null;
 }
@@ -21,15 +33,19 @@ export async function hubspotPortal(token: string) {
 }
 
 /* for links to records: the portal and the app domain its data lives on (app.hubspot.com, app-eu1.hubspot.com) */
-export async function hubspotAccount(token: string) {
-  const j = await hs(token, "/account-info/v3/details");
-  return { portal: String(j.portalId), ui: String(j.uiDomain || "app.hubspot.com") };
+export function hubspotAccount(token: string) {
+  return cached(`acc:${token}`, async () => {
+    const j = await hs(token, "/account-info/v3/details");
+    return { portal: String(j.portalId), ui: String(j.uiDomain || "app.hubspot.com") };
+  });
 }
 
 /* deal stage id -> label over all deal pipelines */
-export async function hubspotDealStages(token: string): Promise<Map<string, string>> {
-  const j = await hs(token, "/crm/v3/pipelines/deals").catch(() => ({ results: [] }));
-  return new Map((j.results || []).flatMap((p: { stages?: { id: string; label: string }[] }) => (p.stages || []).map(s => [s.id, s.label])));
+export function hubspotDealStages(token: string): Promise<Map<string, string>> {
+  return cached(`stages:${token}`, async () => {
+    const j = await hs(token, "/crm/v3/pipelines/deals");
+    return new Map<string, string>((j.results || []).flatMap((p: { stages?: { id: string; label: string }[] }) => (p.stages || []).map(s => [s.id, s.label])));
+  }).catch(() => new Map());
 }
 
 export async function hubspotVerify(token: string) {
@@ -169,15 +185,22 @@ export async function hubspotRead(token: string, type: string, ids: string[], pr
   return out;
 }
 
+/* a found id is kept, a miss is not, so a contact created in HubSpot meanwhile shows up */
 export async function hubspotContactByEmail(token: string, email: string): Promise<string | null> {
+  const key = `mail:${token}:${email.toLowerCase()}`, hit = memo.get(key);
+  if (hit && hit.until > Date.now()) return hit.v as Promise<string>;
   const j = await hs(token, "/crm/v3/objects/contacts/search", { method: "POST", body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }], limit: 1 }) });
-  return j.results?.[0]?.id ? String(j.results[0].id) : null;
+  const id = j.results?.[0]?.id ? String(j.results[0].id) : null;
+  if (id) memo.set(key, { until: Date.now() + 10 * 60_000, v: Promise.resolve(id) });
+  return id;
 }
 
 /* owner id -> name; empty when the token may not read owners */
-export async function hubspotOwners(token: string): Promise<Map<string, string>> {
-  const j = await hs(token, "/crm/v3/owners?limit=500").catch(() => ({ results: [] }));
-  return new Map((j.results || []).map((o: { id: string; firstName?: string; lastName?: string; email?: string }) => [String(o.id), [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || ""]));
+export function hubspotOwners(token: string): Promise<Map<string, string>> {
+  return cached(`owners:${token}`, async () => {
+    const j = await hs(token, "/crm/v3/owners?limit=500");
+    return new Map<string, string>((j.results || []).map((o: { id: string; firstName?: string; lastName?: string; email?: string }) => [String(o.id), [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || ""]));
+  }).catch(() => new Map());
 }
 
 export async function hubspotCompaniesRead(token: string, ids: string[], properties: string[]): Promise<HsContact[]> {

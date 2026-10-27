@@ -1,30 +1,31 @@
-import { and, desc, eq, or, sql } from "drizzle-orm";
-import { companies, db, enrollments, leads, mailContacts, messages, sequenceMails, sequences, users } from "@/db";
+import { and, eq, or, sql } from "drizzle-orm";
+import { db, enrollments, leads, mailContacts, messages, sequenceMails, sequences, users } from "@/db";
 import { HttpError, assertMember, body, checkEmail, idOf, route } from "@/lib/api";
 import { attachCompanies } from "@/lib/companies";
-import { crmHistory } from "@/lib/crm-history";
 import { cleanLead } from "@/lib/lead-fields";
 import { setLeadStatus } from "@/lib/outreach";
 
 type Ctx = { params: Promise<{ id: string }> };
 const OK = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
 
-/* what the portal itself knows of mails: sent, answered, bounced, seen in a mailbox */
-const MAIL = ["sent", "reply", "bounce", "mailbox"];
-
 type Act = { at: string; kind: string; title: string; text?: string; by?: string; meta?: string; src?: string; co?: boolean };
 
-/* Everything that happened with this person, newest first: outreach mails, replies, bounces, sequence mails, mailbox traffic,
-   and what HubSpot logged on the person or their company (lib/crm-history.ts), with the HubSpot record itself */
+/* Everything the portal knows happened with this person, newest first: outreach mails, replies, bounces, sequence mails and mailbox traffic.
+   What HubSpot logged comes from ./crm, so the dialog does not wait for HubSpot */
 export const GET = route<Ctx>(async (_req, { params }, me) => {
   const [l] = await db.select().from(leads).where(eq(leads.id, await idOf(params, "Lead")));
   if (!l) throw new HttpError(404, "Lead nicht gefunden");
   await assertMember(me, l.tenantId, "Lead");
   const out: Act[] = [];
-  const [co] = l.companyId ? await db.select({ hs: companies.hubspotId }).from(companies).where(eq(companies.id, l.companyId)) : [];
-  const crm = crmHistory(l.tenantId, l, co?.hs || "").catch(e => ({ acts: [], hs: null, error: (e as Error).message }));
-  const ms = await db.select({ m: messages, by: users.name }).from(messages).leftJoin(users, eq(users.id, messages.senderId))
-    .where(and(eq(messages.tenantId, l.tenantId), or(eq(messages.leadId, l.id), sql`${messages.leadIds} @> ${JSON.stringify([l.id])}::jsonb`)));
+  const [ms, sm, mc] = await Promise.all([
+    db.select({ m: messages, by: users.name }).from(messages).leftJoin(users, eq(users.id, messages.senderId))
+      .where(and(eq(messages.tenantId, l.tenantId), or(eq(messages.leadId, l.id), sql`${messages.leadIds} @> ${JSON.stringify([l.id])}::jsonb`))),
+    l.email ? db.select({ s: sequenceMails, seq: sequences.name, by: users.name }).from(sequenceMails)
+      .innerJoin(enrollments, eq(enrollments.id, sequenceMails.enrollmentId)).innerJoin(sequences, eq(sequences.id, sequenceMails.sequenceId)).leftJoin(users, eq(users.id, sequenceMails.senderId))
+      .where(and(eq(sequences.tenantId, l.tenantId), sql`lower(${enrollments.email}) = ${l.email.toLowerCase()}`)) : [],
+    db.select({ c: mailContacts, by: users.name }).from(mailContacts).leftJoin(users, eq(users.id, mailContacts.userId))
+      .where(and(eq(mailContacts.tenantId, l.tenantId), l.email ? or(eq(mailContacts.leadId, l.id), sql`lower(${mailContacts.email}) = ${l.email.toLowerCase()}`) : eq(mailContacts.leadId, l.id))),
+  ]);
   for (const { m, by } of ms) {
     const subject = m.finalSubject || m.subject || "", text = m.finalBody || m.body || "";
     if (m.sentAt) out.push({ at: m.sentAt.toISOString(), kind: m.channel === "linkedin" ? "linkedin" : "sent", title: m.channel === "linkedin" ? "LinkedIn-Nachricht" : subject || "E-Mail gesendet", text, by: by || undefined });
@@ -32,19 +33,12 @@ export const GET = route<Ctx>(async (_req, { params }, me) => {
     if (m.repliedAt) out.push({ at: m.repliedAt.toISOString(), kind: "reply", title: "Antwort erhalten" });
     if (m.bouncedAt) out.push({ at: m.bouncedAt.toISOString(), kind: "bounce", title: "Unzustellbar", text: m.error || undefined });
   }
-  if (l.email) {
-    const sm = await db.select({ s: sequenceMails, seq: sequences.name, by: users.name }).from(sequenceMails)
-      .innerJoin(enrollments, eq(enrollments.id, sequenceMails.enrollmentId)).innerJoin(sequences, eq(sequences.id, sequenceMails.sequenceId)).leftJoin(users, eq(users.id, sequenceMails.senderId))
-      .where(and(eq(sequences.tenantId, l.tenantId), sql`lower(${enrollments.email}) = ${l.email.toLowerCase()}`));
-    for (const { s, seq, by } of sm) {
-      out.push({ at: s.sentAt.toISOString(), kind: "sent", title: s.subject, text: s.body, by: by ? `${by}, ${seq}` : seq });
-      if (s.repliedAt) out.push({ at: s.repliedAt.toISOString(), kind: "reply", title: "Antwort erhalten", by: seq });
-      if (s.bouncedAt) out.push({ at: s.bouncedAt.toISOString(), kind: "bounce", title: "Unzustellbar", by: seq });
-    }
+  for (const { s, seq, by } of sm) {
+    out.push({ at: s.sentAt.toISOString(), kind: "sent", title: s.subject, text: s.body, by: by ? `${by}, ${seq}` : seq });
+    if (s.repliedAt) out.push({ at: s.repliedAt.toISOString(), kind: "reply", title: "Antwort erhalten", by: seq });
+    if (s.bouncedAt) out.push({ at: s.bouncedAt.toISOString(), kind: "bounce", title: "Unzustellbar", by: seq });
   }
   /* the mailbox scan only keeps counts and dates, so it shows as one entry per mailbox */
-  const mc = await db.select({ c: mailContacts, by: users.name }).from(mailContacts).leftJoin(users, eq(users.id, mailContacts.userId))
-    .where(and(eq(mailContacts.tenantId, l.tenantId), l.email ? or(eq(mailContacts.leadId, l.id), sql`lower(${mailContacts.email}) = ${l.email.toLowerCase()}`) : eq(mailContacts.leadId, l.id)));
   for (const { c, by } of mc) if (c.lastAt) {
     const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
     out.push({ at: c.lastAt.toISOString(), kind: "mailbox", title: `${n(c.sent, "Mail", "Mails")} gesendet, ${n(c.received, "Mail", "Mails")} erhalten`,
@@ -52,12 +46,8 @@ export const GET = route<Ctx>(async (_req, { params }, me) => {
   }
   if (l.crmAt) out.push({ at: l.crmAt.toISOString(), kind: "crm", title: "Auf der Website registriert", text: l.stage ? `Lifecycle in HubSpot: ${l.stage}` : undefined });
   out.push({ at: l.createdAt.toISOString(), kind: "created", title: l.source === "Postfach" ? "Aus dem Postfach übernommen" : l.source === "HubSpot" ? "Aus HubSpot übernommen" : `Angelegt, Quelle ${l.source}` });
-  const { acts, hs, error } = await crm;
-  /* mails only from HubSpot once the person is there, so none shows twice; drafts and LinkedIn stay */
-  const items = hs?.url ? out.filter(a => !MAIL.includes(a.kind)) : out;
-  items.push(...acts.map(({ id: _, ...a }) => ({ ...a, at: new Date(a.at).toISOString() })));
   /* research is left out of the list, so the dialog gets it here */
-  return { items: items.sort((a, b) => b.at.localeCompare(a.at)), research: l.research, hs, hsError: error };
+  return { items: out.sort((a, b) => b.at.localeCompare(a.at)), research: l.research };
 });
 
 /* Status change and/or edited fields; a new company name moves the contact to that company */

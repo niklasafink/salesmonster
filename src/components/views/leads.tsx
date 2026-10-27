@@ -11,7 +11,7 @@ import { hasField, httpUrl } from "@/lib/lead-fields";
 import { EnrichReport, type EnrichDone } from "../enrich-report";
 /* a background enrich run as /api/leads/enrich/jobs reports it */
 type EnrichJob = { id: number; status: string; error: string; total: number; done: number; found: number; skipped: number; results: EnrichDone[] };
-import { ENRICH, LeadDialog, RatingBar, STATUS, TOUCHES, emptyLead, type EditLead } from "../lead-dialog";
+import { ENRICH, LeadDialog, RatingBar, STATUS, TOUCHES, emptyLead, prefetchLead, type EditLead } from "../lead-dialog";
 import { AnglesDialog } from "../angles-dialog";
 import { LeadChat, type ChatChange } from "../lead-chat";
 import type { Ctx } from "../types";
@@ -179,7 +179,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [edit, setEdit] = useState<EditLead | null>(null), [allCols, setAllCols] = useState(false);
   const [order, setOrder] = useState<number[]>([]), [days, setDays] = useState<Record<number, string>>({});
   const [widths, setWidths] = useState<Record<string, number>>({});
-  const [shown, setShown] = useState(PAGE), more = useRef<HTMLTableRowElement>(null);
+  const [shown, setShown] = useState(PAGE), more = useRef<HTMLTableRowElement>(null), hover = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [kind, setKindS] = useState<KindFilter>("alle"), [level, setLevelS] = useState("person"), [coF, setCoF] = useState<number | null>(null);
   useEffect(() => { const k = keep.get("leads-kind"), l = keep.get("leads-level"); if (KINDS.some(([x]) => x === k)) setKindS(k as KindFilter); if (l === "firma") setLevelS(l); }, []);
   const setKind = (v: KindFilter) => { setKindS(v); keep.set("leads-kind", v); };
@@ -505,7 +505,9 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     state: { columnVisibility: colVis, columnOrder: ["c-sel", "c-q", ...colSeq, "act"] }, onColumnVisibilityChange: u => setCols(functionalUpdate(u, colVis), colSeq) });
   const colById = new Map(cols.map(c => [c.id, c]));
   const shownCols = grid.getVisibleLeafColumns().map(c => colById.get(c.id)!);
+  /* a row the pointer rests on starts loading its dialog; passing over rows does not, as each load asks HubSpot a dozen times */
   const rowProps = (r: Lead) => ({ className: `click${dayEnd.has(r.id) ? " cut" : ""}${flash.has(r.id) ? " flash" : ""}`, tabIndex: 0, onClick: () => setEdit(r),
+    onPointerEnter: () => { clearTimeout(hover.current); hover.current = setTimeout(() => prefetchLead(r.id), 150); }, onPointerLeave: () => clearTimeout(hover.current),
     onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEdit(r); } } });
   const cells = (r: Lead, handle: ReactNode) => shownCols.map(c => <Fragment key={c.id}>{c.td(r, handle)}</Fragment>);
   const row = (r: Lead) => canDrag && pos.has(r.id)

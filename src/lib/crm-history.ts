@@ -85,9 +85,12 @@ export async function crmHistory(tenantId: number, l: { hsContactId: string; ema
   const token = await hubspotToken(tenantId);
   if (!token) return { acts: [], hs: null };
   try {
+    /* the lookups start alongside the search for the contact */
+    const look = Promise.all([hubspotAccount(token), hubspotOwners(token), hubspotDealStages(token)]);
+    look.catch(() => {});
     const id = l.hsContactId || (l.email ? await hubspotContactByEmail(token, l.email) : null);
     if (!id && !companyHsId) return { acts: [], hs: null };
-    const [acc, owners, stages, [person]] = await Promise.all([hubspotAccount(token), hubspotOwners(token), hubspotDealStages(token),
+    const [[acc, owners, stages], [person]] = await Promise.all([look,
       id ? hubspotRead(token, "contacts", [id], [...PERSON.map(([k]) => k), "associatedcompanyid"]) : Promise.resolve([] as HsContact[])]);
     const coId = companyHsId || (person?.properties.associatedcompanyid || "").trim();
     const kinds = Object.keys(KINDS) as Kind[];
