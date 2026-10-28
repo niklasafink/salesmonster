@@ -166,10 +166,10 @@ function QueueRow({ id, children, ...p }: { id: number; children: (handle: React
 
 export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?.[1] || "n"}`} title={STATUS[s]?.[0] || s} />;
 
-/* accent-insensitive search: "zoe" finds Zoë, "mueller" and "muller" find Müller */
+/* accent-insensitive search: "zoe" finds Zoë, "mueller" and "muller" find Müller; each word on its own, so "Schweizer Daniel" finds Daniel Schweizer */
 const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const umlaut = (s: string) => fold(s.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss"));
-export const matches = (hay: string, q: string) => { const f = fold(q.trim()); return !f || fold(hay).includes(f) || umlaut(hay).includes(f); };
+export const matches = (hay: string, q: string) => { const h = fold(hay), u = umlaut(hay); return fold(q).split(/\s+/).filter(Boolean).every(w => h.includes(w) || u.includes(w)); };
 
 export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | null; onFocused?: () => void }) {
   const t = ctx.st.tenant!;

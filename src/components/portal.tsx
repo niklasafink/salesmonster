@@ -104,7 +104,8 @@ export default function Portal() {
   useEffect(() => {
     if (!pal || !tslug) return;
     let on = true;
-    api<{ rows: typeof palLeads }>(`/api/leads?t=${encodeURIComponent(tslug)}`).then(r => on && setPalLeads(r.rows)).catch(() => {});
+    /* people only in the CRM (HubSpot registrations) come apart from the leads */
+    api<{ rows: typeof palLeads; crm?: typeof palLeads }>(`/api/leads?t=${encodeURIComponent(tslug)}`).then(r => on && setPalLeads([...r.rows, ...(r.crm || [])])).catch(() => {});
     return () => { on = false; };
   }, [pal, tslug]);
 
