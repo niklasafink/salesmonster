@@ -195,6 +195,14 @@ export async function hubspotContactByEmail(token: string, email: string): Promi
   return id;
 }
 
+/* A note on the contact, as HubSpot's notes are HTML: the text escaped, its line breaks kept */
+export async function hubspotAddNote(token: string, contactId: string, text: string) {
+  const body = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+  await hs(token, "/crm/v3/objects/notes", { method: "POST", body: JSON.stringify({
+    properties: { hs_timestamp: new Date().toISOString(), hs_note_body: body },
+    associations: [{ to: { id: contactId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 202 }] }] }) });
+}
+
 /* owner id -> name; empty when the token may not read owners */
 export function hubspotOwners(token: string): Promise<Map<string, string>> {
   return cached(`owners:${token}`, async () => {

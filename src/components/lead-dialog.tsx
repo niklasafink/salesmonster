@@ -219,8 +219,10 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
     try {
       if (f.id) {
         pre.delete(f.id);
-        if (Object.keys(body).length) await api(`/api/leads/${f.id}`, { method: "PATCH", body });
+        const r = Object.keys(body).length ? await api<{ hubspot?: string }>(`/api/leads/${f.id}`, { method: "PATCH", body }) : {};
         if (co && mode !== mode0) { const [mo, email = ""] = mode.split(":"); await api(`/api/companies/${co.id}`, { method: "PATCH", body: { mode: mo, email } }); }
+        /* saved in the portal, but the note did not reach HubSpot: the dialog stays open and says so */
+        if (r.hubspot?.startsWith("Fehler")) { setLead(next); setF(next); setErr(`Gespeichert, Notiz aber nicht in HubSpot. ${r.hubspot}`); setBusy(false); return; }
         onSaved(next);
       }
       else { const r = await api<{ id: number }>("/api/leads", { body: { t: slug, lead: next } }); onSaved({ ...next, id: r.id, status: "neu" }); }
@@ -278,7 +280,7 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
       </section>
       {f.id && <section className="feed">
         <div className="note-card">
-          <label htmlFor="lead-note"><Icon n="sticky-note" />Notiz{f.note.trim() && <CopyBtn text={f.note.trim()} label="Notiz" />}</label>
+          <label htmlFor="lead-note"><Icon n="sticky-note" />Notiz{hs?.url && <span className="tag" title="Beim Speichern kommt eine geänderte Notiz als neue Notiz an den Kontakt in HubSpot">geht an HubSpot</span>}{f.note.trim() && <CopyBtn text={f.note.trim()} label="Notiz" />}</label>
           <textarea id="lead-note" rows={2} value={f.note} placeholder="Was man über diesen Kontakt wissen sollte" onChange={set("note")} />
         </div>
         <h3>Verlauf</h3>

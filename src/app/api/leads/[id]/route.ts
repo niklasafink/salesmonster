@@ -2,6 +2,7 @@ import { and, eq, or, sql } from "drizzle-orm";
 import { db, enrollments, leads, mailContacts, messages, sequenceMails, sequences, users } from "@/db";
 import { HttpError, assertMember, body, checkEmail, idOf, route } from "@/lib/api";
 import { attachCompanies } from "@/lib/companies";
+import { hubspotAddNote, hubspotContactByEmail, hubspotToken } from "@/lib/hubspot";
 import { cleanLead } from "@/lib/lead-fields";
 import { setLeadStatus } from "@/lib/outreach";
 
@@ -80,7 +81,23 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
     if (typeof b.status !== "string" || !OK.includes(b.status)) throw new HttpError(400, "Unbekannter Status");
     await setLeadStatus(l.tenantId, id, b.status);
   }
+  if (v.note && v.note !== l.note) return { hubspot: await noteToHubspot(l.tenantId, l.hsContactId, v.email ?? l.email, v.note) };
 });
+
+/* A changed note goes to the person's HubSpot contact as a new note; people not in HubSpot are not added for it.
+   The portal has saved it either way, so a HubSpot error is reported, not thrown */
+async function noteToHubspot(tenantId: number, hsContactId: string, email: string, note: string) {
+  const token = await hubspotToken(tenantId);
+  if (!token) return "aus";
+  try {
+    const id = hsContactId || (email ? await hubspotContactByEmail(token, email) : null);
+    if (!id) return "kein Kontakt";
+    await hubspotAddNote(token, id, note);
+    return "ok";
+  } catch (e) {
+    return `Fehler: ${(e as Error).message}`;
+  }
+}
 
 export const DELETE = route<Ctx>(async (_req, { params }, me) => {
   const [l] = await db.select().from(leads).where(eq(leads.id, await idOf(params, "Lead")));

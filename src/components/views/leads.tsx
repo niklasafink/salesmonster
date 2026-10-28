@@ -501,7 +501,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   /* the movable columns in the order chosen, ones not in a saved order at the end; the table keeps the fixed ones at the edges */
   const movable = cols.filter(c => !c.fixed).map(c => c.id);
   const colSeq = [...colOrder.filter(id => movable.includes(id)), ...movable.filter(id => !colOrder.includes(id))];
-  const grid = useReactTable({ data: shownRows, columns: cols.map(c => ({ id: c.id, enableHiding: !c.fixed })), getCoreRowModel: getCoreRowModel(), getRowId: r => String(r.id),
+  /* the rows are a new array on every render; without autoResetAll: false the table resets its paging for each one, which renders again, without end */
+  const grid = useReactTable({ data: shownRows, columns: cols.map(c => ({ id: c.id, enableHiding: !c.fixed })), getCoreRowModel: getCoreRowModel(), getRowId: r => String(r.id), autoResetAll: false,
     state: { columnVisibility: colVis, columnOrder: ["c-sel", "c-q", ...colSeq, "act"] }, onColumnVisibilityChange: u => setCols(functionalUpdate(u, colVis), colSeq) });
   const colById = new Map(cols.map(c => [c.id, c]));
   const shownCols = grid.getVisibleLeafColumns().map(c => colById.get(c.id)!);
