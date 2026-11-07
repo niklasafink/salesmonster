@@ -492,6 +492,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     { id: "co", label: "Firma", size: true, td: r => <td className="co" title={r.company}>{r.company || none}{r.companyId != null && (perCo.get(r.companyId) || 0) > 1 &&
       <button className="cnum" title={`${perCo.get(r.companyId)} Personen bei ${r.company || "dieser Firma"}`} onClick={e => { e.stopPropagation(); setCoF(r.companyId); }}>{perCo.get(r.companyId)}</button>}</td> },
     { id: "pn", label: "Ansprechpartner", size: true, td: r => <td className="pn" title={person(r) || undefined}>{person(r) || none}</td> },
+    ...(multi ? [{ id: "c-prof", label: "Profil", size: true,
+      filter: <Select className={`thf${pfOk !== "alle" ? " on" : ""}`} value={pfOk} onChange={setPf} label="Profil filtern" options={[["alle", "Alle Profile"], ...profOpts]}><Icon n="list-filter" /></Select>,
+      td: (r: Lead) => <td className="c-prof f2" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+        <Select className="cellsel" value={pkey(r)} onChange={v => v !== pkey(r) && assign([r.id], v)} label={`Profil von ${person(r) || r.company}`} options={profOpts} /></td> }] : []),
     { id: "c-em", label: "E-Mail", size: true, td: r => <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td> },
     { id: "c-tel", label: "Telefon", size: true, td: r => <td className="c-tel f2 num" title={r.phone || undefined}>{r.phone || none}</td> },
     { id: "c-city", label: "Ort", size: true, td: r => <td className="c-city f2" title={r.city || undefined}>{r.city || none}</td> },
@@ -500,10 +504,6 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     { id: "c-type", label: "Firmentyp", size: true, filter: ctypes.length > 0 && <Select className={`thf${ct !== "alle" ? " on" : ""}`} value={ct} onChange={setCtype} label="Firmentyp filtern"
       options={[["alle", "Alle Firmentypen"], ...ctypes.map(c => [c, c] as [string, string])]}><Icon n="list-filter" /></Select>,
       td: r => <td className="c-type f2" title={r.ratingInfo?.type || undefined}>{r.ratingInfo?.type || none}</td> },
-    ...(multi ? [{ id: "c-prof", label: "Profil", size: true,
-      filter: <Select className={`thf${pfOk !== "alle" ? " on" : ""}`} value={pfOk} onChange={setPf} label="Profil filtern" options={[["alle", "Alle Profile"], ...profOpts]}><Icon n="list-filter" /></Select>,
-      td: (r: Lead) => <td className="c-prof f2" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
-        <Select className="cellsel" value={pkey(r)} onChange={v => v !== pkey(r) && assign([r.id], v)} label={`Profil von ${person(r) || r.company}`} options={profOpts} /></td> }] : []),
     { id: "c-src", label: "Quelle", size: true, filter: <Select className={`thf${src !== "alle" ? " on" : ""}`} value={src} onChange={setSrc} label="Quelle filtern"
       options={[["alle", "Alle Quellen"], ...srcs.map(s => [s, s] as [string, string])]}><Icon n="list-filter" /></Select>, td: r => <td className="c-src f2">{srcCell(r)}</td> },
     { id: "c-kind", label: "Art", size: true, td: r => <td className="c-kind" title={kindTitle(r)}><KindTag k={kindOf(r)} /></td> },
@@ -518,9 +518,12 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
       : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td> },
   ];
-  /* the movable columns in the order chosen, ones not in a saved order at the end; the table keeps the fixed ones at the edges */
+  /* the movable columns in the order chosen; a column added later goes after its neighbour in the default order. The table keeps the fixed ones at the edges */
   const movable = cols.filter(c => !c.fixed).map(c => c.id);
-  const colSeq = [...colOrder.filter(id => movable.includes(id)), ...movable.filter(id => !colOrder.includes(id))];
+  const colSeq = colOrder.length ? movable.filter(id => !colOrder.includes(id)).reduce((seq, id) => {
+    const before = movable.slice(0, movable.indexOf(id)).reverse().find(x => seq.includes(x));
+    return before ? [...seq.slice(0, seq.indexOf(before) + 1), id, ...seq.slice(seq.indexOf(before) + 1)] : [id, ...seq];
+  }, colOrder.filter(id => movable.includes(id))) : movable;
   /* the rows are a new array on every render; without autoResetAll: false the table resets its paging for each one, which renders again, without end */
   const grid = useReactTable({ data: shownRows, columns: cols.map(c => ({ id: c.id, enableHiding: !c.fixed })), getCoreRowModel: getCoreRowModel(), getRowId: r => String(r.id), autoResetAll: false,
     state: { columnVisibility: colVis, columnOrder: ["c-sel", "c-q", ...colSeq, "act"] }, onColumnVisibilityChange: u => setCols(functionalUpdate(u, colVis), colSeq) });
@@ -556,8 +559,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         </button>
         <button className="btn gh ic" title="Stoppen" aria-label="Stoppen" onClick={stopEnrich}><Icon n="square" /></button>
       </div> : <button className="btn sec" onClick={openEnrich}><Icon n="sparkles" />Anreichern{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>}
-      {multi && picked.length > 0 && <Select className="btn sec" value="" onChange={v => assign(picked.map(r => r.id), v)} label="Profil der ausgewählten Leads"
-        options={profOpts}><Icon n="tag" />Profil<span className="num f3">{picked.length}</span></Select>}
+      {multi && <Select className="btn sec" value="" onChange={v => assign(picked.map(r => r.id), v)} label="Profil der ausgewählten Leads zuordnen"
+        disabled={!picked.length} options={profOpts}><Icon n="tag" /><span title={picked.length ? undefined : "Erst Leads auswählen"}>Profil zuordnen</span>{picked.length > 0 && <span className="num f3">{picked.length}</span>}</Select>}
       <button className="btn sec" onClick={csv} disabled={!vis.length}><Icon n="download" /><span className="hide-m">Export</span>{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>
       <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
@@ -569,13 +572,15 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           {/* Leads, CRM or both, and people or companies, as tabs that open a choice */}
           <Select className={`ftab${kind !== "alle" ? " on" : ""}`} value={kind} onChange={v => setKind(v as KindFilter)} label="Leads oder CRM" options={KINDS} />
           <Select className="ftab" value={level} onChange={setLevel} label="Personen oder Firmen" options={LEVELS} />
+          {/* lead profile, always in view when the tenant has more than one */}
+          {multi && <Select className={`ftab${pfOk !== "alle" ? " on" : ""}`} value={pfOk} onChange={setPf} label="Profil" options={[["alle", "Alle Profile"],
+            ...profs.map(p => [p.isDefault ? "" : String(p.id), <>{p.name}<span className="c">{scoped.filter(r => pkey(r) === (p.isDefault ? "" : String(p.id))).length}</span></>] as [string, React.ReactNode])]} />}
           <span className="fsep" aria-hidden />
           <Select className={`ftab${filter !== "alle" ? " on" : ""}`} value={filter} onChange={setFilter} label="Status"
             options={FILTERS.map(k => [k, <>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></>])} />
           {/* filters set in a column header, shown here too so they stay visible in the companies view and while their column is hidden */}
           {([[grade !== "alle", GRADES.find(([k]) => k === grade)?.[1], () => setGrade("alle"), "Notenfilter"], [ct !== "alle", ct, () => setCtype("alle"), "Firmentypfilter"],
-            [tf.length > 0, TOUCH_OPTS.filter(([k]) => tf.includes(k)).map(([, l]) => l).join(", "), () => setTf([]), "Kontaktfilter"], [src !== "alle", `Quelle: ${src}`, () => setSrc("alle"), "Quellenfilter"],
-            [pfOk !== "alle", `Profil: ${profs.find(p => (p.isDefault ? "" : String(p.id)) === pfOk)?.name || ""}`, () => setPf("alle"), "Profilfilter"]] as const)
+            [tf.length > 0, TOUCH_OPTS.filter(([k]) => tf.includes(k)).map(([, l]) => l).join(", "), () => setTf([]), "Kontaktfilter"], [src !== "alle", `Quelle: ${src}`, () => setSrc("alle"), "Quellenfilter"]] as const)
             .map(([on, l, clear, what]) => on && <span key={what} className="chip">{l}<button onClick={clear} aria-label={`${what} entfernen`}><Icon n="x" /></button></span>)}
           {coF != null && <span className="chip">{(cos.find(c => c.id === coF)?.name || rows.find(r => r.companyId === coF)?.company || "Firma")}<button onClick={() => setCoF(null)} aria-label="Firmenfilter entfernen"><Icon n="x" /></button></span>}
         </div>
