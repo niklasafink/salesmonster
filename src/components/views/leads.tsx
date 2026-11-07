@@ -20,6 +20,7 @@ import { mdTable, parseCsv, toCsv, toTsv } from "@/lib/sheet";
 import { addDaysIso, berlinDate } from "@/lib/dates";
 import { DAY_NAMES, isoWeekday } from "@/lib/schedule";
 import { KIND_LABEL, inKind, kindOf, kindOfAll, type Kind, type KindFilter } from "@/lib/lead-kind";
+import { compare, filterText, isOn, matches, passes, withFilter, type ColFilter, type ColSort, type Val } from "@/lib/col-filter";
 
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number; enrichMiss: Partial<Record<EnrichField, string>>;
   channelRec: { ch: "mail" | "linkedin" | "none"; text: string }; sendpilotAt: string | null; profileId?: number | null; prospect: boolean; crmAt: string | null; stage: string; hsContactId: string; touch: Touch | null };
@@ -48,34 +49,64 @@ type TouchKey = "demo" | "call" | "mail" | "none";
 const TOUCH_OPTS: [TouchKey, string, string][] = [...TOUCHES.map(([k, l, ic]) => [k, l, ic] as [TouchKey, string, string]), ["none", "Kein Kontakt", "x"]];
 const touched = (t: Touch | null, k: TouchKey) => k === "none" ? !t || !(t.demo || t.call || t.mail) : !!t?.[k];
 
-/* the contact filter in the header of its column: an icon that opens a list to tick; the list sits on the page, as the header cuts off what overflows */
-function TouchFilter({ value, onChange }: { value: TouchKey[]; onChange: (v: TouchKey[]) => void }) {
+/* What a column offers in its header menu: the value it sorts and filters by, how it sorts, and which filters make sense.
+   search: words to find; empty: "vorhanden / leer"; opts: the values in the list to pick one from (for columns with few values) */
+type Meta = { val: (r: Lead) => Val; as?: "text" | "num" | "date"; search?: boolean; empty?: boolean; opts?: boolean };
+const SORT_LABEL = { text: ["A → Z", "Z → A"], num: ["Niedrig → hoch", "Hoch → niedrig"], date: ["Früheste zuerst", "Späteste zuerst"] } as const;
+
+/* one choice in a header menu, ticked when chosen */
+const Opt = ({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) =>
+  <button type="button" aria-pressed={on} className={on ? "on" : ""} onClick={onClick}>{children}{on && <Icon n="check" className="end" />}</button>;
+/* a list to pick one value from, for the filters a column already had (grade, kind of company, source) */
+const pickList = (options: [string, ReactNode][], value: string, set: (v: string) => void) =>
+  <div className="cm-g">{options.map(([k, l]) => <Opt key={k} on={value === k} onClick={() => set(k)}>{l}</Opt>)}</div>;
+
+/* The menu in a column header: sort, search the column, keep only rows with or without a value, pick a value.
+   extra holds a filter of the column's own (e.g. the contact kinds to tick). The menu sits on the page, as the header cuts off what overflows. */
+function ColMenu({ label, m, f, onFilter, dir, onSort, values, extra, extraOn, onClearExtra }: { label: string; m: Meta; f: ColFilter; onFilter: (f: ColFilter) => void;
+  dir: "asc" | "desc" | null; onSort: (d: "asc" | "desc" | null) => void; values: () => string[]; extra?: ReactNode; extraOn?: boolean; onClearExtra?: () => void }) {
   const [at, setAt] = useState<{ top: number; left: number } | null>(null), btn = useRef<HTMLButtonElement>(null), pop = useRef<HTMLDivElement>(null);
   const isOpen = !!at;
-  const place = () => { const r = btn.current!.getBoundingClientRect(); return { top: r.bottom + 4, left: Math.max(8, Math.min(r.left, innerWidth - 218)) }; };
+  const place = () => { const r = btn.current!.getBoundingClientRect(); return { top: r.bottom + 4, left: Math.max(8, Math.min(r.left, innerWidth - 248)) }; };
   useEffect(() => {
     if (!isOpen) return;
     const off = (e: MouseEvent) => { if (!pop.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) setAt(null); };
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { setAt(null); btn.current?.focus(); } };
-    /* the list follows its button when the table scrolls, e.g. sideways to bring the button into view */
+    /* the menu follows its button when the table scrolls, e.g. sideways to bring the button into view */
     const away = (e: Event) => { if (!pop.current?.contains(e.target as Node)) setAt(place()); };
     document.addEventListener("mousedown", off); document.addEventListener("keydown", esc); addEventListener("scroll", away, true); addEventListener("resize", away);
     return () => { document.removeEventListener("mousedown", off); document.removeEventListener("keydown", esc); removeEventListener("scroll", away, true); removeEventListener("resize", away); };
   }, [isOpen]);
-  const label = value.length ? TOUCH_OPTS.filter(([k]) => value.includes(k)).map(([, l]) => l).join(", ") : "Jeder Kontakt";
+  const on = isOn(f) || !!dir || !!extraOn;
+  const [asc, desc] = SORT_LABEL[m.as || "text"];
+  const opts = isOpen && m.opts ? values() : [];
   return <>
-    <button ref={btn} type="button" className={`thf${value.length ? " on" : ""}`} onClick={() => setAt(isOpen ? null : place())} aria-expanded={isOpen} aria-label={`Kontakt filtern: ${label}`} title={label}><Icon n="list-filter" /></button>
-    {at && createPortal(<div ref={pop} className="pop tf-pop" role="dialog" aria-label="Kontakt" style={{ top: at.top, left: at.left }}>
-      {TOUCH_OPTS.map(([k, l, ic]) => <label key={k} className="ck"><input type="checkbox" checked={value.includes(k)}
-        onChange={() => onChange(value.includes(k) ? value.filter(x => x !== k) : [...value, k])} /><Icon n={ic} />{l}</label>)}
-      <button className="btn sec wide" onClick={() => { onChange([]); setAt(null); }} disabled={!value.length}>Alle zeigen</button>
+    <button ref={btn} type="button" className={`thf${on ? " on" : ""}`} onClick={() => setAt(isOpen ? null : place())} aria-expanded={isOpen}
+      aria-label={`${label} sortieren und filtern`} title={`${label} sortieren und filtern`}><Icon n={dir ? (dir === "asc" ? "arrow-up" : "arrow-down") : "list-filter"} /></button>
+    {at && createPortal(<div ref={pop} className="pop tf-pop cm-pop" role="dialog" aria-label={label} style={{ top: at.top, left: at.left }}>
+      <div className="cm-g">
+        <Opt on={dir === "asc"} onClick={() => onSort(dir === "asc" ? null : "asc")}><Icon n="arrow-up" />{asc}</Opt>
+        <Opt on={dir === "desc"} onClick={() => onSort(dir === "desc" ? null : "desc")}><Icon n="arrow-down" />{desc}</Opt>
+      </div>
+      {m.search && <div className="search cm-q"><Icon n="search" /><input className="inp" autoFocus placeholder={`${label} durchsuchen`} aria-label={`${label} durchsuchen`}
+        value={f.q || ""} onChange={e => onFilter({ ...f, q: e.target.value })} /></div>}
+      {m.empty && <div className="cm-g">
+        <Opt on={!f.has} onClick={() => onFilter({ ...f, has: undefined })}>Alle</Opt>
+        <Opt on={f.has === "ja"} onClick={() => onFilter({ ...f, has: "ja" })}>Vorhanden</Opt>
+        <Opt on={f.has === "nein"} onClick={() => onFilter({ ...f, has: "nein" })}>Leer</Opt>
+      </div>}
+      {opts.length > 0 && pickList([["", "Alle"], ...opts.map(v => [v, v] as [string, string])], f.v || "", v => onFilter({ ...f, v: v || undefined }))}
+      {extra}
+      <button className="btn sec wide" disabled={!on} onClick={() => { onFilter({}); onSort(null); onClearExtra?.(); }}>Zurücksetzen</button>
     </div>, document.body)}
   </>;
 }
 
 /* A column of the people list. Fixed ones (selection, drag handle, actions) keep their place; the others can be hidden and moved under "Spalten".
    head replaces the label in the header, filter sits next to it, size lets the header edge be dragged. */
-type Col = { id: string; label: string; head?: ReactNode; aria?: string; fixed?: boolean; size?: boolean; filter?: ReactNode; td: (r: Lead, handle: ReactNode) => ReactNode };
+type Col = { id: string; label: string; head?: ReactNode; aria?: string; fixed?: boolean; size?: boolean; filter?: ReactNode; td: (r: Lead, handle: ReactNode) => ReactNode;
+  /* a filter of the column's own, shown in its header menu below the general ones */
+  extra?: ReactNode; extraOn?: boolean; clearExtra?: () => void };
 /* columns that only show when switched on */
 const COLS_OFF: VisibilityState = { "c-type": false, "c-city": false, "c-new": false };
 /* saved choice per browser; the version goes up when the default changes, so the new default reaches everyone */
@@ -175,10 +206,18 @@ function QueueRow({ id, children, ...p }: { id: number; children: (handle: React
 
 export const Dot = ({ s }: { s: string }) => <span className={`sd s-${STATUS[s]?.[1] || "n"}`} title={STATUS[s]?.[0] || s} />;
 
-/* accent-insensitive search: "zoe" finds Zoë, "mueller" and "muller" find Müller; each word on its own, so "Schweizer Daniel" finds Daniel Schweizer */
-const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-const umlaut = (s: string) => fold(s.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss"));
-export const matches = (hay: string, q: string) => { const h = fold(hay), u = umlaut(hay); return fold(q).split(/\s+/).filter(Boolean).every(w => h.includes(w) || u.includes(w)); };
+export { matches };
+
+const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
+/* the page the lead was found on as its domain, else the source's name; leads from the mailbox say E-Mail */
+function srcText(r: Lead) {
+  if (r.source === "Postfach") return { text: "E-Mail", url: null };
+  const u = httpUrl(r.sourceUrl);
+  let host = ""; try { host = u ? new URL(u).hostname.replace(/^www\./, "") : ""; } catch {}
+  return host ? { text: host, url: u! } : { text: r.source, url: null };
+}
+/* "linkedin.com/in/max-muster" as "max-muster" */
+const liName = (u: string) => u.replace(/^https?:\/\/(www\.)?/i, "").replace(/^[a-z]{2}\.linkedin/i, "linkedin").replace(/^linkedin\.com\/(in\/)?/i, "").replace(/\/+$/, "") || u;
 
 export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | null; onFocused?: () => void }) {
   const t = ctx.st.tenant!;
@@ -207,6 +246,14 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const setGrade = (v: string) => { setGradeS(v); keep.set("leads-grade", v); };
   const setCtype = (v: string) => { setCtypeS(v); keep.set("leads-ctype", v); };
   const setTf = (v: TouchKey[]) => { setTfS(v); keep.set("leads-touch", JSON.stringify(v)); };
+  /* filters and sorting set in the column headers; a column sort goes before the sort chosen in the toolbar. Both stay per browser */
+  const [cf, setCfS] = useState<Record<string, ColFilter>>({}), [cs, setCsS] = useState<ColSort>(null);
+  useEffect(() => {
+    try { const v = JSON.parse(keep.get("leads-colf") || "null"); if (v && typeof v === "object" && !Array.isArray(v)) setCfS(v); } catch { /* none */ }
+    try { const v = JSON.parse(keep.get("leads-colsort") || "null"); if (typeof v?.id === "string") setCsS({ id: v.id, desc: !!v.desc }); } catch { /* none */ }
+  }, []);
+  const setCf = (id: string, f: ColFilter) => setCfS(cur => { const n = withFilter(cur, id, f); keep.set("leads-colf", JSON.stringify(n)); return n; });
+  const setCs = (v: ColSort) => { setCsS(v); keep.set("leads-colsort", JSON.stringify(v)); };
   /* which columns show and in what order; columns added later show unless they start switched off */
   const [colVis, setColVisS] = useState<VisibilityState>(COLS_OFF), [colOrder, setColOrderS] = useState<string[]>([]);
   useEffect(() => { try { const v = JSON.parse(keep.get(COLS_KEY) || "null"); if (v?.vis) setColVisS({ ...COLS_OFF, ...v.vis }); if (Array.isArray(v?.order)) setColOrderS(v.order); } catch { /* defaults */ } }, []);
@@ -233,7 +280,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     el.addEventListener("pointermove", move); el.addEventListener("pointerup", up, { once: true });
   }
   const unsize = (k: string) => setWidths(cur => { const n = { ...cur }; delete n[k]; keep.set("leads-widths", JSON.stringify(n)); return n; });
-  const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); };
+  const setSort = (v: string) => { setSortState(v); keep.set("leads-sort", v); setCsS(null); keep.set("leads-colsort", "null"); };
   const impRef = useDialog(() => setImp(null));
   /* only the newest read is shown: an older answer that arrives late never overwrites a newer one */
   const seq = useRef(0);
@@ -296,15 +343,42 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const queue = order.map((id, i) => ({ id, k: first.get(coId.get(id) ?? `l${id}`)!, i })).sort((a, b) => a.k - b.k || a.i - b.i).map(x => x.id);
   const pos = new Map(queue.map((id, i) => [id, i]));
   const byQueue = (a: Lead, b: Lead) => (days[a.id] || "9").localeCompare(days[b.id] || "9") || (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity) || sorters.bewertung(a, b);
-  const vis = scoped.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && rated(r) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q)).sort(sort === "versand" ? byQueue : sorters[sort]);
+  /* what each column sorts and filters by in its header menu */
+  const chText = (r: Lead) => ({ mail: "E-Mail", linkedin: "LinkedIn", none: "Kein Kanal" })[chOf(r)];
+  const meta: Record<string, Meta> = {
+    "c-day": { val: r => days[r.id], as: "date", empty: true },
+    "c-rt": { val: r => r.rating, as: "num" },
+    warm: { val: r => warm(r) ? "Warm" : "Kalt", opts: true },
+    "c-ch": { val: chText, opts: true },
+    co: { val: r => r.company, search: true, empty: true },
+    pn: { val: person, search: true, empty: true },
+    ...(multi ? { "c-prof": { val: profName, opts: true } } : {}),
+    "c-em": { val: r => r.email, search: true, empty: true },
+    "c-li": { val: r => r.linkedin, search: true, empty: true },
+    "c-tel": { val: r => r.phone, search: true, empty: true },
+    "c-city": { val: r => r.city, search: true, empty: true },
+    ...(t.tenders ? {} : { "c-hook": { val: (r: Lead) => r.hook, search: true, empty: true } }),
+    "c-type": { val: r => r.ratingInfo?.type },
+    "c-src": { val: r => srcText(r).text, search: true },
+    "c-kind": { val: r => KIND_LABEL[kindOf(r)], opts: true },
+    "c-touch": { val: r => r.touch ? TOUCHES.filter(([k]) => r.touch![k]).map(([, l]) => l).join(", ") : "" },
+    "c-new": { val: r => r.createdAt, as: "date" },
+  };
+  /* filters of columns the tenant does not have (profile, Anlass) are left out */
+  const colOk = (r: Lead) => Object.entries(cf).every(([id, f]) => !meta[id] || passes(meta[id].val(r), f));
+  const colSort = cs && meta[cs.id] ? cs : null;
+  const base = sort === "versand" ? byQueue : sorters[sort];
+  const vis = scoped.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && rated(r) && colOk(r) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q))
+    .sort(colSort ? (a, b) => compare(meta[colSort.id].val(a), meta[colSort.id].val(b), colSort.desc) || base(a, b) : base);
+  const cfOn = Object.entries(cf).some(([id, f]) => meta[id] && isOn(f));
   /* dragging only where the whole queue is in view, so a move means the same as in the list */
-  const canDrag = sort === "versand" && src === "alle" && pfOk === "alle" && grade === "alle" && ct === "alle" && !tf.length && !q.trim() && (filter === "alle" || filter === "neu") && kind !== "crm" && coF == null;
+  const canDrag = sort === "versand" && !colSort && !cfOn && src === "alle" && pfOk === "alle" && grade === "alle" && ct === "alle" && !tf.length && !q.trim() && (filter === "alle" || filter === "neu") && kind !== "crm" && coF == null;
   /* the companies view: the people that pass the filters, one row per company, in the order of their first person */
   const firms = level === "firma" ? firmsOf(vis, cos) : [];
   const total = level === "firma" ? firms.length : vis.length;
   /* only the first rows are drawn; the rest follow as the end of the table is scrolled into view */
   const shownRows = vis.slice(0, shown);
-  useEffect(() => { setShown(PAGE); }, [filter, src, q, sort, kind, level, coF, grade, ctype, tf, pf]);
+  useEffect(() => { setShown(PAGE); }, [filter, src, q, sort, kind, level, coF, grade, ctype, tf, pf, cf, cs]);
   useEffect(() => {
     const el = more.current;
     if (!el || shown >= total) return;
@@ -477,13 +551,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   /* a company row opens its people */
   const openFirm = (f: Firm) => { if (f.id != null) { setCoF(f.id); setLevel("person"); } else if (f.people[0]) setEdit(f.people[0]); };
   const kindTitle = (r: Lead) => [r.prospect && `Lead, Quelle ${r.source}`, r.crmAt && `Registriert am ${new Date(r.crmAt).toLocaleDateString("de-DE")}${r.stage ? `, HubSpot: ${r.stage}` : ""}`].filter(Boolean).join("\n");
-  const person = (r: Lead) => r.last ? [r.salutation, r.first, r.last].filter(Boolean).join(" ") : r.first;
-  /* the page the lead was found on, shown as its domain; leads from the mailbox say E-Mail */
   const srcCell = (r: Lead) => {
-    if (r.source === "Postfach") return "E-Mail";
-    const u = httpUrl(r.sourceUrl);
-    let host = ""; try { host = u ? new URL(u).hostname.replace(/^www\./, "") : ""; } catch {}
-    return host ? <a className="srcl" href={u!} target="_blank" rel="noreferrer" title={u!} onClick={e => e.stopPropagation()}>{host}</a> : <span title={r.source}>{r.source}</span>;
+    const s = srcText(r);
+    if (r.source === "Postfach") return s.text;
+    return s.url ? <a className="srcl" href={s.url} target="_blank" rel="noreferrer" title={s.url} onClick={e => e.stopPropagation()}>{s.text}</a> : <span title={r.source}>{r.source}</span>;
   };
   const chCell = (r: Lead) => {
     const ch = chOf(r), title = r.sendpilotAt ? `In SendPilot seit ${new Date(r.sendpilotAt).toLocaleDateString("de-DE")}` : ch === "none" ? r.channelRec.text : `${ch === "mail" ? "E-Mail" : "LinkedIn"}: ${r.channel ? "von Hand gesetzt" : r.channelRec.text}`;
@@ -491,12 +562,12 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   };
   const day = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" }) : "";
   const none = <span className="f3">–</span>;
-  const cols: Col[] = [
+  const rawCols: Col[] = [
     { id: "c-sel", label: "Auswahl", fixed: true, head: <input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" />,
       td: r => <td className="c-sel" onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.company} auswählen`} /></td> },
     { id: "c-q", label: "Verschieben", fixed: true, head: null, aria: "Verschieben", td: (_, handle) => <td className="c-q">{handle}</td> },
     { id: "c-day", label: "Versand", td: r => <td className="c-day f2">{dayCell(days[r.id])}</td> },
-    { id: "c-rt", label: "Bewertung", filter: <Select className={`thf${grade !== "alle" ? " on" : ""}`} value={grade} onChange={setGrade} label="Note filtern" options={GRADES}><Icon n="list-filter" /></Select>,
+    { id: "c-rt", label: "Bewertung", extra: pickList(GRADES, grade, setGrade), extraOn: grade !== "alle", clearExtra: () => setGrade("alle"),
       td: r => <td className="c-rt">{r.rating !== null && r.ratingInfo ? <RatingBar value={r.rating} title={[`${r.rating} von 100, Note ${r.ratingInfo.grade}${r.ratingInfo.type ? `, ${r.ratingInfo.type}` : ""}`, r.ratingInfo.why, ...r.ratingInfo.reasons.slice(0, 3).map(reasonText)].filter(Boolean).join("\n")} /> : none}</td> },
     { id: "warm", label: "Warm / Kalt", head: null, td: r => <td className={`warm${warm(r) ? "" : " f3"}`}>{warm(r) ? "Warm" : "Kalt"}</td> },
     { id: "c-ch", label: "Kanal", head: null, aria: "Kanal", td: chCell },
@@ -505,21 +576,24 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       <button className="cnum" title={`${perCo.get(r.companyId)} Personen bei ${r.company || "dieser Firma"}`} onClick={e => { e.stopPropagation(); setCoF(r.companyId); }}>{perCo.get(r.companyId)}</button>}</td> },
     { id: "pn", label: "Ansprechpartner", size: true, td: r => <td className="pn" title={person(r) || undefined}>{person(r) || none}</td> },
     ...(multi ? [{ id: "c-prof", label: "Profil", size: true,
-      filter: <Select className={`thf${pfOk !== "alle" ? " on" : ""}`} value={pfOk} onChange={setPf} label="Profil filtern" options={[["alle", "Alle Profile"], ...profOpts]}><Icon n="list-filter" /></Select>,
       td: (r: Lead) => <td className="c-prof f2" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
         <Select className="cellsel" value={pkey(r)} onChange={v => v !== pkey(r) && assign([r.id], v)} label={`Profil von ${person(r) || r.company}`} options={profOpts} /></td> }] : []),
     { id: "c-em", label: "E-Mail", size: true, td: r => <td className="c-em mono" title={r.email || (r.enrichMiss?.email ? `Websuche am ${new Date(r.enrichMiss.email).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>{r.email || <span className="f3">{contactsOf(r).some(x => x.email) ? "–" : r.enrichMiss?.email ? "nicht gefunden" : "fehlt"}</span>}</td> },
+    { id: "c-li", label: "LinkedIn", size: true, td: r => <td className="c-li f2" title={r.linkedin || (r.enrichMiss?.linkedin ? `Websuche am ${new Date(r.enrichMiss.linkedin).toLocaleDateString("de-DE")} ohne Treffer` : undefined)}>
+      {r.linkedin ? <a className="srcl" href={httpUrl(r.linkedin) || r.linkedin} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{liName(r.linkedin)}</a>
+        : <span className="f3">{r.enrichMiss?.linkedin ? "nicht gefunden" : "fehlt"}</span>}</td> },
     { id: "c-tel", label: "Telefon", size: true, td: r => <td className="c-tel f2 num" title={r.phone || undefined}>{r.phone || none}</td> },
     { id: "c-city", label: "Ort", size: true, td: r => <td className="c-city f2" title={r.city || undefined}>{r.city || none}</td> },
     /* tenants with tenders see them in the dialog only */
     ...(t.tenders ? [] : [{ id: "c-hook", label: "Anlass", size: true, td: (r: Lead) => <td className="c-hook f2" title={r.hook || undefined}>{r.hook || <span className="f3">fehlt</span>}</td> }]),
-    { id: "c-type", label: "Firmentyp", size: true, filter: ctypes.length > 0 && <Select className={`thf${ct !== "alle" ? " on" : ""}`} value={ct} onChange={setCtype} label="Firmentyp filtern"
-      options={[["alle", "Alle Firmentypen"], ...ctypes.map(c => [c, c] as [string, string])]}><Icon n="list-filter" /></Select>,
+    { id: "c-type", label: "Firmentyp", size: true, extra: ctypes.length > 0 && pickList([["alle", "Alle Firmentypen"], ...ctypes.map(c => [c, c] as [string, string])], ct, setCtype),
+      extraOn: ct !== "alle", clearExtra: () => setCtype("alle"),
       td: r => <td className="c-type f2" title={r.ratingInfo?.type || undefined}>{r.ratingInfo?.type || none}</td> },
-    { id: "c-src", label: "Quelle", size: true, filter: <Select className={`thf${src !== "alle" ? " on" : ""}`} value={src} onChange={setSrc} label="Quelle filtern"
-      options={[["alle", "Alle Quellen"], ...srcs.map(s => [s, s] as [string, string])]}><Icon n="list-filter" /></Select>, td: r => <td className="c-src f2">{srcCell(r)}</td> },
+    { id: "c-src", label: "Quelle", size: true, extra: pickList([["alle", "Alle Quellen"], ...srcs.map(s => [s, s] as [string, string])], src, setSrc), extraOn: src !== "alle", clearExtra: () => setSrc("alle"),
+      td: r => <td className="c-src f2">{srcCell(r)}</td> },
     { id: "c-kind", label: "Art", size: true, td: r => <td className="c-kind" title={kindTitle(r)}><KindTag k={kindOf(r)} /></td> },
-    { id: "c-touch", label: "Kontakt", filter: <TouchFilter value={tf} onChange={setTf} />,
+    { id: "c-touch", label: "Kontakt", extraOn: tf.length > 0, clearExtra: () => setTf([]), extra: <div className="cm-g cm-ck">{TOUCH_OPTS.map(([k, l, ic]) => <label key={k} className="ck">
+      <input type="checkbox" checked={tf.includes(k)} onChange={() => setTf(tf.includes(k) ? tf.filter(x => x !== k) : [...tf, k])} /><Icon n={ic} />{l}</label>)}</div>,
       td: r => <td className="c-touch" title={r.touch ? `${TOUCHES.filter(([k]) => r.touch![k]).map(([, l]) => l).join(", ") || "Kein persönlicher Kontakt"}` : undefined}>
         {r.touch && (r.touch.demo || r.touch.call || r.touch.mail) ? TOUCHES.filter(([k]) => r.touch![k]).map(([k, , ic]) => <Icon key={k} n={ic} />) : none}</td> },
     { id: "c-new", label: "Angelegt", td: r => <td className="c-new f2">{day(r.createdAt)}</td> },
@@ -530,6 +604,13 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
       ? <button className="btn gh ic" title="Wiederherstellen" aria-label="Wiederherstellen" onClick={e => { e.stopPropagation(); trash(r, true); }}><Icon n="undo-2" /></button>
       : <button className="btn gh ic" title="In den Papierkorb" aria-label="In den Papierkorb" onClick={e => { e.stopPropagation(); trash(r); }}><Icon n="trash-2" /></button>}</td> },
   ];
+  /* every column with a value gets the header menu; columns without a label in the header (Warm / Kalt, Kanal) show only its icon */
+  const menu = (c: Col) => <ColMenu label={c.label} m={meta[c.id]} f={cf[c.id] || {}} onFilter={f => setCf(c.id, f)} dir={colSort?.id === c.id ? (colSort.desc ? "desc" : "asc") : null}
+    onSort={d => setCs(d ? { id: c.id, desc: d === "desc" } : colSort?.id === c.id ? null : colSort)} extra={c.extra} extraOn={c.extraOn} onClearExtra={c.clearExtra}
+    values={() => [...new Set(scoped.map(r => meta[c.id].val(r)).filter((v): v is string | number => v != null && v !== "").map(String))].sort((a, b) => a.localeCompare(b, "de"))} />;
+  const cols: Col[] = rawCols.map(c => !meta[c.id] ? c : c.head === null ? { ...c, head: menu(c) } : { ...c, filter: menu(c) });
+  /* a click on a column's name sorts by it: up, down, back to the toolbar sort */
+  const sortBy = (id: string) => setCs(colSort?.id !== id ? { id, desc: false } : colSort.desc ? null : { id, desc: true });
   /* the movable columns in the order chosen; a column added later goes after its neighbour in the default order. The table keeps the fixed ones at the edges */
   const movable = cols.filter(c => !c.fixed).map(c => c.id);
   const colSeq = seqOf(movable, colOrder);
@@ -547,7 +628,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     ? <QueueRow key={r.id} id={r.id} {...rowProps(r)}>{h => cells(r, h)}</QueueRow>
     : <tr key={r.id} {...rowProps(r)}>{cells(r, null)}</tr>;
   /* one header cell, the same in both lists */
-  const th = (c: Omit<Col, "td">) => <th key={c.id} className={c.id} aria-label={c.aria}>{c.head !== undefined ? c.head : <div className="thc"><span>{c.label}</span>{c.filter}</div>}
+  const th = (c: Omit<Col, "td">) => <th key={c.id} className={c.id} aria-label={c.aria} aria-sort={colSort?.id === c.id ? (colSort.desc ? "descending" : "ascending") : undefined}>
+    {c.head !== undefined ? c.head : <div className="thc">{meta[c.id] ? <button type="button" className="thl" onClick={() => sortBy(c.id)} title={`Nach ${c.label} sortieren`}>{c.label}</button> : <span>{c.label}</span>}{c.filter}</div>}
     {c.size && <span className="rsz" aria-hidden onPointerDown={e => resize(c.id, e)} onDoubleClick={() => unsize(c.id)} />}</th>;
   const widthVars = Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]));
 
@@ -626,6 +708,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
           {([[grade !== "alle", GRADES.find(([k]) => k === grade)?.[1], () => setGrade("alle"), "Notenfilter"], [ct !== "alle", ct, () => setCtype("alle"), "Firmentypfilter"],
             [tf.length > 0, TOUCH_OPTS.filter(([k]) => tf.includes(k)).map(([, l]) => l).join(", "), () => setTf([]), "Kontaktfilter"], [src !== "alle", `Quelle: ${src}`, () => setSrc("alle"), "Quellenfilter"]] as const)
             .map(([on, l, clear, what]) => on && <span key={what} className="chip">{l}<button onClick={clear} aria-label={`${what} entfernen`}><Icon n="x" /></button></span>)}
+          {Object.entries(cf).filter(([id, f]) => meta[id] && isOn(f)).map(([id, f]) => <span key={id} className="chip">{filterText(colById.get(id)?.label || id, f)}
+            <button onClick={() => setCf(id, {})} aria-label={`Filter ${colById.get(id)?.label || id} entfernen`}><Icon n="x" /></button></span>)}
+          {colSort && <span className="chip"><Icon n={colSort.desc ? "arrow-down" : "arrow-up"} />{colById.get(colSort.id)?.label}: {SORT_LABEL[meta[colSort.id].as || "text"][colSort.desc ? 1 : 0]}
+            <button onClick={() => setCs(null)} aria-label="Spaltensortierung entfernen"><Icon n="x" /></button></span>}
           {coF != null && <span className="chip">{(cos.find(c => c.id === coF)?.name || rows.find(r => r.companyId === coF)?.company || "Firma")}<button onClick={() => setCoF(null)} aria-label="Firmenfilter entfernen"><Icon n="x" /></button></span>}
         </div>
         <div className="row3">

@@ -633,7 +633,7 @@ table.leads th.c-q{width:22px} table.leads td.c-q,table.leads th.c-q{padding:0}
 table.leads td.c-q .grip{width:20px; height:24px; cursor:grab; touch-action:none; color:var(--fg-3); vertical-align:middle}
 /* the grip only shows on the row under the pointer; touch screens without hover keep it */
 @media (hover:hover){ table.leads td.c-q .grip{opacity:0; transition:opacity .12s} table.leads tr:hover td.c-q .grip, table.leads tr.drag td.c-q .grip, table.leads td.c-q .grip:focus-visible{opacity:1} }
-table.leads th.c-day{width:72px} table.leads td.c-day{font-size:12.5px; white-space:nowrap}
+table.leads th.c-day{width:92px} table.leads td.c-day{font-size:12.5px; white-space:nowrap}
 table.leads th.c-rt{width:108px} table.leads td.c-rt,table.leads th.c-rt{padding-right:4px}
 table.leads th.warm{width:42px} table.leads td.warm,table.leads th.warm{font-size:12.5px; padding-left:4px; padding-right:0}
 table.leads th.c-ch{width:30px} table.leads td.c-ch{color:var(--fg-3); padding-right:0} table.leads td.c-ch.on{color:var(--fg)}
@@ -912,3 +912,18 @@ table.leads .cellsel .sv{overflow:hidden; text-overflow:ellipsis; white-space:no
 table.leads .cellsel .lucide{width:13px; height:13px; opacity:.5}
 table.leads .cellsel:hover,table.leads .cellsel:focus-visible{background:var(--bg-2, rgba(127,127,127,.12))}
 @media (max-width:640px){ table.leads .c-prof{display:none} }
+
+/* Leads: the header menu of a column (sort, search the column, with or without a value, pick a value), the name that sorts on click, the LinkedIn column */
+table.leads th .thl{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0; border:0; background:none; font:inherit; color:inherit; text-align:left; cursor:pointer}
+table.leads th .thl:hover{color:var(--fg)} table.leads th .thl:focus-visible{outline:none; box-shadow:0 0 0 2px var(--ring); border-radius:4px}
+table.leads th[aria-sort] .thl{color:var(--accent)}
+.cm-pop{width:240px; gap:6px; padding:8px; max-height:min(70vh, 520px); overflow:auto}
+.cm-g{display:flex; flex-direction:column; gap:1px} .cm-g+.cm-g{border-top:1px solid var(--line); padding-top:6px}
+.cm-g button{height:28px; font-size:13px} .cm-g button .lucide{width:14px; height:14px; color:var(--fg-3)} .cm-g button.on{font-weight:500}
+.cm-g button .lucide.end{color:var(--accent)}
+.cm-ck{gap:8px; padding:4px 6px}
+.cm-q .inp{width:100%} .cm-q .lucide{width:14px; height:14px}
+.cm-pop .btn.wide{margin-top:2px}
+.chip>.lucide{width:12px; height:12px; color:var(--fg-3); margin-right:2px}
+table.leads th.c-li{width:var(--w-c-li,170px)} table.leads td.c-li{font-size:12.5px}
+@media (max-width:640px){ table.leads .c-li{display:none} }
