@@ -3,6 +3,7 @@ import { db, tenants, type AiChoice } from "@/db";
 import { getInteg } from "./integrations";
 import { AI_PROVIDERS, CLAUDE_MODELS, OPENAI_MODELS, OPENROUTER_MODELS, REQUESTY_MODELS, type AiKind } from "./integ-meta";
 import { spend } from "./usage";
+import { openrouterAllowed } from "./ai-budget";
 
 export { CLAUDE_MODELS, OPENAI_MODELS, OPENROUTER_MODELS, REQUESTY_MODELS };
 
@@ -41,8 +42,8 @@ export const aiLabel = (ai: Ai) => {
 
 /* The account's own key, else the server key from the environment */
 async function keys(tenantId: number, userId?: number) {
-  const rows = await Promise.all(AI_PROVIDERS.map(p => getInteg(tenantId, p.k, userId)));
-  return AI_PROVIDERS.map((p, i) => ({ k: p.k, key: rows[i]?.key || AI_ENV[p.k].key || "", model: rows[i]?.model }));
+  const [rows, or] = await Promise.all([Promise.all(AI_PROVIDERS.map(p => getInteg(tenantId, p.k, userId))), openrouterAllowed()]);
+  return AI_PROVIDERS.map((p, i) => ({ k: p.k, key: p.k === "openrouter" && !or ? "" : rows[i]?.key || AI_ENV[p.k].key || "", model: rows[i]?.model }));
 }
 
 /* What the connected keys allow: every model of each provider with a key */

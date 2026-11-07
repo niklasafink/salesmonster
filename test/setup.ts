@@ -8,6 +8,8 @@ if (!process.env.TEST_DATABASE_URL && process.env.TEST_ENV_FILE) config({ path: 
 if (!process.env.TEST_DATABASE_URL) throw new Error("TEST_DATABASE_URL fehlt: Tests laufen nur gegen den Neon-Testbranch. `export TEST_DATABASE_URL=…` oder TEST_ENV_FILE setzen.");
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 process.env.APP_SECRET = "test-app-secret";
+/* OpenRouter is faked in tests (fakeOpenRouter); the budget only keeps the lock open */
+process.env.OPENROUTER_MONTHLY_USD = "1000";
 
 /* Route handlers read cookies() from next/headers; in tests it answers from the Request passed to call() */
 vi.mock("next/headers", () => ({

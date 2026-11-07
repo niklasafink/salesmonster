@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, integrations, members } from "@/db";
 import { decrypt, encrypt } from "./crypto";
+import { openrouterAllowed } from "./ai-budget";
 import { INTEG, type IntegKind } from "./integ-meta";
 
 const meta = (k: IntegKind) => INTEG.find(i => i.k === k);
@@ -19,6 +20,8 @@ async function accountRow(tenantId: number, kind: IntegKind, userId?: number | n
 }
 
 export async function getInteg<T = Record<string, string>>(tenantId: number, kind: IntegKind, userId?: number | null): Promise<T | null> {
+  /* every OpenRouter key goes through here; past the monthly budget it reads as not connected */
+  if (kind === "openrouter" && !(await openrouterAllowed())) return null;
   const [row] = account(kind) ? [await accountRow(tenantId, kind, userId)] : await db.select().from(integrations).where(and(
     eq(integrations.tenantId, tenantId), eq(integrations.kind, kind),
     perUser(kind) && userId ? eq(integrations.userId, userId) : isNull(integrations.userId)));
