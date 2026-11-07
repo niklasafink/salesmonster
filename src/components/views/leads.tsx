@@ -80,6 +80,15 @@ type Col = { id: string; label: string; head?: ReactNode; aria?: string; fixed?:
 const COLS_OFF: VisibilityState = { "c-type": false, "c-city": false, "c-new": false };
 /* saved choice per browser; the version goes up when the default changes, so the new default reaches everyone */
 const COLS_KEY = "leads-cols-2";
+/* the companies list works like the people list: same header, widths, selection and "Spalten", its own choice of columns */
+type FCol = Omit<Col, "td"> & { td: (f: Firm) => ReactNode };
+const FCOLS_OFF: VisibilityState = { "c-type": false, "c-city": false };
+const FCOLS_KEY = "leads-firm-cols-1";
+/* the movable columns in the order chosen; a column added later goes after its neighbour in the default order */
+const seqOf = (movable: string[], saved: string[]) => saved.length ? movable.filter(id => !saved.includes(id)).reduce((seq, id) => {
+  const before = movable.slice(0, movable.indexOf(id)).reverse().find(x => seq.includes(x));
+  return before ? [...seq.slice(0, seq.indexOf(before) + 1), id, ...seq.slice(seq.indexOf(before) + 1)] : [id, ...seq];
+}, saved.filter(id => movable.includes(id))) : movable;
 
 function ColItem({ id, children }: { id: string; children: ReactNode }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -202,6 +211,9 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const [colVis, setColVisS] = useState<VisibilityState>(COLS_OFF), [colOrder, setColOrderS] = useState<string[]>([]);
   useEffect(() => { try { const v = JSON.parse(keep.get(COLS_KEY) || "null"); if (v?.vis) setColVisS({ ...COLS_OFF, ...v.vis }); if (Array.isArray(v?.order)) setColOrderS(v.order); } catch { /* defaults */ } }, []);
   const setCols = (vis: VisibilityState, order: string[]) => { setColVisS(vis); setColOrderS(order); keep.set(COLS_KEY, JSON.stringify({ vis, order })); };
+  const [fVis, setFVisS] = useState<VisibilityState>(FCOLS_OFF), [fOrder, setFOrderS] = useState<string[]>([]);
+  useEffect(() => { try { const v = JSON.parse(keep.get(FCOLS_KEY) || "null"); if (v?.vis) setFVisS({ ...FCOLS_OFF, ...v.vis }); if (Array.isArray(v?.order)) setFOrderS(v.order); } catch { /* defaults */ } }, []);
+  const setFCols = (vis: VisibilityState, order: string[]) => { setFVisS(vis); setFOrderS(order); keep.set(FCOLS_KEY, JSON.stringify({ vis, order })); };
   const [li, setLi] = useState<null | { campaigns: Campaign[] | null; id: string; busy: boolean }>(null);
   const liRef = useDialog(() => setLi(null));
   const [enr, setEnr] = useState<null | { fields: EnrichField[]; again: boolean; picked: boolean }>(null), [sel, setSel] = useState<Set<number>>(new Set());
@@ -520,10 +532,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   ];
   /* the movable columns in the order chosen; a column added later goes after its neighbour in the default order. The table keeps the fixed ones at the edges */
   const movable = cols.filter(c => !c.fixed).map(c => c.id);
-  const colSeq = colOrder.length ? movable.filter(id => !colOrder.includes(id)).reduce((seq, id) => {
-    const before = movable.slice(0, movable.indexOf(id)).reverse().find(x => seq.includes(x));
-    return before ? [...seq.slice(0, seq.indexOf(before) + 1), id, ...seq.slice(seq.indexOf(before) + 1)] : [id, ...seq];
-  }, colOrder.filter(id => movable.includes(id))) : movable;
+  const colSeq = seqOf(movable, colOrder);
   /* the rows are a new array on every render; without autoResetAll: false the table resets its paging for each one, which renders again, without end */
   const grid = useReactTable({ data: shownRows, columns: cols.map(c => ({ id: c.id, enableHiding: !c.fixed })), getCoreRowModel: getCoreRowModel(), getRowId: r => String(r.id), autoResetAll: false,
     state: { columnVisibility: colVis, columnOrder: ["c-sel", "c-q", ...colSeq, "act"] }, onColumnVisibilityChange: u => setCols(functionalUpdate(u, colVis), colSeq) });
@@ -537,6 +546,41 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const row = (r: Lead) => canDrag && pos.has(r.id)
     ? <QueueRow key={r.id} id={r.id} {...rowProps(r)}>{h => cells(r, h)}</QueueRow>
     : <tr key={r.id} {...rowProps(r)}>{cells(r, null)}</tr>;
+  /* one header cell, the same in both lists */
+  const th = (c: Omit<Col, "td">) => <th key={c.id} className={c.id} aria-label={c.aria}>{c.head !== undefined ? c.head : <div className="thc"><span>{c.label}</span>{c.filter}</div>}
+    {c.size && <span className="rsz" aria-hidden onPointerDown={e => resize(c.id, e)} onDoubleClick={() => unsize(c.id)} />}</th>;
+  const widthVars = Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]));
+
+  /* the companies list: a company counts as ticked when all its people are; its values come from its people */
+  const fOn = (f: Firm) => f.people.every(r => sel.has(r.id));
+  const fToggle = (f: Firm) => setSel(s => { const n = new Set(s), on = fOn(f); for (const r of f.people) if (on) n.delete(r.id); else n.add(r.id); return n; });
+  const best = (f: Firm) => f.people.reduce<Lead | null>((b, r) => r.rating !== null && r.ratingInfo && (!b || r.rating > b.rating!) ? r : b, null);
+  const fTouch = (f: Firm) => TOUCHES.filter(([k]) => f.people.some(r => r.touch?.[k]));
+  const pick1 = (f: Firm, v: (r: Lead) => string | undefined) => f.people.map(v).find(Boolean) || "";
+  const dots = Math.max(1, ...firms.slice(0, shown).map(f => new Set(f.people.map(r => r.status)).size));
+  const fcols: FCol[] = [
+    { ...colById.get("c-sel")!, head: <input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(vis.map(r => r.id)))} aria-label="Alle auswählen" />,
+      td: f => <td className="c-sel" onClick={e => e.stopPropagation()}><input type="checkbox" checked={fOn(f)} onChange={() => fToggle(f)} aria-label={`${f.name || "Firma"} auswählen`} /></td> },
+    { ...colById.get("c-q")!, td: () => <td className="c-q" /> },
+    { ...colById.get("c-rt")!, td: f => { const b = best(f); return <td className="c-rt">{b ? <RatingBar value={b.rating!} title={[`Beste Bewertung: ${b.rating} von 100, Note ${b.ratingInfo!.grade}${person(b) ? ` (${person(b)})` : ""}`, b.ratingInfo!.why].filter(Boolean).join("\n")} /> : none}</td>; } },
+    { ...colById.get("warm")!, td: f => { const w = f.people.some(warm); return <td className={`warm${w ? "" : " f3"}`}>{w ? "Warm" : "Kalt"}</td>; } },
+    { ...colById.get("dotc")!, td: f => <td className="dotc">{[...new Set(f.people.map(r => r.status))].map(st => <Dot key={st} s={st} />)}</td> },
+    { ...colById.get("co")!, td: f => <td className="co" title={f.name}>{f.name || none}</td> },
+    { id: "c-n", label: "Personen", size: true, td: f => <td className="c-n num">{f.people.length}</td> },
+    { ...colById.get("pn")!, td: f => <td className="pn" title={f.people.map(person).filter(Boolean).join(", ")}>{f.people.map(r => person(r) || r.email).filter(Boolean).slice(0, 3).join(", ") || none}{f.people.length > 3 && <span className="f3"> +{f.people.length - 3}</span>}</td> },
+    { ...colById.get("c-city")!, td: f => { const c = pick1(f, r => r.city); return <td className="c-city f2" title={c || undefined}>{c || none}</td>; } },
+    { id: "c-dom", label: "Domain", size: true, td: f => <td className="c-dom f2" title={f.domain || undefined}>{f.domain || none}</td> },
+    { ...colById.get("c-type")!, td: f => { const c = pick1(f, r => r.ratingInfo?.type); return <td className="c-type f2" title={c || undefined}>{c || none}</td>; } },
+    { ...colById.get("c-src")!, td: f => <td className="c-src f2" title={f.sources.join(", ")}>{f.sources.join(", ")}</td> },
+    { ...colById.get("c-kind")!, td: f => <td className="c-kind"><KindTag k={kindOfAll(f.people)} /></td> },
+    { ...colById.get("c-touch")!, td: f => { const ts = fTouch(f); return <td className="c-touch" title={ts.map(([, l]) => l).join(", ") || "Kein persönlicher Kontakt"}>{ts.length ? ts.map(([k, , ic]) => <Icon key={k} n={ic} />) : none}</td>; } },
+    { id: "c-last", label: "Letzter Kontakt", size: true, td: f => <td className="c-last f2">{f.last ? day(f.last) : none}</td> },
+  ];
+  const fById = new Map(fcols.map(c => [c.id, c]));
+  const fSeq = seqOf(fcols.filter(c => !c.fixed).map(c => c.id), fOrder);
+  const shownF = ["c-sel", "c-q", ...fSeq.filter(id => fVis[id] !== false)].map(id => fById.get(id)!);
+  const fRow = (f: Firm) => <tr key={f.key} className={`click${f.people.some(r => flash.has(r.id)) ? " flash" : ""}`} tabIndex={0} onClick={() => openFirm(f)}
+    onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openFirm(f); } }}>{shownF.map(c => <Fragment key={c.id}>{c.td(f)}</Fragment>)}</tr>;
 
   /* the ticked leads, else all in view, in the order shown */
   function csv() {
@@ -586,27 +630,18 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         </div>
         <div className="row3">
           <Select className="inp sel" value={sort} onChange={setSort} label="Sortieren" options={SORTS} />
-          {level === "person" && <ColPicker cols={colSeq.map(id => ({ id, label: colById.get(id)!.label, on: colVis[id] !== false }))}
-            onToggle={id => grid.getColumn(id)?.toggleVisibility()} onMove={ids => setCols(colVis, ids)} onReset={() => setCols(COLS_OFF, [])} />}
+          {level === "person" ? <ColPicker cols={colSeq.map(id => ({ id, label: colById.get(id)!.label, on: colVis[id] !== false }))}
+            onToggle={id => grid.getColumn(id)?.toggleVisibility()} onMove={ids => setCols(colVis, ids)} onReset={() => setCols(COLS_OFF, [])} />
+          : <ColPicker cols={fSeq.map(id => ({ id, label: fById.get(id)!.label, on: fVis[id] !== false }))}
+            onToggle={id => setFCols({ ...fVis, [id]: fVis[id] === false }, fSeq)} onMove={ids => setFCols(fVis, ids)} onReset={() => setFCols(FCOLS_OFF, [])} />}
           <div className="search"><Icon n="search" /><input className="inp" placeholder="Firma, Person, E-Mail" value={q} onChange={e => setQ(e.target.value)} aria-label="Suchen" /></div>
         </div>
       </div>
-      {level === "firma" ? <div className="tbl"><table className="leads firms"><thead><tr><th className="co">Firma</th><th className="c-n">Personen</th><th className="pn">Ansprechpartner</th><th className="c-st">Status</th><th className="c-dom">Domain</th><th className="c-src">Quelle</th><th className="c-kind">Art</th><th className="c-last">Letzter Kontakt</th></tr></thead><tbody>
-        {firms.length ? firms.slice(0, shown).map(f => <tr key={f.key} className="click" tabIndex={0} onClick={() => openFirm(f)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openFirm(f); } }}>
-          <td className="co" title={f.name}>{f.name || <span className="f3">–</span>}</td>
-          <td className="c-n num">{f.people.length}</td>
-          <td className="pn" title={f.people.map(person).filter(Boolean).join(", ")}>{f.people.map(r => person(r) || r.email).filter(Boolean).slice(0, 3).join(", ") || <span className="f3">–</span>}{f.people.length > 3 && <span className="f3"> +{f.people.length - 3}</span>}</td>
-          <td className="c-st">{[...new Set(f.people.map(r => r.status))].map(st => <Dot key={st} s={st} />)}</td>
-          <td className="c-dom f2">{f.domain || <span className="f3">–</span>}</td>
-          <td className="c-src f2" title={f.sources.join(", ")}>{f.sources.join(", ")}</td>
-          <td className="c-kind"><KindTag k={kindOfAll(f.people)} /></td>
-          <td className="c-last f2">{f.last ? new Date(f.last).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" }) : <span className="f3">–</span>}</td>
-        </tr>) : <tr><td colSpan={8} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
-        {shown < firms.length && <tr ref={more} aria-hidden><td colSpan={8} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {firms.length}</td></tr>}
+      {level === "firma" ? <div className="tbl"><table className="leads firms" style={{ ...widthVars, "--dots": dots } as React.CSSProperties}><thead><tr>{shownF.map(th)}</tr></thead><tbody>
+        {firms.length ? firms.slice(0, shown).map(fRow) : <tr><td colSpan={shownF.length} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
+        {shown < firms.length && <tr ref={more} aria-hidden><td colSpan={shownF.length} className="f3" style={{ padding: "16px 0", textAlign: "center" }}>{shown} von {firms.length}</td></tr>}
       </tbody></table></div> :
-      <div className="tbl"><table className="leads" style={Object.fromEntries(Object.entries(widths).map(([k, w]) => [`--w-${k}`, `${w}px`]))}><thead><tr>
-        {shownCols.map(c => <th key={c.id} className={c.id} aria-label={c.aria}>{c.head !== undefined ? c.head : <div className="thc"><span>{c.label}</span>{c.filter}</div>}
-          {c.size && <span className="rsz" aria-hidden onPointerDown={e => resize(c.id, e)} onDoubleClick={() => unsize(c.id)} />}</th>)}</tr></thead><tbody>
+      <div className="tbl"><table className="leads" style={widthVars}><thead><tr>{shownCols.map(th)}</tr></thead><tbody>
         {vis.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={moved} accessibility={{ container: typeof document === "undefined" ? undefined : document.body }}>
           <SortableContext items={canDrag ? shownRows.filter(r => pos.has(r.id)).map(r => r.id) : []} strategy={verticalListSortingStrategy}>{grid.getRowModel().rows.map(x => row(x.original))}</SortableContext>
         </DndContext> :<tr><td colSpan={shownCols.length} className="f3" style={{ padding: "32px 0", textAlign: "center" }}>{rows.length ? "Keine Treffer." : "Noch keine Leads."}</td></tr>}
