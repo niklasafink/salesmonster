@@ -5,6 +5,7 @@ import { attachCompanies } from "@/lib/companies";
 import { hubspotAddNote, hubspotContactByEmail, hubspotToken } from "@/lib/hubspot";
 import { cleanLead } from "@/lib/lead-fields";
 import { setLeadStatus } from "@/lib/outreach";
+import { profileRef } from "@/lib/profiles";
 
 type Ctx = { params: Promise<{ id: string }> };
 const OK = ["neu", "freigabe", "angeschrieben", "beantwortet", "unzustellbar", "dublette", "kontakt", "papierkorb"];
@@ -72,6 +73,10 @@ export const PATCH = route<Ctx>(async (req, { params }, me) => {
   if (b.channel !== undefined) {
     if (!["", "mail", "linkedin"].includes(b.channel as string)) throw new HttpError(400, "Unbekannter Kanal");
     await db.update(leads).set({ channel: b.channel as string }).where(eq(leads.id, id));
+  }
+  if (b.profileId !== undefined) {
+    const ref = await profileRef(l.tenantId, b.profileId);
+    await db.update(leads).set({ profileId: ref ?? null }).where(eq(leads.id, id));
   }
   if (b.vote !== undefined) {
     if (![-1, 0, 1].includes(b.vote as number)) throw new HttpError(400, "Ungültige Bewertung");

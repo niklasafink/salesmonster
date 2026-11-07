@@ -7,6 +7,7 @@ import { templateStats } from "@/lib/drafts";
 import { mailboxOf, msConfigured } from "@/lib/mail";
 import { aiOptions, choiceId, choiceLabel } from "@/lib/ai";
 import { syncState } from "@/lib/mail-sync";
+import { listProfiles } from "@/lib/profiles";
 
 export const GET = route(async (req, _c, me) => {
   const all = (await db.select({ t: tenants }).from(tenants).innerJoin(members, eq(members.tenantId, tenants.id))
@@ -18,7 +19,7 @@ export const GET = route(async (req, _c, me) => {
   if (!t) return { ...base, tenant: null };
 
   const tpl = await db.select().from(templates).where(eq(templates.tenantId, t.id)).orderBy(asc(templates.key));
-  const tstats = await templateStats(t.id);
+  const [tstats, profs] = await Promise.all([templateStats(t.id), listProfiles(t.id)]);
 
   const drafts = await db.select({ m: messages, l: leads }).from(messages).innerJoin(leads, eq(leads.id, messages.leadId))
     .where(and(eq(messages.tenantId, t.id), inArray(messages.status, ["entwurf", "freigegeben", "uebersprungen"])))
@@ -36,6 +37,7 @@ export const GET = route(async (req, _c, me) => {
   return {
     ...base,
     tenant: { slug: t.slug, name: t.name, initials: t.initials, domain: t.domain, tenders: t.tenders, settings: t.settings, invoice: t.invoice },
+    profiles: profs.map(p => ({ id: p.id, name: p.name, audience: p.audience, isDefault: p.isDefault })),
     templates: tpl.map(x => { const s = tstats[x.key]; return { ...x, sent: s.sent + s.bounced, replies: s.replies, bounced: s.bounced, total: s.total, expected: s.expected, improved: s.improved }; }),
     drafts: drafts.map(({ m, l }) => ({
       to: m.to || l.email,

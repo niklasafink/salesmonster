@@ -81,6 +81,17 @@ export const tenants = pgTable("tenants", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/* A lead profile: a target group with its own templates (e.g. "Bekri": small audit firms). Each lead and template belongs to one;
+   profile_id null on a lead or template means the tenant's default profile (isDefault), so research and imports land there unless told otherwise */
+export const profiles = pgTable("profiles", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  audience: text("audience").notNull().default(""),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex("profiles_name").on(t.tenantId, t.name), uniqueIndex("profiles_default").on(t.tenantId).where(sql`${t.isDefault}`)]);
+
 /* Who may open a tenant. Each person works in their own tenants; nobody sees the others. */
 export const members = pgTable("members", {
   id: serial("id").primaryKey(),
@@ -120,6 +131,7 @@ export const templates = pgTable("templates", {
   active: boolean("active").notNull().default(true),
   origin: text("origin").notNull().default(""),
   score: jsonb("score").$type<TemplateScore>(),
+  profileId: integer("profile_id").references(() => profiles.id, { onDelete: "set null" }),
 }, t => [uniqueIndex("templates_key").on(t.tenantId, t.key)]);
 
 /* A company with one or more contacts. mode decides how they are written to:
@@ -175,6 +187,7 @@ export const leads = pgTable("leads", {
   fitInfo: jsonb("fit_info").$type<FitInfo | null>(),
   vote: integer("vote").notNull().default(0),
   angleId: integer("angle_id").references((): AnyPgColumn => angles.id, { onDelete: "set null" }),
+  profileId: integer("profile_id").references(() => profiles.id, { onDelete: "set null" }),
   /* fields a web search looked for and did not find, with when; the next search skips them unless asked to look again */
   enrichMiss: jsonb("enrich_miss").$type<Partial<Record<EnrichField, string>>>().notNull().default({}),
   /* channel set by hand (mail | linkedin), empty = as recommended (lib/lead-rating.ts channelOf); place in the send queue set by drag and drop;
@@ -190,7 +203,7 @@ export const leads = pgTable("leads", {
   stage: text("stage").notNull().default(""),
   touch: jsonb("touch").$type<Touch | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, t => [index("leads_tenant").on(t.tenantId, t.status), index("leads_rating").on(t.tenantId, t.rating), index("leads_company").on(t.companyId),
+}, t => [index("leads_tenant").on(t.tenantId, t.status), index("leads_rating").on(t.tenantId, t.rating), index("leads_company").on(t.companyId), index("leads_profile").on(t.tenantId, t.profileId),
   index("leads_email").on(t.tenantId, sql`lower(${t.email})`), uniqueIndex("leads_hs_contact").on(t.tenantId, t.hsContactId).where(sql`${t.hsContactId} <> ''`)]);
 
 /* A search direction of the research (e.g. an industry plus a trigger). Thompson sampling picks one per round by how its leads did;

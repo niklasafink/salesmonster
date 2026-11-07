@@ -3,6 +3,7 @@ import { db, messages, templates, tenants } from "@/db";
 import { HttpError, assertMember, body, idOf, route } from "@/lib/api";
 import { PLACEHOLDERS } from "@/lib/fill";
 import { unknownPlaceholders } from "@/lib/playbook";
+import { profileRef } from "@/lib/profiles";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -24,6 +25,7 @@ export const PUT = route<Ctx>(async (req, { params }, me) => {
     if (typeof b.active !== "boolean") throw new HttpError(400, "Ungültige Eingabe");
     set.active = b.active;
   }
+  if ("profileId" in b) set.profileId = (await profileRef(t.tenantId, b.profileId)) ?? null;
   if (!Object.keys(set).length) return;
   const text = `${set.subject ?? ""} ${set.body ?? ""}`;
   if (/{{|}}/.test(text.replace(/{{[^{}]*}}/g, ""))) throw new HttpError(400, "Platzhalter unvollständig");

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql, isNull } from "drizzle-orm";
 import { db, leads, members, messages, runs, templates, tenants, users, type MailScore, type TemplateScore } from "@/db";
 import { getInteg } from "./integrations";
 import { writeMails } from "./writer";
@@ -52,13 +52,14 @@ export async function optimizeTemplates(t: Tenant) {
   if (!jev) throw new Error("OpenRouter ist nicht verbunden (für Jev)");
 
   const sample = await db.select().from(leads)
-    .where(and(eq(leads.tenantId, t.id), t.tenders ? sql`jsonb_array_length(${leads.tenders}) > 0` : sql`${leads.hook} <> ''`))
+    .where(and(eq(leads.tenantId, t.id), isNull(leads.profileId), t.tenders ? sql`jsonb_array_length(${leads.tenders}) > 0` : sql`${leads.hook} <> ''`))
     .orderBy(desc(leads.createdAt)).limit(SAMPLE);
   if (!sample.length) throw new Error("Noch keine Leads mit Anlass zum Testen");
   const [me] = await db.select({ name: users.name }).from(users).innerJoin(members, eq(members.userId, users.id)).where(eq(members.tenantId, t.id)).orderBy(asc(users.id)).limit(1);
   const sender = me?.name || "";
 
-  let active = await db.select().from(templates).where(and(eq(templates.tenantId, t.id), eq(templates.active, true))).orderBy(asc(templates.key));
+  /* only the default profile's templates: other profiles (lib/profiles.ts) have their own target group and their texts are the user's */
+  let active = await db.select().from(templates).where(and(eq(templates.tenantId, t.id), eq(templates.active, true), isNull(templates.profileId))).orderBy(asc(templates.key));
   if (!active.length) throw new Error("Keine aktive Vorlage");
   for (const tpl of active) {
     if (tpl.score?.hash === hashOf(tpl, sample)) continue;

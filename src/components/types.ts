@@ -1,7 +1,8 @@
 import type { InvoiceSettings, TenantSettings, Tender } from "@/db/schema";
 
 export type Person = { id: number; name: string; short: string; email: string; phone: string };
-export type Tpl = { id: number; key: string; name: string; tone: string; subject: string; body: string; active: boolean; sent: number; replies: number; bounced: number; total: number | null; expected: number; improved: { sent: number; replies: number } };
+export type Profile = { id: number; name: string; audience: string; isDefault: boolean };
+export type Tpl = { id: number; key: string; profileId: number | null; name: string; tone: string; subject: string; body: string; active: boolean; sent: number; replies: number; bounced: number; total: number | null; expected: number; improved: { sent: number; replies: number } };
 export type DraftLead = { id: number; company: string; city: string; first: string; last: string; salutation: string; role: string; email: string; emailType: string;
   linkedin: string; hook: string; tenders: Tender[]; source: string; website: string; sourceUrl: string };
 export type DraftPerson = { first: string; last: string; salutation: string; role: string; email: string };
@@ -12,7 +13,7 @@ export type TenantInfo = { slug: string; name: string; initials: string; domain:
 
 export type State = {
   me: Person; users: Person[]; tenants: { slug: string; name: string; initials: string }[];
-  tenant: TenantInfo | null; templates: Tpl[]; drafts: Draft[];
+  tenant: TenantInfo | null; templates: Tpl[]; profiles: Profile[]; drafts: Draft[];
   integ: Record<string, { on: boolean; detail: string }>; msConfigured: boolean; mailbox: Record<number, string | null>; runs: Run[];
   setup: { step: string; done: boolean; started: boolean };
   ai: { options: { id: string; label: string }[]; current: string | null };

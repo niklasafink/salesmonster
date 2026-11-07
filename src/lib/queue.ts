@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { db, leads, messages, tenants } from "@/db";
+import { db, leads, messages, templates, tenants } from "@/db";
 import { addDaysIso, berlinDate, berlinWeekday } from "./dates";
 import { blockedOf, blockedWhy } from "./suppress";
 import { getInteg } from "./integrations";
@@ -25,7 +25,9 @@ export async function mailQueue(t: Tenant, now = new Date()): Promise<QueueLead[
   const tomorrow = berlinWeekday(new Date(now.getTime() + 864e5)), hold = !!t.settings.holdTop && !["Tue", "Wed"].includes(tomorrow);
   const rows = await db.select({ id: leads.id, companyId: leads.companyId, email: leads.email, emailType: leads.emailType, linkedin: leads.linkedin, website: leads.website, channel: leads.channel,
     queueRank: leads.queueRank, grade: sql<string>`coalesce(${leads.ratingInfo}->>'grade', '')` }).from(leads)
-    .where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`, isNull(leads.crmAt)))
+    .where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`, isNull(leads.crmAt),
+      /* leads of an extra profile (lib/profiles.ts) wait until that profile has an active template; the default profile as before */
+      sql`(${leads.profileId} is null or exists (select 1 from ${templates} where ${templates.tenantId} = ${t.id} and ${templates.active} and ${templates.profileId} = ${leads.profileId}))`))
     .orderBy(sql`${leads.queueRank} asc nulls last`, sql`${leads.rating} desc nulls last`, asc(leads.createdAt), asc(leads.id));
   const onLi = await linkedinOn(t.id), bounced = onLi ? await bouncedDomains(t.id) : [], blocked = await blockedOf(t.id);
   const gone = new Set((await db.selectDistinct({ c: leads.companyId }).from(leads).where(and(eq(leads.tenantId, t.id), isNotNull(leads.sendpilotAt)))).map(r => r.c));
@@ -61,7 +63,9 @@ export const nextUp = (q: QueueLead[], n: number) => batches(q, n)[0] ?? [];
 export async function liQueue(t: Tenant) {
   if (!t.settings.sendpilotCampaign || !await linkedinOn(t.id)) return [];
   const bounced = await bouncedDomains(t.id);
-  const open = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`, isNull(leads.crmAt)))
+  const open = await db.select().from(leads).where(and(eq(leads.tenantId, t.id), eq(leads.status, "neu"), sql`${leads.sendpilotAt} is null`, isNull(leads.crmAt),
+      /* leads of an extra profile (lib/profiles.ts) wait until that profile has an active template; the default profile as before */
+      sql`(${leads.profileId} is null or exists (select 1 from ${templates} where ${templates.tenantId} = ${t.id} and ${templates.active} and ${templates.profileId} = ${leads.profileId}))`))
     .orderBy(sql`${leads.queueRank} asc nulls last`, sql`${leads.rating} desc nulls last`, asc(leads.createdAt), asc(leads.id));
   const blocked = await blockedOf(t.id);
   return open.filter(l => channelOf(l, bounced).ch === "linkedin" && !blockedWhy(blocked, l)).map(l => l.id);

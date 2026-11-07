@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Building2, Calendar, Check, CheckCheck, CircleAlert, ChevronDown, ChevronUp, ChevronsUpDown, Columns3, Copy, Database, Dot, Download, ExternalLink, FileCheck2, FileText, Globe, GripVertical,
-  Inbox, KeyRound, Landmark, LayoutDashboard, ListFilter, ListTodo, LoaderCircle, LogOut, Mail, Menu, Phone, Plus, Presentation, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, StickyNote, SunMoon,
+  Inbox, KeyRound, Landmark, LayoutDashboard, ListFilter, ListTodo, LoaderCircle, LogOut, Mail, Menu, Phone, Plus, Presentation, ReceiptText, Search, Send, Server, Settings2, Sparkles, Square, StickyNote, SunMoon, Tag,
   Target, ThumbsDown, ThumbsUp, Trash2, TriangleAlert, Undo2, Upload, User, UserCheck, UserPlus, Users, Workflow, X, type LucideIcon,
 } from "lucide-react";
 
@@ -12,7 +12,7 @@ const ICONS: Record<string, LucideIcon> = {
   "chevron-up": ChevronUp, "chevrons-up-down": ChevronsUpDown, "columns-3": Columns3, copy: Copy, database: Database, dot: Dot, download: Download, "external-link": ExternalLink, "file-check-2": FileCheck2, "file-text": FileText,
   globe: Globe, "grip-vertical": GripVertical, inbox: Inbox, "key-round": KeyRound, landmark: Landmark, "layout-dashboard": LayoutDashboard, "list-filter": ListFilter, "list-todo": ListTodo, loader: LoaderCircle, "log-out": LogOut, mail: Mail,
   menu: Menu, phone: Phone, plus: Plus, presentation: Presentation, "receipt-text": ReceiptText, search: Search, send: Send, server: Server, "settings-2": Settings2, sparkles: Sparkles, square: Square, "sticky-note": StickyNote, "sun-moon": SunMoon,
-  target: Target, "thumbs-down": ThumbsDown, "thumbs-up": ThumbsUp, "trash-2": Trash2, "triangle-alert": TriangleAlert, "undo-2": Undo2, upload: Upload, user: User, "user-check": UserCheck, "user-plus": UserPlus, users: Users, workflow: Workflow, x: X,
+  tag: Tag, target: Target, "thumbs-down": ThumbsDown, "thumbs-up": ThumbsUp, "trash-2": Trash2, "triangle-alert": TriangleAlert, "undo-2": Undo2, upload: Upload, user: User, "user-check": UserCheck, "user-plus": UserPlus, users: Users, workflow: Workflow, x: X,
 };
 
 export function Icon({ n, className }: { n: string; className?: string }) {

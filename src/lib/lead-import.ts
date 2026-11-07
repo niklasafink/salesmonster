@@ -173,14 +173,14 @@ export async function checkLeads(tenantId: number, input: LeadRow[]): Promise<Ch
 }
 
 /* Inserts rows as given (the dialog already left out duplicates) and files them under their company */
-export async function insertLeads(tenantId: number, rows: LeadRow[], source: string) {
+export async function insertLeads(tenantId: number, rows: LeadRow[], source: string, profileId: number | null = null) {
   if (!rows.length) return [];
   const vals = rows.map(r => {
     const [first, ...rest] = (r.p || "").trim().split(/\s+/);
     const email = validEmail((r.email || "").trim()) ? (r.email || "").trim() : "";
     return { tenantId, company: r.co.trim(), first: r.p ? first : "", last: r.p ? rest.join(" ") : "", role: r.role || "",
       email, emailType: emailTypeOf(email, !!r.p?.trim()), phone: (r.phone || "").trim().slice(0, 120), website: httpUrl(r.web || ""),
-      city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: httpUrl(r.li || ""), hook: r.hook || "", note: (r.note || "").slice(0, 4000), research: (r.research || "").slice(0, 4000), sourceUrl: httpUrl(r.url || ""), source: source || "Import", status: "neu" };
+      city: r.city || "", salutation: salutationOf(r.sal || ""), linkedin: httpUrl(r.li || ""), hook: r.hook || "", note: (r.note || "").slice(0, 4000), research: (r.research || "").slice(0, 4000), sourceUrl: httpUrl(r.url || ""), source: source || "Import", status: "neu", profileId };
   });
   const ids = (await db.insert(leads).values(vals).returning({ id: leads.id })).map(r => r.id);
   await attachCompanies(tenantId);
@@ -201,9 +201,9 @@ export async function fillLeads(tenantId: number, rows: (LeadRow & { id: number 
 }
 
 /* Check and insert in one go, for callers without a preview step */
-export async function addLeads(tenantId: number, rows: LeadRow[], source: string) {
+export async function addLeads(tenantId: number, rows: LeadRow[], source: string, profileId: number | null = null) {
   const checked = await checkLeads(tenantId, rows);
-  const added = await insertLeads(tenantId, checked.filter(r => !r.dup && !r.id), source);
+  const added = await insertLeads(tenantId, checked.filter(r => !r.dup && !r.id), source, profileId);
   await fillLeads(tenantId, checked.filter((r): r is CheckedRow & { id: number } => !r.dup && !!r.id));
   return { added, skipped: checked.filter(r => r.dup).map(r => ({ company: r.co, why: r.dup })) };
 }

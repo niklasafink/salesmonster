@@ -43,13 +43,17 @@ export async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise
 }
 
 /* Thompson sampling: each draft goes to the template whose sampled reply rate is highest.
-   The prior (worth 20 sends) comes from the template's score, so a well-scored new template gets tried more; replies take over. */
+   The prior (worth 20 sends) comes from the template's score, so a well-scored new template gets tried more; replies take over.
+   Only the templates of the lead's profile compete (null = default profile); the queue only holds leads whose profile has one. */
 async function pickVariant(tenantId: number) {
   const act = await db.select().from(templates).where(and(eq(templates.tenantId, tenantId), eq(templates.active, true))).orderBy(asc(templates.key));
   if (!act.length) throw new Error("Keine aktive Vorlage");
   const all = await templateStats(tenantId);
-  const st = act.map(t => [t.key, all[t.key]] as const);
-  return () => st.map(([k, x]) => [k, beta(1 + x.replies + 20 * x.prior, 1 + Math.max(0, x.sent - x.replies) + 20 * (1 - x.prior))] as const).sort((a, b) => b[1] - a[1])[0][0];
+  return (profileId: number | null) => {
+    const st = act.filter(t => t.profileId === profileId).map(t => [t.key, all[t.key]] as const);
+    if (!st.length) return null;
+    return st.map(([k, x]) => [k, beta(1 + x.replies + 20 * x.prior, 1 + Math.max(0, x.sent - x.replies) + 20 * (1 - x.prior))] as const).sort((a, b) => b[1] - a[1])[0][0];
+  };
 }
 
 
@@ -201,8 +205,9 @@ async function research(t: Tenant, opts: { force?: boolean }) {
   /* 3. drafts, each scored before anyone reads it */
   const made: number[] = [];
   for (const u of units) {
-    const ids = u.leads.map(l => l.id);
-    const [m] = await db.insert(messages).values({ tenantId: t.id, leadId: ids[0], leadIds: ids, to: u.to.join(", "), batchDate: today, variant: nextVariant(), channel: u.to.length ? "mail" : "linkedin" }).returning({ id: messages.id });
+    const ids = u.leads.map(l => l.id), variant = nextVariant(u.leads[0].profileId);
+    if (!variant) continue;
+    const [m] = await db.insert(messages).values({ tenantId: t.id, leadId: ids[0], leadIds: ids, to: u.to.join(", "), batchDate: today, variant, channel: u.to.length ? "mail" : "linkedin" }).returning({ id: messages.id });
     made.push(m.id);
     await db.update(leads).set({ status: "freigabe" }).where(inArray(leads.id, ids));
   }

@@ -14,7 +14,7 @@ type EnrichJob = { id: number; status: string; error: string; total: number; don
 import { ENRICH, LeadDialog, RatingBar, STATUS, TOUCHES, emptyLead, prefetchLead, type EditLead } from "../lead-dialog";
 import { AnglesDialog } from "../angles-dialog";
 import { LeadChat, type ChatChange } from "../lead-chat";
-import type { Ctx } from "../types";
+import type { Ctx, Profile } from "../types";
 import { FIELDS, clean, splitTable, type Column, type Field } from "@/lib/lead-columns";
 import { mdTable, parseCsv, toCsv, toTsv } from "@/lib/sheet";
 import { addDaysIso, berlinDate } from "@/lib/dates";
@@ -22,7 +22,7 @@ import { DAY_NAMES, isoWeekday } from "@/lib/schedule";
 import { KIND_LABEL, inKind, kindOf, kindOfAll, type Kind, type KindFilter } from "@/lib/lead-kind";
 
 type Lead = EditLead & { id: number; companyId: number | null; source: string; tenders: Tender[]; lastContactAt: string | null; createdAt: string; rating: number | null; ratingInfo: RatingInfo | null; vote: number; enrichMiss: Partial<Record<EnrichField, string>>;
-  channelRec: { ch: "mail" | "linkedin" | "none"; text: string }; sendpilotAt: string | null; prospect: boolean; crmAt: string | null; stage: string; hsContactId: string; touch: Touch | null };
+  channelRec: { ch: "mail" | "linkedin" | "none"; text: string }; sendpilotAt: string | null; profileId?: number | null; prospect: boolean; crmAt: string | null; stage: string; hsContactId: string; touch: Touch | null };
 type Sheet = { sheet: string; data: unknown[][] };
 type Company = { id: number; name: string; mode: string; email: string; hubspotId: string; domain: string };
 type Campaign = { id: string; name: string; status: string; totalLeads: number };
@@ -34,7 +34,7 @@ const FILTERS = ["alle", "neu", "freigabe", "angeschrieben", "beantwortet", "unz
 /* someone only in the CRM comes with the shown columns; the rest are the values a lead without them has */
 const CRM_DEFAULTS: Omit<Lead, "id" | "company" | "createdAt"> = { companyId: null, salutation: "", first: "", last: "", role: "", email: "", emailType: "person", phone: "", linkedin: "", website: "", city: "",
   hook: "", note: "", sourceUrl: "", status: "kontakt", tenders: [], source: "HubSpot", lastContactAt: null, rating: null, ratingInfo: null, vote: 0, enrichMiss: {}, channel: "",
-  channelRec: { ch: "none", text: "Registriert, wird nicht kalt angeschrieben" }, sendpilotAt: null, prospect: false, crmAt: null, stage: "", hsContactId: "", touch: null };
+  channelRec: { ch: "none", text: "Registriert, wird nicht kalt angeschrieben" }, sendpilotAt: null, profileId: null, prospect: false, crmAt: null, stage: "", hsContactId: "", touch: null };
 
 /* the kind filter (leads, CRM, both) and whether the list shows people or companies; both stay per browser */
 const KINDS: [KindFilter, string][] = [["alle", "Leads + CRM"], ["lead", "Leads"], ["crm", "CRM"]];
@@ -173,6 +173,9 @@ export const matches = (hay: string, q: string) => { const h = fold(hay), u = um
 
 export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | null; onFocused?: () => void }) {
   const t = ctx.st.tenant!;
+  const [profs, setProfs] = useState<Profile[]>([]), [pf, setPfS] = useState("alle");
+  useEffect(() => { const v = keep.get(`leads-profile-${t.slug}`); if (v) setPfS(v); }, [t.slug]);
+  const setPf = (v: string) => { setPfS(v); keep.set(`leads-profile-${t.slug}`, v); };
   const [rows, setRows] = useState<Lead[]>([]), [cos, setCos] = useState<Company[]>([]), [filter, setFilter] = useState("alle"), [src, setSrc] = useState("alle"), [q, setQ] = useState("");
   const [imp, setImp] = useState<null | { text: string; src: string; auto?: boolean; cols?: Column[] | null; rows: Parsed[] | null; busy: boolean }>(null);
   const [sheets, setSheets] = useState<{ list: Sheet[]; i: number } | null>(null), [drag, setDrag] = useState(false);
@@ -224,8 +227,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const seq = useRef(0);
   const load = useCallback(() => {
     const n = ++seq.current;
-    return api<{ rows: Lead[]; crm?: Partial<Lead>[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string> }>(`/api/leads?t=${t.slug}`)
-      .then(r => { if (n !== seq.current) return; setRows([...r.rows, ...(r.crm || []).map(c => ({ ...CRM_DEFAULTS, ...c }) as Lead)]); setCos(r.companies); setOrder(r.order); setDays(r.days || {}); })
+    return api<{ rows: Lead[]; crm?: Partial<Lead>[]; companies: Company[]; order: number[]; next: number[]; days: Record<number, string>; profiles?: Profile[] }>(`/api/leads?t=${t.slug}`)
+      .then(r => { if (n !== seq.current) return; setProfs(r.profiles || []); setRows([...r.rows, ...(r.crm || []).map(c => ({ ...CRM_DEFAULTS, ...c }) as Lead)]); setCos(r.companies); setOrder(r.order); setDays(r.days || {}); })
       .catch(e => { if (n === seq.current) ctx.toast(e.message, { error: true }); });
   }, [t.slug, ctx]);
   useEffect(() => { load(); }, [load]);
@@ -259,7 +262,12 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const ctypes = [...rows.reduce((m, r) => r.ratingInfo?.type ? m.set(r.ratingInfo.type, (m.get(r.ratingInfo.type) || 0) + 1) : m, new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([k]) => k);
   /* a kind kept from another tenant or an older list counts as none chosen */
   const ct = ctypes.includes(ctype) ? ctype : "alle";
-  const rated = (r: Lead) => (grade === "alle" || (grade === "ohne" ? r.rating === null : r.ratingInfo?.grade === grade))
+  /* lead profiles: "" = default (profileId null), else the id; the filter is kept per tenant */
+  const multi = profs.length > 1, pkey = (r: Lead) => r.profileId == null ? "" : String(r.profileId);
+  const pfOk = multi && (pf === "alle" || pf === "" || profs.some(p => String(p.id) === pf)) ? pf : "alle";
+  const profName = (r: Lead) => (r.profileId == null ? profs.find(p => p.isDefault) : profs.find(p => p.id === r.profileId))?.name || "";
+  const profOpts: [string, string][] = profs.map(p => [p.isDefault ? "" : String(p.id), p.name]);
+  const rated = (r: Lead) => (pfOk === "alle" || pkey(r) === pfOk) && (grade === "alle" || (grade === "ohne" ? r.rating === null : r.ratingInfo?.grade === grade))
     && (ct === "alle" || r.ratingInfo?.type === ct) && (!tf.length || tf.some(k => touched(r.touch, k)));
   const inFilter = (r: Lead, s: string) => s === "alle" ? r.status !== "papierkorb" : r.status === s;
   /* status counts follow the kind and company chosen, so the tabs add up to what the list shows */
@@ -278,13 +286,13 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   const byQueue = (a: Lead, b: Lead) => (days[a.id] || "9").localeCompare(days[b.id] || "9") || (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity) || sorters.bewertung(a, b);
   const vis = scoped.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && rated(r) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q)).sort(sort === "versand" ? byQueue : sorters[sort]);
   /* dragging only where the whole queue is in view, so a move means the same as in the list */
-  const canDrag = sort === "versand" && src === "alle" && grade === "alle" && ct === "alle" && !tf.length && !q.trim() && (filter === "alle" || filter === "neu") && kind !== "crm" && coF == null;
+  const canDrag = sort === "versand" && src === "alle" && pfOk === "alle" && grade === "alle" && ct === "alle" && !tf.length && !q.trim() && (filter === "alle" || filter === "neu") && kind !== "crm" && coF == null;
   /* the companies view: the people that pass the filters, one row per company, in the order of their first person */
   const firms = level === "firma" ? firmsOf(vis, cos) : [];
   const total = level === "firma" ? firms.length : vis.length;
   /* only the first rows are drawn; the rest follow as the end of the table is scrolled into view */
   const shownRows = vis.slice(0, shown);
-  useEffect(() => { setShown(PAGE); }, [filter, src, q, sort, kind, level, coF, grade, ctype, tf]);
+  useEffect(() => { setShown(PAGE); }, [filter, src, q, sort, kind, level, coF, grade, ctype, tf, pf]);
   useEffect(() => {
     const el = more.current;
     if (!el || shown >= total) return;
@@ -327,6 +335,14 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     const next = r.vote === v ? 0 : v;
     setRows(rs => rs.map(x => x.id === r.id ? { ...x, vote: next } : x));
     try { await api(`/api/leads/${r.id}`, { method: "PATCH", body: { vote: next } }); load(); }
+    catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
+  }
+  /* puts one lead, or the ticked ones, into a profile; the send days follow on the next read (only profiles with an active template are written to) */
+  async function assign(ids: number[], v: string) {
+    const profileId = v ? Number(v) : null;
+    setRows(rs => rs.map(x => ids.includes(x.id) ? { ...x, profileId } : x));
+    try { const r = await api<{ n: number }>("/api/leads", { method: "PATCH", body: { t: t.slug, ids, profile: profileId } });
+      ctx.toast(`${r.n} ${r.n === 1 ? "Lead" : "Leads"} im Profil ${profs.find(p => (p.isDefault ? null : p.id) === profileId)?.name || ""}`); load(); }
     catch (e) { ctx.toast((e as Error).message, { error: true }); load(); }
   }
   /* Files become tab-separated text with header row and go straight to the column view */
@@ -484,6 +500,10 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     { id: "c-type", label: "Firmentyp", size: true, filter: ctypes.length > 0 && <Select className={`thf${ct !== "alle" ? " on" : ""}`} value={ct} onChange={setCtype} label="Firmentyp filtern"
       options={[["alle", "Alle Firmentypen"], ...ctypes.map(c => [c, c] as [string, string])]}><Icon n="list-filter" /></Select>,
       td: r => <td className="c-type f2" title={r.ratingInfo?.type || undefined}>{r.ratingInfo?.type || none}</td> },
+    ...(multi ? [{ id: "c-prof", label: "Profil", size: true,
+      filter: <Select className={`thf${pfOk !== "alle" ? " on" : ""}`} value={pfOk} onChange={setPf} label="Profil filtern" options={[["alle", "Alle Profile"], ...profOpts]}><Icon n="list-filter" /></Select>,
+      td: (r: Lead) => <td className="c-prof f2" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+        <Select className="cellsel" value={pkey(r)} onChange={v => v !== pkey(r) && assign([r.id], v)} label={`Profil von ${person(r) || r.company}`} options={profOpts} /></td> }] : []),
     { id: "c-src", label: "Quelle", size: true, filter: <Select className={`thf${src !== "alle" ? " on" : ""}`} value={src} onChange={setSrc} label="Quelle filtern"
       options={[["alle", "Alle Quellen"], ...srcs.map(s => [s, s] as [string, string])]}><Icon n="list-filter" /></Select>, td: r => <td className="c-src f2">{srcCell(r)}</td> },
     { id: "c-kind", label: "Art", size: true, td: r => <td className="c-kind" title={kindTitle(r)}><KindTag k={kindOf(r)} /></td> },
@@ -518,9 +538,9 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   /* the ticked leads, else all in view, in the order shown */
   function csv() {
     const list = picked.length ? vis.filter(r => sel.has(r.id)) : vis;
-    const lines = [["Firma", "Anrede", "Vorname", "Nachname", "Rolle", "E-Mail", "Telefon", "LinkedIn", "Website", "Ort", "Status", "Bewertung", "Note", "Firmentyp", "Persönlicher Kontakt", "Quelle", "Art", "Registriert", "Letzter Kontakt", "Angelegt", "Notiz"],
+    const lines = [["Firma", "Anrede", "Vorname", "Nachname", "Rolle", "E-Mail", "Telefon", "LinkedIn", "Website", "Ort", "Status", "Bewertung", "Note", "Firmentyp", "Persönlicher Kontakt", "Quelle", "Art", "Registriert", "Letzter Kontakt", "Angelegt", "Notiz", "Profil"],
       ...list.map(r => [r.company, r.salutation, r.first, r.last, r.role, r.email, r.phone, r.linkedin, r.website, r.city, STATUS[r.status]?.[0] || r.status, r.rating ?? "", r.ratingInfo?.grade ?? "", r.ratingInfo?.type ?? "",
-        r.touch ? TOUCHES.filter(([k]) => r.touch![k]).map(([, l]) => l).join(", ") : "", r.source, KIND_LABEL[kindOf(r)], day(r.crmAt), day(r.lastContactAt), day(r.createdAt), r.note])];
+        r.touch ? TOUCHES.filter(([k]) => r.touch![k]).map(([, l]) => l).join(", ") : "", r.source, KIND_LABEL[kindOf(r)], day(r.crmAt), day(r.lastContactAt), day(r.createdAt), r.note, profName(r)])];
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([toCsv(lines)], { type: "text/csv;charset=utf-8" })); a.download = `leads-${t.slug}-${berlinDate()}.csv`; a.click();
   }
 
@@ -536,6 +556,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
         </button>
         <button className="btn gh ic" title="Stoppen" aria-label="Stoppen" onClick={stopEnrich}><Icon n="square" /></button>
       </div> : <button className="btn sec" onClick={openEnrich}><Icon n="sparkles" />Anreichern{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>}
+      {multi && picked.length > 0 && <Select className="btn sec" value="" onChange={v => assign(picked.map(r => r.id), v)} label="Profil der ausgewählten Leads"
+        options={profOpts}><Icon n="tag" />Profil<span className="num f3">{picked.length}</span></Select>}
       <button className="btn sec" onClick={csv} disabled={!vis.length}><Icon n="download" /><span className="hide-m">Export</span>{picked.length > 0 && <span className="num f3">{picked.length}</span>}</button>
       <button className="btn sec" onClick={() => setAngles(true)}><Icon n="target" />Suchrichtungen</button>
       <button className="btn sec" onClick={() => setEdit(emptyLead())}><Icon n="plus" />Kontakt</button>
@@ -552,7 +574,8 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
             options={FILTERS.map(k => [k, <>{k !== "alle" && <Dot s={k} />}{k === "alle" ? "Alle" : STATUS[k][0]}<span className="c">{cnt(k)}</span></>])} />
           {/* filters set in a column header, shown here too so they stay visible in the companies view and while their column is hidden */}
           {([[grade !== "alle", GRADES.find(([k]) => k === grade)?.[1], () => setGrade("alle"), "Notenfilter"], [ct !== "alle", ct, () => setCtype("alle"), "Firmentypfilter"],
-            [tf.length > 0, TOUCH_OPTS.filter(([k]) => tf.includes(k)).map(([, l]) => l).join(", "), () => setTf([]), "Kontaktfilter"], [src !== "alle", `Quelle: ${src}`, () => setSrc("alle"), "Quellenfilter"]] as const)
+            [tf.length > 0, TOUCH_OPTS.filter(([k]) => tf.includes(k)).map(([, l]) => l).join(", "), () => setTf([]), "Kontaktfilter"], [src !== "alle", `Quelle: ${src}`, () => setSrc("alle"), "Quellenfilter"],
+            [pfOk !== "alle", `Profil: ${profs.find(p => (p.isDefault ? "" : String(p.id)) === pfOk)?.name || ""}`, () => setPf("alle"), "Profilfilter"]] as const)
             .map(([on, l, clear, what]) => on && <span key={what} className="chip">{l}<button onClick={clear} aria-label={`${what} entfernen`}><Icon n="x" /></button></span>)}
           {coF != null && <span className="chip">{(cos.find(c => c.id === coF)?.name || rows.find(r => r.companyId === coF)?.company || "Firma")}<button onClick={() => setCoF(null)} aria-label="Firmenfilter entfernen"><Icon n="x" /></button></span>}
         </div>

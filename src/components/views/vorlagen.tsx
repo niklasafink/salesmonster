@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { PLACEHOLDERS, fill, type FillLead } from "@/lib/fill";
-import { Icon, Top, api, pct, rate, useAutosize } from "../ui";
+import { Icon, Select, Top, api, pct, rate, useAutosize } from "../ui";
 import type { Ctx, Tpl } from "../types";
 
 const SAMPLE: FillLead = { company: "Muster Bau GmbH", first: "Katrin", last: "Albers", salutation: "Frau", emailType: "person", hook: "die neue Niederlassung in Halle",
@@ -18,7 +18,11 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
   const sample = st.drafts[0]?.lead || SAMPLE;
   const set = (p: Partial<Tpl>) => setList(ls => ls.map(x => x.key === cur.key ? { ...x, ...p } : x));
 
-  const fields = () => ({ subject: cur.subject, body: cur.body, name: cur.name.trim() || `Vorlage ${cur.key}`, tone: cur.tone });
+  const fields = () => ({ subject: cur.subject, body: cur.body, name: cur.name.trim() || `Vorlage ${cur.key}`, tone: cur.tone, profileId: cur.profileId });
+  /* each template belongs to one lead profile (null = default); only that profile's leads are written with it */
+  const profs = st.profiles || [], multi = profs.length > 1;
+  const profName = (id: number | null) => (id == null ? profs.find(p => p.isDefault) : profs.find(p => p.id === id))?.name || "";
+  const profOpts: [string, string][] = profs.map(p => [p.isDefault ? "" : String(p.id), p.name]);
   async function saveTpl() {
     try { await api(`/api/templates/${cur.id}`, { method: "PUT", body: fields() }); ctx.toast(`${fields().name} gespeichert`); ctx.reload(); }
     catch (e) { ctx.toast((e as Error).message, { error: true }); }
@@ -29,7 +33,7 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
     try { await api(`/api/templates/${cur.id}`, { method: "PUT", body: { ...fields(), active } }); set({ active }); ctx.reload(); } catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   async function add() {
-    try { const r = await api<{ key: string }>("/api/templates", { body: { t: t.slug } }); await ctx.reload(); setK(r.key); setMode("edit"); }
+    try { const r = await api<{ key: string }>("/api/templates", { body: { t: t.slug, profileId: cur?.profileId ?? null } }); await ctx.reload(); setK(r.key); setMode("edit"); }
     catch (e) { ctx.toast((e as Error).message, { error: true }); }
   }
   async function remove() {
@@ -53,11 +57,13 @@ export function Vorlagen({ ctx }: { ctx: Ctx }) {
     </Top>
     <div className="scroll"><div className="wrap"><div className="tpl">
       <div className="vlist">{list.map(x => <button key={x.key} className={`vitem ${x.key === cur.key ? "on" : ""}`} onClick={() => setK(x.key)}>
-        <span className="top2"><span className="vc">{x.key}</span><span className="vn">{x.name}</span>{!x.active && <span className="pill">Pausiert</span>}<span className="rate">{x.sent ? pct(rate(x)) : "–"}</span></span></button>)}</div>
+        <span className="top2"><span className="vc">{x.key}</span><span className="vn">{x.name}</span>{multi && <span className="pill" title="Profil">{profName(x.profileId)}</span>}{!x.active && <span className="pill">Pausiert</span>}<span className="rate">{x.sent ? pct(rate(x)) : "–"}</span></span></button>)}</div>
       <div className="doc">
         <div className="thead">
           <span className="vc">{cur.key}</span>
           <input className="tname" value={cur.name} onChange={e => set({ name: e.target.value })} aria-label="Name der Vorlage" />
+          {multi && <Select className="inp sel" value={cur.profileId == null ? "" : String(cur.profileId)} label="Profil der Vorlage" options={profOpts}
+            onChange={v => set({ profileId: v ? Number(v) : null })} />}
           <div className="seg"><button className={cur.tone === "sie" ? "on" : ""} onClick={() => set({ tone: "sie" })}>Sie</button><button className={cur.tone === "du" ? "on" : ""} onClick={() => set({ tone: "du" })}>Du</button></div>
           <span className="f3">Aktiv</span><button className={`sw ${cur.active ? "on" : ""}`} onClick={toggle} role="switch" aria-checked={cur.active} aria-label="Vorlage aktiv" />
           {!cur.active && !cur.sent && <button className="btn gh ic" onClick={remove} aria-label="Vorlage löschen" title="Löschen"><Icon n="trash-2" /></button>}

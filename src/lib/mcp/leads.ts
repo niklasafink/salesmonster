@@ -1,7 +1,8 @@
-import { and, count, desc, eq, ilike, inArray, isNotNull, or, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, isNotNull, isNull, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db, leads } from "@/db";
+import { listProfiles, profileRef } from "@/lib/profiles";
 import { attachCompanies } from "@/lib/companies";
 import { cleanLead, emailTypeOf } from "@/lib/lead-fields";
 import { HttpError, checkEmail, tenantBySlug } from "@/lib/api";
@@ -14,6 +15,7 @@ import { tool } from "./tool";
 const tenant = z.string().describe("Slug des Mandanten aus tenants_list");
 const run = z.number().int().optional().describe("runId aus workflow_start, wenn du einen Workflow ausführst; ohne Workflow weglassen");
 const s = (d: string) => z.string().trim().optional().describe(d);
+const profile = z.string().trim().optional().describe("Name des Lead-Profils aus tenants_list (profiles); ohne = Standardprofil");
 
 const SAL = "Anrede mit Titel: Herr, Frau, Herr Dr., Frau Dr., Herr Prof. Dr. oder Frau Prof. Dr."
 
@@ -42,17 +44,18 @@ const edit = z.object({
   hook: s("Aufhänger: konkreter Anlass für die erste Mail, z. B. eine passende Ausschreibung"), note: s("Notiz"),
   sourceUrl: s("URL, unter der die Angaben gefunden wurden"), research: s("Rechercheergebnis als Text"),
   status: z.enum(STATUS).optional().describe("Neuer Status"),
+  profile: z.string().trim().optional().describe("Name des Lead-Profils, in das der Lead wechselt"),
 });
 
 const FIELDS = { id: leads.id, companyId: leads.companyId, company: leads.company, salutation: leads.salutation, first: leads.first, last: leads.last, role: leads.role, email: leads.email, emailType: leads.emailType,
-  linkedin: leads.linkedin, website: leads.website, phone: leads.phone, lastContactAt: leads.lastContactAt, city: leads.city, hook: leads.hook, note: leads.note, status: leads.status, source: leads.source, sourceUrl: leads.sourceUrl, prospect: leads.prospect, crmAt: leads.crmAt, stage: leads.stage, createdAt: leads.createdAt };
+  linkedin: leads.linkedin, website: leads.website, phone: leads.phone, lastContactAt: leads.lastContactAt, city: leads.city, hook: leads.hook, note: leads.note, status: leads.status, source: leads.source, sourceUrl: leads.sourceUrl, prospect: leads.prospect, crmAt: leads.crmAt, stage: leads.stage, profileId: leads.profileId, createdAt: leads.createdAt };
 const MISSING = { email: [leads.email], person: [leads.first, leads.last], role: [leads.role], website: [leads.website], salutation: [leads.salutation], linkedin: [leads.linkedin], city: [leads.city], hook: [leads.hook], note: [leads.note] };
 
 export function leadTools(server: McpServer) {
   tool(server, "leads_list", {
     description: "Liest und sucht Leads (Kontakte) des Mandanten, neueste zuerst. Jeder Lead ist ein Ansprechpartner einer Firma; companyId verbindet die Kontakte derselben Firma. "
       + "Felder: companyId, company (Firma), salutation (Anrede mit Titel, z. B. „Frau Dr.“), first/last (Vor-/Nachname), role, email, emailType (person = persönliche Adresse, info = Firmenadresse), "
-      + "linkedin, website, phone (Telefon aus der Signatur), lastContactAt (letzte E-Mail), city (Ort), hook (Aufhänger für die erste Mail), note (Notiz), status, source (Quelle), sourceUrl (Fundstelle). "
+      + "linkedin, website, phone (Telefon aus der Signatur), lastContactAt (letzte E-Mail), city (Ort), hook (Aufhänger für die erste Mail), note (Notiz), status, source (Quelle), sourceUrl (Fundstelle), profile (Lead-Profil). "
       + "Status: neu (noch nicht angeschrieben), freigabe (Entwurf wartet auf Freigabe), angeschrieben, beantwortet, unzustellbar, dublette, kontakt (bestehender Kontakt aus dem Postfach, wird nie kalt angeschrieben). "
       + "Art: prospect = Lead (über Recherche oder Import gefunden), crmAt = auf der Website registriert (CRM, kommt aus HubSpot, stage = Lifecycle dort); beides zugleich ist möglich. "
       + "Registrierte (crmAt gesetzt) werden nie kalt angeschrieben. Mit missing findest du Leads, denen ein Feld fehlt (z. B. email), um sie mit leads_update anzureichern. Rückgabe: total (Treffer gesamt) und rows; mit offset weiterblättern.",
@@ -63,16 +66,20 @@ export function leadTools(server: McpServer) {
       companyId: z.number().int().optional().describe("Nur die Kontakte dieser Firma"),
       kind: z.enum(["lead", "crm"]).optional().describe("lead = nur Leads, crm = nur Registrierte; ohne = alle"),
       missing: z.enum(Object.keys(MISSING) as [keyof typeof MISSING]).optional().describe("Nur Leads, bei denen dieses Feld leer ist (person = kein Name)"),
+      profile: z.string().trim().optional().describe("Nur Leads dieses Profils (Name aus tenants_list)"),
       limit: z.number().int().min(1).max(200).default(50).describe("Höchstens 200, Standard 50"),
       offset: z.number().int().min(0).default(0),
     }),
-  }, async ({ tenant: slug, status, query, companyId, kind, missing, limit, offset }, user) => {
+  }, async ({ tenant: slug, status, query, companyId, kind, missing, profile: pf, limit, offset }, user) => {
     const t = await tenantBySlug(slug, user), q = query && `%${query.replace(/[\\%_]/g, m => `\\${m}`)}%`;
+    const ref = await profileRef(t.id, pf || undefined), names = new Map((await listProfiles(t.id)).map(p => [p.isDefault ? null : p.id, p.name]));
     const where = and(eq(leads.tenantId, t.id), status && eq(leads.status, status), companyId !== undefined ? eq(leads.companyId, companyId) : undefined,
       kind === "lead" ? eq(leads.prospect, true) : kind === "crm" ? isNotNull(leads.crmAt) : undefined, missing && and(...MISSING[missing].map(c => eq(c, ""))),
+      ref === undefined ? undefined : ref === null ? isNull(leads.profileId) : eq(leads.profileId, ref),
       q ? or(...[leads.company, leads.first, leads.last, leads.email, leads.city, leads.website].map(c => ilike(c, q))) : undefined) as SQL;
     const [{ n }] = await db.select({ n: count() }).from(leads).where(where);
-    return { total: n, rows: await db.select(FIELDS).from(leads).where(where).orderBy(desc(leads.createdAt), desc(leads.id)).limit(limit).offset(offset) };
+    const rows = await db.select(FIELDS).from(leads).where(where).orderBy(desc(leads.createdAt), desc(leads.id)).limit(limit).offset(offset);
+    return { total: n, rows: rows.map(({ profileId, ...r }) => ({ ...r, profile: names.get(profileId) ?? names.get(null) })) };
   });
 
   tool(server, "leads_add", {
@@ -81,16 +88,18 @@ export function leadTools(server: McpServer) {
       + "Höchstens 200 Zeilen je Aufruf; größere Dateien in Teilen nacheinander schreiben und am Ende die Summe melden. "
       + "Duplikate werden wie beim Import im Portal übersprungen und mit Grund gemeldet: gleiche E-Mail („Schon in der Liste“), Kontakt schon in HubSpot, "
       + "oder bekannte Firma ohne E-Mail („Firma bekannt“); ist HubSpot gerade nicht erreichbar, wird die Zeile mit „HubSpot nicht erreichbar“ übersprungen und kann später erneut kommen. Ein weiterer Ansprechpartner mit eigener E-Mail bei einer bekannten Firma wird angelegt. "
+      + "Mit profile kommen alle Zeilen in dieses Lead-Profil (Zielgruppe mit eigenen Vorlagen), ohne ins Standardprofil. "
       + "Rückgabe: added [{id, company, companyId}], skipped [{company, why}].",
     input: z.object({
       tenant,
       rows: z.array(newLead).min(1).max(200).describe("Die Leads, höchstens 200"),
       source: s("Quelle, die am Lead steht; Standard „Claude“, im Workflow dessen Name"),
+      profile,
       run,
     }),
-  }, async ({ tenant: slug, rows, source, run: runId }, user) => {
-    const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_add");
-    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", phone: r.phone || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl, note: r.note, research: r.research })), source || wr?.workflow || "Claude");
+  }, async ({ tenant: slug, rows, source, profile: pf, run: runId }, user) => {
+    const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_add"), ref = await profileRef(t.id, pf || null);
+    const out = await addLeads(t.id, rows.map(r => ({ co: r.company, sal: r.salutation, p: r.person || "", role: r.role || "", email: r.email || "", phone: r.phone || "", web: r.website || "", city: r.city || "", li: r.linkedin, hook: r.hook, url: r.sourceUrl, note: r.note, research: r.research })), source || wr?.workflow || "Claude", ref ?? null);
     await wr?.count({ added: out.added.length, skipped: out.skipped.length });
     if (out.added.length) { await rerate(t.id); await later(() => refreshRatings(t.id, out.added.map(a => a.id))); }
     return out;
@@ -108,7 +117,7 @@ export function leadTools(server: McpServer) {
     let moved = false;
     /* same address checks as the portal, all before the first write so a bad address changes nothing */
     const sets = new Map<number, Partial<typeof leads.$inferInsert>>(), taken = new Set<string>();
-    for (const { id, ...f } of updates) {
+    for (const { id, profile: _p, ...f } of updates) {
       const l = found.get(id);
       if (!l) continue;
       const set: Partial<typeof leads.$inferInsert> = Object.fromEntries(Object.entries(cleanLead(f)).filter(([, v]) => v));
@@ -119,9 +128,13 @@ export function leadTools(server: McpServer) {
       }
       sets.set(id, set);
     }
+    /* profile names are checked before the first write too */
+    const refs = new Map<number, number | null>();
+    for (const u of updates) if (u.profile && found.has(u.id)) refs.set(u.id, (await profileRef(t.id, u.profile))!);
     for (const { id, status } of updates) {
       const l = found.get(id), set = sets.get(id);
       if (!l || !set) { notFound.push(id); continue; }
+      if (refs.has(id)) set.profileId = refs.get(id)!;
       if (set.email || set.first || set.last) set.emailType = emailTypeOf(set.email ?? l.email, !!((set.first ?? l.first) || (set.last ?? l.last)));
       if (set.company && set.company !== l.company) { set.companyId = null; moved = true; }
       if (Object.keys(set).length) await db.update(leads).set(set).where(eq(leads.id, id));

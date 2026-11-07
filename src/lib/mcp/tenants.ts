@@ -3,12 +3,14 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db, integrations, members, tenants } from "@/db";
 import { aiFor, aiLabel, choiceLabel } from "@/lib/ai";
+import { listProfiles } from "@/lib/profiles";
 import { tool } from "./tool";
 
 export function tenantTools(server: McpServer) {
   tool(server, "tenants_list", {
     description: "Listet die Mandanten (Unternehmen) des angemeldeten Nutzers mit Slug, Name und Domain. Der Slug ist der Parameter `tenant` der anderen Tools. "
       + "Jeder Mandant hat eigene Integrationen: hubspot (nur dann gleichen Leads mit HubSpot ab), mailbox (Postfach des Nutzers in diesem Mandanten, Quelle für Kontakte), ai (KI, die das Portal für diesen Mandanten nutzt), sendpilot (LinkedIn über die sendpilot_*-Tools: Leads aus dem Portal mit sendpilot_push in Kampagnen geben, dazu Kampagnen, Inbox, Absender und Lead-Suche). "
+      + "profiles: Lead-Profile des Mandanten (Zielgruppe mit eigenen Vorlagen), das erste ist das Standardprofil; der Name ist der Parameter `profile` der leads_*-Tools. "
       + "Daten eines Mandanten nie in einen anderen schreiben.",
     input: z.object({}),
   }, async (_, user) => {
@@ -20,7 +22,8 @@ export function tenantTools(server: McpServer) {
       const on = (k: string) => ints.find(i => i.tenantId === t.id && i.kind === k);
       const ai = await aiFor(t.id, user.id);
       return { slug: t.slug, name: t.name, domain: t.domain, hubspot: !!on("hubspot"), sendpilot: !!on("sendpilot"), mailbox: on("outlook")?.detail || on("imap")?.detail || null,
-        ai: t.settings.ai ? choiceLabel(t.settings.ai) : ai ? aiLabel(ai) : null };
+        ai: t.settings.ai ? choiceLabel(t.settings.ai) : ai ? aiLabel(ai) : null,
+        profiles: (await listProfiles(t.id)).map(p => ({ name: p.name, audience: p.audience, default: p.isDefault })) };
     }));
   });
 }

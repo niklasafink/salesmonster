@@ -899,3 +899,11 @@ button.pv:disabled{cursor:default}
 .sel-pop button[aria-selected=true]{font-weight:500}
 .sel-pop .end{width:14px; height:14px; color:var(--fg-2)}
 .sel-pop .c{margin-left:auto; opacity:.6; font-variant-numeric:tabular-nums} .sel-pop .c+.end{margin-left:0}
+
+/* lead profile: a quiet picker inside the cell, the column width like the source */
+table.leads th.c-prof{width:var(--w-c-prof,150px)}
+table.leads .cellsel{all:unset; display:inline-flex; align-items:center; gap:4px; max-width:100%; cursor:pointer; color:inherit; border-radius:6px; padding:2px 4px; margin:-2px -4px}
+table.leads .cellsel .sv{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+table.leads .cellsel .lucide{width:13px; height:13px; opacity:.5}
+table.leads .cellsel:hover,table.leads .cellsel:focus-visible{background:var(--bg-2, rgba(127,127,127,.12))}
+@media (max-width:640px){ table.leads .c-prof{display:none} }
