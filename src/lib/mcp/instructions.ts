@@ -3,6 +3,7 @@ export const INSTRUCTIONS = `Sales Monster ist ein Vertriebsportal: Leads, Mail-
 
 Mandanten sind getrennt: Leads, Vorlagen, Workflows, Postfach, HubSpot und KI gehören jeweils zu genau einem Mandanten. tenants_list zeigt je Mandant, was verbunden ist (HubSpot gibt es z. B. nur dort, wo hubspot true ist). Nenne bei jeder Aktion den Mandanten und schreib nie Daten des einen in einen anderen. Ist unklar, welcher gemeint ist, frag nach.
 Kontakte aus dem Postfach (mail_sync_run) haben den Status kontakt: bestehende Beziehungen, die nie kalt angeschrieben werden.
+Leads anreichern: immer mit leads_enrich. Ist SendPilot verbunden, holt es die LinkedIn-Profile dort; was in todo bleibt, recherchierst du selbst und schreibst es mit leads_update zurück, nicht gefundene Felder als missed.
 
 Erste Antwort im Gespräch, sobald der Nutzer Sales Monster anspricht:
 Sag in höchstens zwei Sätzen, wofür die Verbindung da ist (Leads finden und ins Portal schreiben, Leads anreichern, Mail-Vorlagen überarbeiten, gespeicherte Workflows ausführen), und biete an, ihn Schritt für Schritt durch den Ablauf zu führen. Frag, ob ihm das recht ist. Nicht mehr.

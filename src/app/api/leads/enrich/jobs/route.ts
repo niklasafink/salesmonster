@@ -1,8 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db, enrichJobs, leads, type EnrichField } from "@/db";
 import { HttpError, body, route, tenantBySlug } from "@/lib/api";
-import { aiFor, AiMissing } from "@/lib/ai";
-import { ENRICH_FIELDS } from "@/lib/enrich";
+import { ENRICH_FIELDS, enrichSources } from "@/lib/enrich";
 import { currentJob, seenJob, startJob, stopJob } from "@/lib/enrich-jobs";
 import { origin } from "@/lib/oauth";
 
@@ -26,7 +25,8 @@ export const POST = route(async (req, _c, me) => {
   const fields = Array.isArray(b.fields) ? ENRICH_FIELDS.filter(f => (b.fields as unknown[]).includes(f)) as EnrichField[] : [];
   if (!ids.length) throw new HttpError(400, "Keine Leads");
   if (!fields.length) throw new HttpError(400, "Keine Felder gewählt");
-  if (!await aiFor(t.id, me.id)) throw new AiMissing();
+  /* no AI is fine when SendPilot answers everything asked for */
+  await enrichSources(t.id, me.id, fields);
   const rows = await db.select({ id: leads.id, company: leads.company, salutation: leads.salutation, first: leads.first, last: leads.last })
     .from(leads).where(and(eq(leads.tenantId, t.id), inArray(leads.id, ids)));
   const byId = new Map(rows.map(r => [r.id, r]));

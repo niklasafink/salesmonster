@@ -17,9 +17,11 @@ let cache: { at: number; tools: Tool[] } | undefined;
 async function remoteTools(): Promise<Tool[]> {
   if (cache && Date.now() - cache.at < 3600_000) return cache.tools;
   try {
-    const [row] = await db.select({ config: integrations.config }).from(integrations).where(eq(integrations.kind, "sendpilot")).limit(1);
-    if (!row) return [];
-    const { tools } = await sendpilotMcp<{ tools: Tool[] }>(decrypt<{ key: string }>(row.config).key, "tools/list");
+    /* the first key that still decrypts; one stored under an older APP_SECRET (or copied from another database) is passed over */
+    const rows = await db.select({ config: integrations.config }).from(integrations).where(eq(integrations.kind, "sendpilot")).limit(50);
+    const key = rows.map(r => { try { return decrypt<{ key: string }>(r.config).key; } catch { return ""; } }).find(Boolean);
+    if (!key) return [];
+    const { tools } = await sendpilotMcp<{ tools: Tool[] }>(key, "tools/list");
     cache = { at: Date.now(), tools: tools.filter(t => !SKIP.has(t.name)) };
     return cache.tools;
   } catch (e) {

@@ -54,6 +54,56 @@ export async function sendpilotCampaigns(key: string): Promise<Campaign[]> {
 
 export { linkedinKey };
 
+/* What SendPilot's Lead Database knows about one person; the API answers in camelCase or snake_case, both are read */
+export type SendPilotPerson = { first: string; last: string; role: string; linkedin: string; email: string; phone: string };
+type LookupLead = { company: string; website: string; first: string; last: string };
+
+/* asked for when no person is known yet: the management, as in the web search */
+const LEAD_TITLES = ["Geschäftsführer", "Geschäftsführerin", "Inhaber", "Inhaberin", "CEO", "Managing Director", "Owner", "Founder"];
+const DONE = new Set(["completed", "complete", "done", "finished", "succeeded"]), FAILED = new Set(["failed", "error", "cancelled", "canceled"]);
+const str = (v: unknown) => typeof v === "string" ? v.trim() : "";
+const pick = (o: Record<string, unknown>, ...k: string[]) => k.map(x => str(o[x])).find(Boolean) ?? "";
+const domainOf = (url: string) => { try { return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./i, "").toLowerCase(); } catch { return ""; } };
+/* Müller, Mueller and Muller are the same name */
+const spellings = (n: string) => {
+  const low = n.toLowerCase().trim();
+  const de = low.replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+  return new Set([low, de].map(x => x.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^a-z]/g, "")).filter(Boolean));
+};
+export const sameName = (a: string, b: string) => { const x = spellings(a); return [...spellings(b)].some(s => x.has(s)); };
+
+function person(o: Record<string, unknown>): SendPilotPerson {
+  let first = pick(o, "firstName", "first_name"), last = pick(o, "lastName", "last_name");
+  const full = pick(o, "fullName", "full_name", "name");
+  if (!first && !last && full) { const p = full.split(/\s+/); last = p.pop() ?? ""; first = p.join(" "); }
+  return { first, last, role: pick(o, "title", "jobTitle", "job_title", "headline"), linkedin: pick(o, "linkedinUrl", "linkedin_url", "linkedin", "profileUrl"),
+    email: pick(o, "email", "workEmail", "work_email"), phone: pick(o, "phone", "phoneNumber", "phone_number") };
+}
+
+/* Looks one lead up in SendPilot's Lead Database: by name at the company, or without a name the management of the company.
+   A search runs in the background, so this waits for it; one result at most, so a lookup costs SendPilot credits for one lead.
+   A hit with another surname than the lead's is not taken. Returns null when nothing fits. */
+export async function sendpilotLookup(key: string, l: LookupLead, opt: { wait?: number; every?: number } = {}): Promise<SendPilotPerson | null> {
+  const name = [l.first, l.last].filter(Boolean).join(" "), domain = domainOf(l.website);
+  const filters = { ...(domain ? { companyDomains: [domain] } : { companies: [l.company] }), ...(name ? { name } : { jobTitles: LEAD_TITLES }) };
+  const created = await sp(key, "/v1/lead-database/searches", { method: "POST", body: JSON.stringify({ name: `Sales Monster: ${[name, l.company].filter(Boolean).join(", ")}`.slice(0, 200), limit: 1, filters }) });
+  const id = str(created.id) || str(created.searchId) || str(created.search?.id);
+  if (!id) throw new Error("SendPilot: Suche ohne id angelegt");
+  const until = Date.now() + (opt.wait ?? 45_000);
+  for (;;) {
+    const s = await sp(key, `/v1/lead-database/searches/${encodeURIComponent(id)}/status`);
+    const st = str(s.status).toLowerCase();
+    if (DONE.has(st)) break;
+    if (FAILED.has(st)) throw new Error(`SendPilot: Suche ${st}`);
+    if (Date.now() > until) throw new Error("SendPilot: Suche dauert zu lange, später erneut prüfen");
+    await new Promise(r => setTimeout(r, opt.every ?? 2000));
+  }
+  const res = await sp(key, `/v1/lead-database/searches/${encodeURIComponent(id)}/results?page=1&limit=1`);
+  const list: unknown[] = Array.isArray(res.results) ? res.results : Array.isArray(res.leads) ? res.leads : [];
+  const hit = list.map(x => person((x ?? {}) as Record<string, unknown>)).find(p => p.linkedin && (!l.last || sameName(p.last, l.last)));
+  return hit ?? null;
+}
+
 /* Puts the tenant's leads into a campaign; leads without a profile URL or in the trash are skipped. SendPilot skips its own duplicates. */
 export async function sendpilotPush(tenantId: number, campaignId: string, leadIds: number[]) {
   const { key } = await sendpilotConfig(tenantId);

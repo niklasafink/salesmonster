@@ -1,7 +1,8 @@
 import { and, count, desc, eq, ilike, inArray, isNotNull, isNull, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { db, leads } from "@/db";
+import { db, leads, type EnrichField } from "@/db";
+import { ENRICH_FIELDS, cleanLinkedin } from "@/lib/enrich";
 import { listProfiles, profileRef } from "@/lib/profiles";
 import { attachCompanies } from "@/lib/companies";
 import { cleanLead, emailTypeOf } from "@/lib/lead-fields";
@@ -45,6 +46,8 @@ const edit = z.object({
   sourceUrl: s("URL, unter der die Angaben gefunden wurden"), research: s("Rechercheergebnis als Text"),
   status: z.enum(STATUS).optional().describe("Neuer Status"),
   profile: z.string().trim().optional().describe("Name des Lead-Profils, in das der Lead wechselt"),
+  missed: z.array(z.enum(ENRICH_FIELDS as [EnrichField, ...EnrichField[]])).optional()
+    .describe("Felder, die du gesucht und nicht gefunden hast; das Portal zeigt sie als „nicht gefunden“ und lässt sie beim nächsten Anreichern aus"),
 });
 
 const FIELDS = { id: leads.id, companyId: leads.companyId, company: leads.company, salutation: leads.salutation, first: leads.first, last: leads.last, role: leads.role, email: leads.email, emailType: leads.emailType,
@@ -106,21 +109,30 @@ export function leadTools(server: McpServer) {
   });
 
   tool(server, "leads_update", {
-    description: "Reichert bestehende Leads des Mandanten an oder korrigiert sie (Felder wie bei leads_list, dazu research). Ein neuer Firmenname ordnet den Kontakt der Firma mit diesem Namen zu (oder einer neuen). Nur Felder mit Inhalt werden geändert; leere oder weggelassene Felder bleiben, wie sie sind. "
+    description: "Reichert bestehende Leads des Mandanten an oder korrigiert sie (Felder wie bei leads_list, dazu research). linkedin nur als persönliches Profil (linkedin.com/in/…), keine Firmenseite. "
+      + "Was du gesucht und nicht gefunden hast, gib als missed mit. Ein neuer Firmenname ordnet den Kontakt der Firma mit diesem Namen zu (oder einer neuen). Nur Felder mit Inhalt werden geändert; leere oder weggelassene Felder bleiben, wie sie sind. "
       + "Höchstens 200 Leads je Aufruf, bei mehr in Teilen. Rückgabe: updated (geänderte ids) und notFound (ids, die es im Mandanten nicht gibt).",
     input: z.object({ tenant, updates: z.array(edit).min(1).max(200).describe("Je Lead die id und die neuen Werte"), run }),
   }, async ({ tenant: slug, updates, run: runId }, user) => {
     const t = await tenantBySlug(slug, user), wr = await checkRun(runId, t.id, "leads_update");
-    const found = new Map((await db.select({ id: leads.id, company: leads.company, first: leads.first, last: leads.last, email: leads.email }).from(leads)
+    const found = new Map((await db.select({ id: leads.id, company: leads.company, first: leads.first, last: leads.last, email: leads.email, enrichMiss: leads.enrichMiss }).from(leads)
       .where(and(eq(leads.tenantId, t.id), inArray(leads.id, updates.map(u => u.id))))).map(l => [l.id, l]));
     const updated: number[] = [], notFound: number[] = [];
     let moved = false;
     /* same address checks as the portal, all before the first write so a bad address changes nothing */
     const sets = new Map<number, Partial<typeof leads.$inferInsert>>(), taken = new Set<string>();
-    for (const { id, profile: _p, ...f } of updates) {
+    for (const { id, profile: _p, missed, ...f } of updates) {
       const l = found.get(id);
       if (!l) continue;
       const set: Partial<typeof leads.$inferInsert> = Object.fromEntries(Object.entries(cleanLead(f)).filter(([, v]) => v));
+      if (set.linkedin) {
+        set.linkedin = cleanLinkedin(set.linkedin);
+        if (!set.linkedin) throw new HttpError(400, `Kein persönliches LinkedIn-Profil (linkedin.com/in/…): ${f.linkedin}`);
+      }
+      if (missed?.length) {
+        const at = new Date().toISOString();
+        set.enrichMiss = { ...l.enrichMiss, ...Object.fromEntries(missed.map(k => [k, at])) };
+      }
       if (set.email && set.email.toLowerCase() !== l.email.toLowerCase()) {
         if (taken.has(set.email.toLowerCase())) throw new HttpError(400, `Schon in der Liste: ${set.email}`);
         await checkEmail(t.id, set.email, id).catch(e => { throw new HttpError(400, `${(e as Error).message}: ${set.email}`); });

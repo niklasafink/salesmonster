@@ -3,7 +3,9 @@ import { z } from "zod";
 import { db, leads, runs, type EnrichField } from "@/db";
 import { AiMissing, aiFor, type Ai } from "./ai";
 import { ask, json } from "./claude";
+import { getInteg } from "./integrations";
 import { emailTypeOf, hasField, httpUrl, salutationOf, validEmail } from "./lead-fields";
+import { sendpilotLookup, type SendPilotConfig, type SendPilotPerson } from "./sendpilot";
 import { track } from "./usage";
 
 export const ENRICH_FIELDS: EnrichField[] = ["person", "role", "email", "phone", "linkedin", "website", "city"];
@@ -42,30 +44,64 @@ Antworte am Ende mit genau einem \`\`\`json-Block: {"salutation":"Herr oder Frau
 }
 
 const cleanPhone = (p: string) => /\d{6,}/.test(p.replace(/[\s/().-]/g, "")) ? p.replace(/\s+/g, " ").slice(0, 40) : "";
-const cleanLinkedin = (u: string) => { const h = httpUrl(u); return /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/in\/[^/?#\s]+/i.test(h) ? h.replace(/[?#].*$/, "").slice(0, 300) : ""; };
+export const cleanLinkedin = (u: string) => { const h = httpUrl(u); return /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/in\/[^/?#\s]+/i.test(h) ? h.replace(/[?#].*$/, "").slice(0, 300) : ""; };
 const cleanName = (n: string) => /^[\p{L}][\p{L}' .-]{0,60}$/u.test(n) ? n : "";
 const cleanText = (t: string, max: number) => t.replace(/\s+/g, " ").slice(0, max);
 
 /* Searches the web for the missing fields of each lead; nothing already there is overwritten, what it cannot find is remembered on the lead
    and skipped next time unless again is set, so a field that does not exist does not cost a search on every run */
-export const enrichContacts = (tenantId: number, userId: number, ids: number[], fields: EnrichField[], again = false) =>
+export const enrichContacts = (tenantId: number, userId: number, ids: number[], fields: EnrichField[], again = false, web = true) =>
   track({ tenantId, userId, kind: "anreicherung" }, async m => {
-    const r = await enrich(tenantId, userId, ids, fields, again);
+    const r = await enrich(tenantId, userId, ids, fields, again, web);
     m.count(r.length);
     return r;
   });
 
-async function enrich(tenantId: number, userId: number, ids: number[], fields: EnrichField[], again: boolean): Promise<EnrichResult[]> {
-  const ai = await aiFor(tenantId, userId);
-  if (!ai) throw new AiMissing();
+/* With SendPilot connected, LinkedIn comes from its Lead Database and never from the web search; without a known person SendPilot also names one.
+   So a run that only asks for these works without an AI. */
+const FROM_SENDPILOT: EnrichField[] = ["linkedin", "person", "role"];
+/* web = false leaves the paid web search out (the MCP, where Claude searches itself); then only SendPilot is asked */
+export async function enrichSources(tenantId: number, userId: number, fields: EnrichField[], web = true) {
+  const [ai, sp] = await Promise.all([web ? aiFor(tenantId, userId) : null, getInteg<SendPilotConfig>(tenantId, "sendpilot")]);
+  if (!web && !sp) throw new Error("SendPilot ist nicht verbunden");
+  if (web && !ai && !(sp && fields.includes("linkedin") && fields.every(f => FROM_SENDPILOT.includes(f)))) throw new AiMissing();
+  return { ai, sp };
+}
+
+/* which of the wanted fields the SendPilot hit already answers */
+const answers = (p: SendPilotPerson, f: EnrichField, named: boolean) =>
+  f === "linkedin" ? !!p.linkedin : f === "person" ? !named && !!(p.first && p.last) : f === "role" ? !!p.role : f === "email" ? validEmail(p.email.toLowerCase()) : f === "phone" ? !!cleanPhone(p.phone) : false;
+
+async function enrich(tenantId: number, userId: number, ids: number[], fields: EnrichField[], again: boolean, web: boolean): Promise<EnrichResult[]> {
+  const { ai, sp } = await enrichSources(tenantId, userId, fields, web);
   const rows = await db.select().from(leads).where(and(eq(leads.tenantId, tenantId), inArray(leads.id, ids.slice(0, ENRICH_MAX))));
   const out: EnrichResult[] = [];
   for (const l of rows) {
     const want = fields.filter(f => !hasField(l, f) && (again || !l.enrichMiss[f]));
     if (!want.length) { out.push({ id: l.id, found: {}, missed: [] }); continue; }
-    let r;
-    try { r = await search(ai, l, want); }
-    catch (e) {
+    let r = Found.parse({});
+    /* the fields actually looked for; one without a source this time is neither found nor missed */
+    const searched = new Set<EnrichField>();
+    try {
+      const named = !!(l.first || l.last);
+      let hit: SendPilotPerson | null = null;
+      /* a profile only counts with a person to it, so without a name SendPilot is asked only when the person is wanted too */
+      if (sp && (named ? want.includes("linkedin") : want.includes("person"))) {
+        hit = await sendpilotLookup(sp.key, l);
+        for (const f of want) if (f === "linkedin" || (hit && answers(hit, f, named)) || (!named && f === "person")) searched.add(f);
+      }
+      const rest = want.filter(f => !searched.has(f) && !(sp && f === "linkedin"));
+      if (ai && rest.length) {
+        /* the person SendPilot named is the one the web search looks for */
+        const who = hit && !named && hit.first && hit.last ? { ...l, first: hit.first, last: hit.last, role: l.role || hit.role } : l;
+        r = await search(ai, who, rest);
+        rest.forEach(f => searched.add(f));
+      }
+      if (hit) {
+        const h = { first: named ? "" : hit.first, last: named ? "" : hit.last, role: hit.role, linkedin: hit.linkedin, email: hit.email, phone: hit.phone };
+        r = { ...r, ...Object.fromEntries(Object.entries(h).filter(([, v]) => v)), sourceUrl: r.sourceUrl || hit.linkedin };
+      }
+    } catch (e) {
       const msg = (e as Error).message;
       await db.insert(runs).values({ tenantId, kind: "enrich", ok: false, info: `${l.company}: ${msg}`.slice(0, 500) });
       out.push({ id: l.id, found: {}, missed: [], error: msg }); continue;
@@ -92,9 +128,9 @@ async function enrich(tenantId: number, userId: number, ids: number[], fields: E
     if (want.includes("linkedin") && named && cleanLinkedin(r.linkedin)) { found.linkedin = cleanLinkedin(r.linkedin); got.add("linkedin"); }
     if (want.includes("website") && httpUrl(r.website)) { found.website = httpUrl(r.website).slice(0, 300); got.add("website"); }
     if (want.includes("city") && cleanText(r.city, 80)) { found.city = cleanText(r.city, 80); got.add("city"); }
-    const missed = want.filter(f => !got.has(f));
+    const missed = want.filter(f => searched.has(f) && !got.has(f));
     const miss = { ...l.enrichMiss };
-    for (const f of want) if (got.has(f)) delete miss[f]; else miss[f] = new Date().toISOString();
+    for (const f of want) if (got.has(f)) delete miss[f]; else if (searched.has(f)) miss[f] = new Date().toISOString();
     const email = found.email ?? l.email;
     await db.update(leads).set({
       ...found, enrichMiss: miss,
