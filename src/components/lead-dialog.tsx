@@ -192,6 +192,27 @@ function History({ h, err }: { h: Hist | null; err: string }) {
 /* Edit one contact, or add a new one: person left, note and history in the middle, company right */
 type Rated = { rating: number | null; vote: number; touch?: Touch | null; ratingInfo: { grade: string; reasons: { pts: number; text: string; learned?: boolean }[]; type?: string; why?: string } | null };
 
+/* the full name on one line with one copy button; a click opens Anrede, Vorname and Nachname for editing */
+function NameField({ f, set, pick }: { f: EditLead; set: (k: keyof EditLead) => (e: { target: { value: string } }) => void; pick: (k: keyof EditLead) => (v: string) => void }) {
+  const full = [f.salutation, f.first, f.last].filter(Boolean).join(" ");
+  const [edit, setEdit] = useState(!f.first.trim() && !f.last.trim());
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!edit) return;
+    /* closes on a click outside; the Anrede list sits in a portal and counts as inside */
+    const off = (e: Event) => { const t = e.target as Element; if (!box.current?.contains(t) && !t.closest?.("[role=listbox]") && (f.first.trim() || f.last.trim())) setEdit(false); };
+    document.addEventListener("mousedown", off);
+    return () => document.removeEventListener("mousedown", off);
+  }, [edit, f.first, f.last]);
+  const keys = (e: React.KeyboardEvent) => { if (e.key === "Enter" && (f.first.trim() || f.last.trim())) { e.preventDefault(); e.stopPropagation(); setEdit(false); } };
+  return <Prop l="Name" copy={full}>{edit
+    ? <span className="pv3" ref={box} onKeyDown={keys}>
+      <Select className="pv sal" value={f.salutation} onChange={pick("salutation")} label="Anrede" options={[["", "–"], ...SALUTATIONS.map(s => [s, s] as [string, string])]} />
+      <input className="pv" value={f.first} placeholder="Vorname" aria-label="Vorname" onChange={set("first")} autoFocus={!!full} />
+      <input className="pv" value={f.last} placeholder="Nachname" aria-label="Nachname" onChange={set("last")} /></span>
+    : <button type="button" className="pv pname" title="Name bearbeiten" onClick={() => setEdit(true)}>{full}</button>}</Prop>;
+}
+
 /* individual contact as Jev read it from the HubSpot activities */
 export const TOUCHES = [["demo", "Demo", "presentation"], ["call", "Telefonat", "phone"], ["mail", "E-Mail", "mail"]] as const;
 
@@ -253,10 +274,7 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
     <div className="rec">
       <section className="props side">
         <Group t="Person" copy={card}>
-          <Prop l="Name" copy={[f.salutation, f.first, f.last].filter(Boolean).join(" ")}><span className="pv3">
-            <Select className="pv sal" value={f.salutation} onChange={pick("salutation")} label="Anrede" options={[["", "–"], ...SALUTATIONS.map(s => [s, s] as [string, string])]} />
-            <input className="pv" value={f.first} placeholder="Vorname" aria-label="Vorname" onChange={set("first")} />
-            <input className="pv" value={f.last} placeholder="Nachname" aria-label="Nachname" onChange={set("last")} /></span></Prop>
+          <NameField f={f} set={set} pick={pick} />
           <Prop l="Rolle" copy={f.role}><input className="pv" value={f.role} placeholder="–" onChange={set("role")} /></Prop>
         </Group>
         <Group t="Kontaktdaten" copy={lines([["E-Mail", f.email], ["Telefon", f.phone], ["LinkedIn", f.linkedin]])}>
