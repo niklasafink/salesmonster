@@ -62,7 +62,8 @@ function CopyBtn({ text, label }: { text: string; label: string }) {
 }
 
 /* label left, value right; the input only shows as one on hover and focus, copy and link show on hover */
-const Prop = ({ l, link, copy, children }: { l: string; link?: string; copy?: string; children: React.ReactNode }) => <div className="prop">
+/* pin keeps the link button visible, not only on hover */
+const Prop = ({ l, link, copy, pin, children }: { l: string; link?: string; copy?: string; pin?: boolean; children: React.ReactNode }) => <div className={`prop${pin ? " pin" : ""}`}>
   <label><span className="pk">{l}</span>{children}</label>
   {copy?.trim() && <CopyBtn text={copy.trim()} label={l} />}
   {link && <a className="pa" href={link} target={link.startsWith("http") ? "_blank" : undefined} rel="noreferrer" aria-label={`${l} öffnen`}><Icon n="external-link" /></a>}
@@ -277,11 +278,12 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
           <NameField f={f} set={set} pick={pick} />
           <Prop l="Rolle" copy={f.role}><input className="pv" value={f.role} placeholder="–" onChange={set("role")} /></Prop>
         </Group>
-        <Group t="Kontaktdaten" copy={lines([["E-Mail", f.email], ["Telefon", f.phone], ["LinkedIn", f.linkedin]])}>
+        <Group t="Kontaktdaten" copy={lines([["E-Mail", f.email], ["Telefon", f.phone], ["LinkedIn", f.linkedin], ["Website", f.website]])}>
           <Prop l="E-Mail" copy={f.email} link={f.email.includes("@") ? `mailto:${f.email}` : undefined}><input className="pv mono" value={f.email} placeholder="–" onChange={set("email")} /></Prop>
           <Prop l="Adresse"><Select className="pv" value={f.emailType} onChange={pick("emailType")} label="Adresse" options={[["person", "Persönlich"], ["info", "Sammeladresse"]]} /></Prop>
           <Prop l="Telefon" copy={f.phone} link={f.phone.trim() ? `tel:${f.phone.replace(/[^+\d]/g, "")}` : undefined}><input className="pv num" value={f.phone} placeholder="–" onChange={set("phone")} /></Prop>
           <Prop l="LinkedIn" copy={f.linkedin} link={httpUrl(f.linkedin) || undefined}><input className="pv" value={f.linkedin} placeholder="–" onChange={set("linkedin")} /></Prop>
+          <Prop l="Website" copy={f.website} link={web || undefined} pin><input className="pv" value={f.website} placeholder="–" onChange={set("website")} /></Prop>
         </Group>
         <Group t="Vertrieb">
           <Prop l="Status" copy={STATUS[f.status]?.[0]}><Select className="pv" value={f.status} onChange={pick("status")} disabled={!f.id} label="Status" options={Object.entries(STATUS).map(([k, [n]]) => [k, n] as [string, string])} /></Prop>
@@ -315,9 +317,8 @@ export function LeadDialog({ lead: lead0, slug, tenders, co, contacts = [], rati
           </div>
           {!!rating.ratingInfo.reasons.length && <ul className="rsn">{rating.ratingInfo.reasons.slice(0, 6).map((r, i) => <li key={i}><span className={`num ${r.pts > 0 ? "up" : "down"}`}>{r.pts > 0 ? "+" : "−"}{Math.abs(r.pts)}</span>{r.text}</li>)}</ul>}
         </div>}
-        <Group t="Unternehmen" link={hs?.coUrl || undefined} copy={lines([["Firma", f.company], ["Website", f.website], ["Ort", f.city], ...(hs?.company || [])])}>
+        <Group t="Unternehmen" link={hs?.coUrl || undefined} copy={lines([["Firma", f.company], ["Ort", f.city], ...(hs?.company || [])])}>
           <Prop l="Firma" copy={f.company}><input className="pv" value={f.company} placeholder="–" onChange={set("company")} /></Prop>
-          <Prop l="Website" copy={f.website} link={web || undefined}><input className="pv" value={f.website} placeholder="–" onChange={set("website")} /></Prop>
           <Prop l="Ort" copy={f.city}><input className="pv" value={f.city} placeholder="–" onChange={set("city")} /></Prop>
           {m && <Prop l="Anschreiben"><Select className="pv" value={mode} onChange={setMode} label="Anschreiben" options={[
             ["einzeln", `Jede der ${contacts.length} Personen einzeln`], ...(addrs.length > 1 ? [["alle", "Eine Mail an alle Adressen"] as [string, string]] : []),
