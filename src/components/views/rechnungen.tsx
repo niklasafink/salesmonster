@@ -13,6 +13,15 @@ const STP: Record<string, string> = { offen: "b", bezahlt: "g", "überfällig": 
 const todayIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date());
 const EMPTY: InvoiceCustomer = { co: "", attn: "", salut: "", street: "", zip: "", city: "", vat: "", email: "", domain: "" };
 
+/* Name and address typed or pasted as a block: first line the company, then optional contact lines, the street, "PLZ Ort" */
+function parseAddress(s: string) {
+  const L = s.split("\n").map(l => l.trim()).filter(Boolean);
+  const zi = L.findIndex(l => /^(?:D-)?\d{5}\s+\S/.test(l));
+  const m = zi >= 0 ? L[zi].match(/^(?:D-)?(\d{5})\s+(.+)$/) : null;
+  const head = zi >= 0 ? L.slice(0, Math.max(0, zi - 1)) : L;
+  return { co: head[0] || "", attn: head.slice(1).join(", ").replace(/^z\.\s?Hd?\.?\s*/i, ""), street: zi >= 1 ? L[zi - 1] : "", zip: m?.[1] || "", city: m?.[2] || "" };
+}
+
 export function Rechnungen({ ctx }: { ctx: Ctx }) {
   const { st } = ctx, t = st.tenant!, cfg = t.invoice!;
   const [tab, setTab] = useState("neu");
@@ -36,7 +45,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
   const [plan, setPlanK] = useState(cfg.plans.find(p => p.key === "premium")?.key || cfg.plans[0].key), [cycle, setCycle] = useState<"monat" | "jahr">("jahr");
   const [price, setPrice] = useState(String(cfg.plans.find(p => p.key === plan)!.m)), [start, setStart] = useState(todayIso()), [dueDays, setDueDays] = useState(14);
   const [fmt, setFmt] = useState<"zugferd" | "xrechnung">("zugferd"), [leitweg, setLeitweg] = useState(""), [user, setUser] = useState(st.me.id);
-  const [busy, setBusy] = useState<string | null>(null), [imp, setImp] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null), [imp, setImp] = useState(false), [free, setFree] = useState(""), [manual, setManual] = useState(false);
   const [pdf, setPdf] = useState<string | null>(null);
   const qRef = useRef<HTMLInputElement>(null), timer = useRef<ReturnType<typeof setTimeout>>(undefined), pdfTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -51,7 +60,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
   }, []);
 
   async function pick(h: Hit | "new") {
-    setDd(false); setQ("");
+    setDd(false); setQ(""); setFree(""); setManual(h === "new");
     if (h === "new") { const c = { src: "inv" as const, co: q.trim(), domain: "", street: "", zip: "", city: "", contact: "", email: "", salut: "", vat: "" }; setCust(c); setF({ ...EMPTY, co: c.co }); return; }
     setCust(h);
     const next = { co: h.co, attn: h.contact, street: h.street, zip: h.zip, city: h.city, salut: h.salut, vat: h.vat, email: h.email, domain: h.domain };
@@ -92,7 +101,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
       onCreated(); ctx.reload();
       if (sendIt) { const r = await api<{ to: string }>(`/api/invoices/${inv.id}/send`, { method: "POST", body: {} }); ctx.toast(`Rechnung ${inv.number} an ${r.to} gesendet`); }
       else ctx.toast(`Rechnung ${inv.number} erstellt`, { label: fmt === "zugferd" ? "PDF" : "XML", href: `/api/invoices/${inv.id}/file` });
-      setCust(null); setF(EMPTY); setLeitweg("");
+      setCust(null); setF(EMPTY); setLeitweg(""); setFree("");
     } catch (e) { ctx.toast((e as Error).message, { error: true }); }
     setBusy(null);
   }
@@ -104,7 +113,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
   return <div className="builder">
     <div className="form">
       <div className="part"><h3>Kunde</h3>
-        {cust ? <div className="cust"><div className="m"><div className="t">{f.co || cust.co}</div></div>
+        {cust ? <div className="cust"><div className="m"><div className="t">{f.co || cust.co || "Neuer Kunde"}</div></div>
           {imp && <Icon n="loader" />}
           <button className="btn gh ic" onClick={() => { setCust(null); setF(EMPTY); setDd(true); setTimeout(() => qRef.current?.focus()); }} aria-label="Anderen Kunden wählen"><Icon n="x" /></button></div>
         : <div className="cs"><Icon n="search" className="lead" />
@@ -121,8 +130,12 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
             {q.trim() && <button className={ddI === hits.length ? "hi" : ""} onClick={() => pick("new")}><Icon n="plus" /><span className="m"><span className="t">„{q.trim()}“ neu anlegen</span></span></button>}
           </div>}
         </div>}
+        {!cust && <button className="btn gh manual" onClick={e => { e.stopPropagation(); pick("new"); }}><Icon n="user-plus" />Kunde von Hand eingeben</button>}
       </div>
       {cust && <div className="part"><h3>Rechnungsempfänger</h3>
+        {manual && <div className="fld"><label htmlFor="f-free">Name und Anschrift</label>
+          <textarea className="inp free" id="f-free" rows={4} value={free} placeholder={"Muster GmbH\nz. H. Erika Muster\nHauptstraße 1\n10115 Berlin"}
+            onChange={e => { setFree(e.target.value); const a = parseAddress(e.target.value); setF(cur => ({ ...cur, ...a })); }} /></div>}
         {fld("co", "Firma")}
         <div className="row2">{fld("attn", "z. H.")}{fld("salut", "Anrede im Brief")}</div>
         {fld("street", "Straße")}
