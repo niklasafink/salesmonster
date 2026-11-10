@@ -106,7 +106,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
     setBusy(null);
   }
 
-  const fld = (k: keyof InvoiceCustomer, label: string) => <div className="fld"><label htmlFor={`f-${k}`}>{label}</label>
+  const fld = (k: Exclude<keyof InvoiceCustomer, "sender">, label: string) => <div className="fld"><label htmlFor={`f-${k}`}>{label}</label>
     <input className="inp" id={`f-${k}`} value={f[k]} onChange={e => setF({ ...f, [k]: e.target.value })} /></div>;
   let lastGrp = "";
 
@@ -159,7 +159,7 @@ function Builder({ ctx, cfg, onCreated }: { ctx: Ctx; cfg: NonNullable<Ctx["st"]
         {fmt === "xrechnung" && <div className="fld"><label htmlFor="leitweg">Leitweg-ID</label><input className="inp" id="leitweg" value={leitweg} onChange={e => setLeitweg(e.target.value)} /></div>}
         <div className="row2">
           <div className="fld"><label htmlFor="due">Zahlungsziel</label><select className="inp" id="due" value={dueDays} onChange={e => setDueDays(Number(e.target.value))}>{[7, 14, 30].map(n => <option key={n} value={n}>{n} Tage</option>)}</select></div>
-          <div className="fld"><label htmlFor="user">Ansprechpartner</label><select className="inp" id="user" value={user} onChange={e => setUser(Number(e.target.value))}>{st.users.map(u => <option key={u.id} value={u.id}>{u.short}</option>)}</select></div>
+          <div className="fld"><label htmlFor="user">Ansprechpartner</label><select className="inp" id="user" value={user} onChange={e => setUser(Number(e.target.value))}>{[...st.users, ...t.invoiceContacts].map(u => <option key={u.id} value={u.id}>{u.short}</option>)}</select></div>
         </div>
       </div>
       <div className="foot">

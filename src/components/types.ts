@@ -9,7 +9,7 @@ export type DraftPerson = { first: string; last: string; salutation: string; rol
 export type DraftScore = { total: number; issues: string[]; expected?: number };
 export type Draft = { score: DraftScore | null; improved: boolean; id: number; batchDate: string; variant: string; channel: string; subject: string | null; body: string | null; status: string; error: string; senderId: number | null; lead: DraftLead; to: string; people: DraftPerson[] };
 export type Run = { id: number; kind: string; ok: boolean; info: string; createdAt: string };
-export type TenantInfo = { slug: string; name: string; initials: string; domain: string; tenders: boolean; settings: TenantSettings; invoice: InvoiceSettings | null };
+export type TenantInfo = { slug: string; name: string; initials: string; domain: string; tenders: boolean; settings: TenantSettings; invoice: InvoiceSettings | null; invoiceContacts: Person[] };
 
 export type State = {
   me: Person; users: Person[]; tenants: { slug: string; name: string; initials: string }[];

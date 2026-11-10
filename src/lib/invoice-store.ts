@@ -13,7 +13,7 @@ export async function loadInvoice(id: number, user: { id: number }) {
   const data: InvoiceData = {
     number: inv.number, issueDate: inv.issueDate, dueDate: inv.dueDate, serviceStart: inv.serviceStart, serviceEnd: inv.serviceEnd,
     format: inv.format as InvoiceData["format"], leitweg: inv.leitweg, customer: inv.customer, lines: inv.lines,
-    contact: { name: u?.name || "", phone: u?.phone || "", email: u?.email || "" }, settings: t.invoice,
+    contact: u ? { name: u.name, phone: u.phone, email: u.email } : inv.customer.sender || { name: "", phone: "", email: "" }, settings: t.invoice,
   };
   return { inv, tenant: t, data };
 }

@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { db, invoices, tenants, type InvoiceCustomer } from "@/db";
-import { HttpError, qp, route, tenantBySlug, tenantMembers } from "@/lib/api";
+import { HttpError, qp, route, tenantBySlug } from "@/lib/api";
+import { invoiceContact } from "@/lib/invoice-contacts";
 import { addDaysIso, berlinDate } from "@/lib/dates";
 import { buildLines, totalOf } from "@/lib/invoice-calc";
 
@@ -20,7 +21,7 @@ export const POST = route(async (req, _c, me) => {
   for (const [k, n] of [["co", "Firma"], ["street", "Straße"], ["zip", "PLZ"], ["city", "Ort"]] as const) if (!String(c?.[k] || "").trim()) throw new HttpError(400, `${n} fehlt`);
   if (b.format === "xrechnung" && !b.leitweg) throw new HttpError(400, "Leitweg-ID fehlt");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(b.start)) throw new HttpError(400, "Leistungsbeginn fehlt");
-  const contact = (await tenantMembers(t.id)).find(u => u.id === b.contactId);
+  const contact = await invoiceContact(t, b.contactId);
   if (!contact) throw new HttpError(400, "Ansprechpartner fehlt");
 
   const { lines, end, item } = buildLines({ plan, cycle: b.cycle, price: Math.max(0, Number(b.price) || 0), start: b.start });
@@ -28,9 +29,10 @@ export const POST = route(async (req, _c, me) => {
   const no = t.invoice.nextNo;
   await db.update(tenants).set({ invoice: { ...t.invoice, nextNo: no + 1 } }).where(eq(tenants.id, t.id));
   const [inv] = await db.insert(invoices).values({
-    tenantId: t.id, number: `${year}-${no}`, customer: c, item, lines, total: String(totalOf(lines)),
+    tenantId: t.id, number: `${year}-${no}`,
+    customer: { ...c, sender: contact.id < 0 ? { name: contact.name, phone: contact.phone, email: contact.email } : undefined }, item, lines, total: String(totalOf(lines)),
     issueDate: issue, dueDate: addDaysIso(issue, Number(b.dueDays) || 14), serviceStart: b.start, serviceEnd: end,
-    format: b.format, leitweg: b.leitweg || "", contactId: contact.id,
+    format: b.format, leitweg: b.leitweg || "", contactId: contact.id > 0 ? contact.id : null,
   }).returning();
   return { ...inv, total: Number(inv.total) };
 });

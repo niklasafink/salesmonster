@@ -8,6 +8,7 @@ import { mailboxOf, msConfigured } from "@/lib/mail";
 import { aiOptions, choiceId, choiceLabel } from "@/lib/ai";
 import { syncState } from "@/lib/mail-sync";
 import { listProfiles } from "@/lib/profiles";
+import { fixedContacts } from "@/lib/invoice-contacts";
 
 export const GET = route(async (req, _c, me) => {
   const all = (await db.select({ t: tenants }).from(tenants).innerJoin(members, eq(members.tenantId, tenants.id))
@@ -36,7 +37,7 @@ export const GET = route(async (req, _c, me) => {
 
   return {
     ...base,
-    tenant: { slug: t.slug, name: t.name, initials: t.initials, domain: t.domain, tenders: t.tenders, settings: t.settings, invoice: t.invoice },
+    tenant: { slug: t.slug, name: t.name, initials: t.initials, domain: t.domain, tenders: t.tenders, settings: t.settings, invoice: t.invoice, invoiceContacts: fixedContacts(t.slug) },
     profiles: profs.map(p => ({ id: p.id, name: p.name, audience: p.audience, isDefault: p.isDefault })),
     templates: tpl.map(x => { const s = tstats[x.key]; return { ...x, sent: s.sent + s.bounced, replies: s.replies, bounced: s.bounced, total: s.total, expected: s.expected, improved: s.improved }; }),
     drafts: drafts.map(({ m, l }) => ({

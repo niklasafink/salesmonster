@@ -248,7 +248,9 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("messages_tenant").on(t.tenantId, t.status), index("messages_sent").on(t.tenantId, t.sentAt)]);
 
-export type InvoiceCustomer = { co: string; attn: string; salut: string; street: string; zip: string; city: string; vat: string; email: string; domain: string };
+export type InvoiceCustomer = { co: string; attn: string; salut: string; street: string; zip: string; city: string; vat: string; email: string; domain: string;
+  /* our contact on the invoice when it is not a user (lib/invoice-contacts.ts) */
+  sender?: { name: string; phone: string; email: string } };
 export type InvoiceLine = { desc: string; sub?: string; qty: number; unit: number; disc?: boolean };
 
 export const invoices = pgTable("invoices", {

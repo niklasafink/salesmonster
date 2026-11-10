@@ -1,5 +1,6 @@
 import type { InvoiceCustomer } from "@/db";
-import { HttpError, route, tenantBySlug, tenantMembers } from "@/lib/api";
+import { HttpError, route, tenantBySlug } from "@/lib/api";
+import { invoiceContact } from "@/lib/invoice-contacts";
 import { addDaysIso, berlinDate } from "@/lib/dates";
 import { buildLines } from "@/lib/invoice-calc";
 import { ciiXml, invoicePdf, type InvoiceData } from "@/lib/invoice-doc";
@@ -12,7 +13,7 @@ export const POST = route(async (req, _c, me) => {
   const plan = t.invoice.plans.find(p => p.key === b.plan);
   if (!plan) throw new HttpError(400, "Tarif unbekannt");
   const issue = berlinDate(), start = /^\d{4}-\d{2}-\d{2}$/.test(b.start) ? b.start : issue;
-  const contact = (await tenantMembers(t.id)).find(u => u.id === b.contactId) || me;
+  const contact = await invoiceContact(t, b.contactId) || me;
   const { lines, end } = buildLines({ plan, cycle: b.cycle, price: Math.max(0, Number(b.price) || 0), start });
   const data: InvoiceData = {
     number: `${issue.slice(0, 4)}-${t.invoice.nextNo}`, issueDate: issue, dueDate: addDaysIso(issue, Number(b.dueDays) || 14), serviceStart: start, serviceEnd: end,
