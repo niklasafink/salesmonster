@@ -1,7 +1,8 @@
 # LinkedIn-Kampagnen ohne Fremdanbieter
 
 Das Portal plant die Kampagnen und passt auf, dass niemand doppelt angeschrieben wird. Gesendet wird von einem Worker auf deinem Mac,
-in einem eigenen Chrome-Profil mit deinem LinkedIn-Login. Gesteuert wird alles über den Claude-Connector (Tools `linkedin_*`).
+ohne Browser: Er spricht direkt mit der internen Schnittstelle, die auch linkedin.com nutzt (Voyager), angemeldet mit deinem Sitzungs-Cookie `li_at`.
+Diese Schnittstelle ist nicht dokumentiert. Ändert LinkedIn sie, stehen die Adressen gesammelt in `EP` in `bridge/linkedin.mjs`. Gesteuert wird alles über den Claude-Connector (Tools `linkedin_*`).
 
 Automatisierung mit dem eigenen Login verstößt gegen die LinkedIn-Nutzervereinbarung und kann zur Einschränkung des Kontos führen.
 Die Standardlimits sind deshalb niedrig gehalten. Erhöhe sie nur schrittweise.
@@ -17,9 +18,11 @@ Die Standardlimits sind deshalb niedrig gehalten. Erhöhe sie nur schrittweise.
    LI_TOKEN=li_…
    ```
 
-4. Einmal anmelden: `npm run li:login`. Es öffnet sich ein Chrome-Fenster mit einem eigenen Profil (`~/.salesmonster/linkedin-profile`).
-5. Probe ohne Klick: `npm run li:probe -- https://www.linkedin.com/in/<jemand>/` zeigt, was der Worker auf dem Profil erkennt
-   (vernetzt, Anfrage offen, Vernetzen-Knopf, Nachricht-Knopf).
+4. Einmal anmelden: `npm run li:login` fragt nach dem Cookie `li_at` (Chrome → linkedin.com → Entwicklertools → Anwendung → Cookies)
+   und speichert es in `~/.salesmonster/linkedin.env`. Meldest du dich bei LinkedIn ab, wird das Cookie ungültig; dann neu holen.
+   Optional `LI_UA=` mit dem User-Agent deines Chrome eintragen (chrome://version), damit die Anfragen wie dein Browser aussehen.
+5. Probe ohne Senden: `npm run li:probe -- https://www.linkedin.com/in/<jemand>/` zeigt, was der Worker liest
+   (Mitglieds-ID, Abstand, vernetzt, Anfrage offen, Verlauf).
 6. Worker starten: `npm run li:worker` (läuft im Terminal; `--once` erledigt genau eine Aktion). Der Mac muss in der Sendezeit wach sein.
 
 ## Ablauf über Claude
@@ -39,6 +42,7 @@ Die Standardlimits sind deshalb niedrig gehalten. Erhöhe sie nur schrittweise.
   oder die Nachricht im Verlauf steht, und erst wenn das sicher nicht der Fall ist, kommt der Schritt erneut.
 - Vor jeder Folgenachricht liest der Worker den Verlauf. Hat die Person geantwortet, wird nichts gesendet und die Folge endet.
 - Vor jeder Anfrage prüft der Worker das Profil: schon vernetzt oder Anfrage schon offen heißt, es wird nichts gesendet.
+- Kann der Worker den Verlauf nicht lesen, sendet er keine Folgenachricht.
 
 ## Limits (Standard)
 
