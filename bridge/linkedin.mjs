@@ -60,10 +60,14 @@ const keep = r => { for (const c of r.headers.getSetCookie?.() || []) { const [k
 async function session(liAt = ENV.LI_AT) {
   if (!liAt) throw new Error(`LI_AT fehlt in ${ENV_FILE}: npm run li:login`);
   jar.clear(); jar.set("li_at", liAt);
-  const r = await fetch(`${LI}/feed/`, { redirect: "manual", headers: { "user-agent": UA, cookie: cookieHeader(), accept: "text/html" } });
-  keep(r);
-  if (!jar.get("JSESSIONID")) throw new Error("LinkedIn hat keine Sitzung (JSESSIONID) geliefert");
-  if (r.status >= 300 && r.status < 400 && /login|authwall|checkpoint/.test(r.headers.get("location") || "")) throw new LoggedOut("li_at abgelaufen");
+  for (const path of ["/feed/", "/uas/authenticate", "/"]) {
+    const r = await fetch(`${LI}${path}`, { redirect: "manual", headers: { "user-agent": UA, cookie: cookieHeader(), accept: "text/html" } });
+    keep(r);
+    if (path === "/feed/" && r.status >= 300 && r.status < 400 && /login|authwall|checkpoint/.test(r.headers.get("location") || "")) throw new LoggedOut("li_at abgelaufen");
+    if (jar.get("JSESSIONID")) break;
+  }
+  /* the csrf check only compares header and cookie; the web app makes up its own value the same way when none is set */
+  if (!jar.get("JSESSIONID")) jar.set("JSESSIONID", `"ajax:${Array.from(randomBytes(19), b => b % 10).join("")}"`);
 }
 
 /* one call; status and parsed body, never throws on HTTP errors (the caller decides), throws LoggedOut when the session is gone */
