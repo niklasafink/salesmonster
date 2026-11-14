@@ -119,12 +119,17 @@ export async function sendpilotPush(tenantId: number, campaignId: string, leadId
       ...(l.email ? { email: l.email } : {}), ...(l.website ? { website: l.website } : {}), ...(l.hook ? { hook: l.hook } : {}) })) }) });
     added += j.leadsAdded || 0; duplicates += j.duplicatesSkipped || 0; invalid += j.invalidEntries || 0;
   }
-  /* from now on these people and their companies stay out of the mail run; mails still waiting for them are dropped */
-  const sent = ok.map(l => l.id);
-  await db.update(leads).set({ sendpilotAt: new Date() }).where(inArray(leads.id, sent));
-  await db.delete(messages).where(and(eq(messages.tenantId, tenantId), inArray(messages.status, ["entwurf", "freigegeben"]),
-    sql`(${messages.leadId} in (${sql.join(sent.map(id => sql`${id}`), sql`, `)}) or ${messages.leadIds} @> any(array[${sql.join(sent.map(id => sql`${JSON.stringify([id])}`), sql`, `)}]::jsonb[]))`));
+  await takeOffMail(tenantId, ok.map(l => l.id));
   return { added, duplicates, invalid, skipped: rows.length - ok.length + (leadIds.length - rows.length) };
+}
+
+/* Leads that went to LinkedIn (SendPilot or an own campaign, lib/linkedin.ts): from now on they and their companies stay out of the mail run,
+   mails still waiting for them are dropped. sendpilotAt marks the LinkedIn channel, whichever runs it. */
+export async function takeOffMail(tenantId: number, ids: number[]) {
+  if (!ids.length) return;
+  await db.update(leads).set({ sendpilotAt: new Date() }).where(and(eq(leads.tenantId, tenantId), inArray(leads.id, ids)));
+  await db.delete(messages).where(and(eq(messages.tenantId, tenantId), inArray(messages.status, ["entwurf", "freigegeben"]),
+    sql`(${messages.leadId} in (${sql.join(ids.map(id => sql`${id}`), sql`, `)}) or ${messages.leadIds} @> any(array[${sql.join(ids.map(id => sql`${JSON.stringify([id])}`), sql`, `)}]::jsonb[]))`));
 }
 
 export type SendPilotEvent = { eventId: string; eventType: string; timestamp: string; workspaceId: string; data: { linkedinUrl?: string; reply?: string } };

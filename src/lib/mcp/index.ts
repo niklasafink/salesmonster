@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { enrichTools } from "./enrich";
 import { leadTools } from "./leads";
+import { linkedinTools } from "./linkedin";
 import { mailTools } from "./mail";
 import { sendpilotTools } from "./sendpilot";
 import { templateTools } from "./templates";
@@ -15,5 +16,6 @@ export async function registerTools(server: McpServer) {
   templateTools(server);
   workflowTools(server);
   mailTools(server);
+  linkedinTools(server);
   await sendpilotTools(server);
 }

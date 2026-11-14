@@ -543,3 +543,87 @@ export const suppressions = pgTable("suppressions", {
   userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [uniqueIndex("suppressions_key").on(t.tenantId, t.kind, t.value)]);
+
+/* LinkedIn outreach without a provider (lib/linkedin.ts): the portal plans and guards, the local worker (bridge/linkedin.mjs on the owner's Mac)
+   acts in the owner's own browser. One sender = one LinkedIn account; limits and send window per sender, Berlin time. */
+export type LiLimits = { invites: number; weekInvites: number; messages: number; checks: number; days: number[]; from: number; to: number;
+  gapMin: number; gapMax: number; noteMax: number };
+export const liSenders = pgTable("li_senders", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+  /* sha256 of the worker's bearer token (scripts/li-sender.ts prints the token once) */
+  tokenHash: text("token_hash").notNull(),
+  limits: jsonb("limits").$type<Partial<LiLimits>>().notNull().default({}),
+  paused: boolean("paused").notNull().default(false),
+  pauseReason: text("pause_reason").notNull().default(""),
+  /* LinkedIn said no more notes (free account, monthly) or no more invites (weekly); until then no invite of that kind is handed out */
+  noteBlockedUntil: timestamp("note_blocked_until", { withTimezone: true }),
+  inviteBlockedUntil: timestamp("invite_blocked_until", { withTimezone: true }),
+  seenAt: timestamp("seen_at", { withTimezone: true }),
+  workerInfo: text("worker_info").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* steps: [0] is always the invite (note may be empty), the rest are messages sent afterDays after the previous step once connected.
+   status: entwurf | aktiv | pausiert | beendet. noteFallback: what to do when LinkedIn allows no more notes (pausieren | ohne_notiz) */
+export type LiStep = { kind: "anfrage"; note: string } | { kind: "nachricht"; text: string; afterDays: number };
+export const liCampaigns = pgTable("li_campaigns", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  senderId: integer("sender_id").notNull().references(() => liSenders.id),
+  name: text("name").notNull(),
+  steps: jsonb("steps").$type<LiStep[]>().notNull(),
+  status: text("status").notNull().default("entwurf"),
+  noteFallback: text("note_fallback").notNull().default("pausieren"),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [index("li_campaigns_tenant").on(t.tenantId)]);
+
+/* One row per LinkedIn person ever put into a campaign: handle is unique across all campaigns, tenants and senders, so nobody is written to twice.
+   Rows stay when the lead is deleted. step = next step to run. state: wartet | laeuft | angefragt | vernetzt | beantwortet | fertig | abgebrochen | fehler | pruefen */
+export const liEnrollments = pgTable("li_enrollments", {
+  id: serial("id").primaryKey(),
+  handle: text("handle").notNull(),
+  campaignId: integer("campaign_id").notNull().references(() => liCampaigns.id),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  senderId: integer("sender_id").notNull().references(() => liSenders.id),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  name: text("name").notNull().default(""),
+  company: text("company").notNull().default(""),
+  /* the texts as rendered for this person at enrollment, one per step */
+  texts: jsonb("texts").$type<string[]>().notNull(),
+  step: integer("step").notNull().default(0),
+  state: text("state").notNull().default("wartet"),
+  nextAt: timestamp("next_at", { withTimezone: true }).notNull().defaultNow(),
+  checkAt: timestamp("check_at", { withTimezone: true }),
+  checks: integer("checks").notNull().default(0),
+  invitedAt: timestamp("invited_at", { withTimezone: true }),
+  connectedAt: timestamp("connected_at", { withTimezone: true }),
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+  repliedAt: timestamp("replied_at", { withTimezone: true }),
+  reply: text("reply").notNull().default(""),
+  failures: integer("failures").notNull().default(0),
+  note: text("note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex("li_enrollments_handle").on(t.handle), index("li_enrollments_due").on(t.senderId, t.state, t.nextAt), index("li_enrollments_campaign").on(t.campaignId, t.state)]);
+
+/* What the worker was handed and what came back. kind: anfrage | nachricht | pruefen; status: laeuft | erledigt | fehler | unklar | uebersprungen.
+   A send step that ran or may have run (laeuft, erledigt, unklar) can exist only once per enrollment and step: that is the hard guard against a second send. */
+export const liActions = pgTable("li_actions", {
+  id: serial("id").primaryKey(),
+  enrollmentId: integer("enrollment_id").notNull().references(() => liEnrollments.id, { onDelete: "cascade" }),
+  senderId: integer("sender_id").notNull().references(() => liSenders.id),
+  kind: text("kind").notNull(),
+  step: integer("step").notNull(),
+  text: text("text").notNull().default(""),
+  status: text("status").notNull().default("laeuft"),
+  outcome: text("outcome").notNull().default(""),
+  detail: text("detail").notNull().default(""),
+  withNote: boolean("with_note").notNull().default(false),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  doneAt: timestamp("done_at", { withTimezone: true }),
+}, t => [uniqueIndex("li_actions_once").on(t.enrollmentId, t.step).where(sql`${t.kind} <> 'pruefen' and ${t.status} in ('laeuft', 'erledigt', 'unklar')`),
+  /* one action at a time per account: a second claim while one runs fails on this index */
+  uniqueIndex("li_actions_running").on(t.senderId).where(sql`${t.status} = 'laeuft'`), index("li_actions_sender").on(t.senderId, t.claimedAt)]);

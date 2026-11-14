@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run"
+    "test": "vitest run",
+    "li:login": "node bridge/linkedin.mjs login",
+    "li:worker": "node bridge/linkedin.mjs run",
+    "li:probe": "node bridge/linkedin.mjs probe"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",

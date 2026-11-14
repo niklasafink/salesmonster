@@ -181,6 +181,11 @@ Freigegebene Verbindungen kannst du in den Einstellungen widerrufen.
 | `templates_list`, `templates_save` | Vorlagen lesen und vorschlagen; neue Vorlagen kommen pausiert an |
 | `workflows_list`, `workflow_start`, `run_finish` | Workflows ausführen und den Lauf mit Bericht abschließen |
 | `mail_sync_status`, `mail_sync_run` | Postfachabgleich prüfen und anstoßen |
+| `linkedin_status`, `linkedin_settings` | Eigene LinkedIn-Kampagnen: Worker, Limits, Sperren von LinkedIn |
+| `linkedin_campaign_save`, `linkedin_campaign_status`, `linkedin_campaigns` | Kampagnen anlegen, starten, pausieren, beenden |
+| `linkedin_enroll`, `linkedin_people`, `linkedin_stop` | Leads aufnehmen (mit Vorschau), Verlauf lesen, Personen stoppen |
+
+Gesendet wird von einem Worker auf deinem Mac mit deinem LinkedIn-Login, siehe [bridge/LINKEDIN.md](bridge/LINKEDIN.md).
 
 ## Entwicklung
 

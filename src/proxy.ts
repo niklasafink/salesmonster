@@ -19,7 +19,7 @@ export async function proxy(req: NextRequest) {
   return NextResponse.redirect(login);
 }
 
-/* api/mcp, api/oauth, .well-known and the SendPilot webhook authenticate themselves (bearer token, own session check or signature) */
+/* api/mcp, api/oauth, .well-known, the SendPilot webhook and the LinkedIn worker authenticate themselves (bearer token, own session check or signature) */
 export const config = {
-  matcher: ["/((?!api/auth/login|api/auth/register|api/cron|api/abmelden|api/integrations/microsoft/callback|api/mcp|api/oauth|api/sendpilot/webhook|.well-known|_next/static|_next/image|icon.svg|favicon.ico|apple-icon|manifest.webmanifest).*)"],
+  matcher: ["/((?!api/auth/login|api/auth/register|api/cron|api/abmelden|api/integrations/microsoft/callback|api/mcp|api/oauth|api/sendpilot/webhook|api/linkedin/worker|.well-known|_next/static|_next/image|icon.svg|favicon.ico|apple-icon|manifest.webmanifest).*)"],
 };
