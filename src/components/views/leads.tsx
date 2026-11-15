@@ -50,8 +50,10 @@ const TOUCH_OPTS: [TouchKey, string, string][] = [...TOUCHES.map(([k, l, ic]) =>
 const touched = (t: Touch | null, k: TouchKey) => k === "none" ? !t || !(t.demo || t.call || t.mail) : !!t?.[k];
 
 /* What a column offers in its header menu: the value it sorts and filters by, how it sorts, and which filters make sense.
-   search: words to find; empty: "vorhanden / leer"; opts: the values in the list to pick one from (for columns with few values) */
-type Meta = { val: (r: Lead) => Val; as?: "text" | "num" | "date"; search?: boolean; empty?: boolean; opts?: boolean };
+   search: words to find; empty: "vorhanden / leer"; opts: the values in the list to pick one from (for columns with few values);
+   choices: a fixed list to pick from instead of the values in the rows; pick: whether a row belongs to a chosen value, for columns
+   where a row can belong to several (a lead with mail and LinkedIn shows under both in the channel filter) */
+type Meta = { val: (r: Lead) => Val; as?: "text" | "num" | "date"; search?: boolean; empty?: boolean; opts?: boolean; choices?: string[]; pick?: (r: Lead, v: string) => boolean };
 const SORT_LABEL = { text: ["A → Z", "Z → A"], num: ["Niedrig → hoch", "Hoch → niedrig"], date: ["Früheste zuerst", "Späteste zuerst"] } as const;
 
 /* one choice in a header menu, ticked when chosen */
@@ -349,7 +351,11 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     "c-day": { val: r => days[r.id], as: "date", empty: true },
     "c-rt": { val: r => r.rating, as: "num" },
     warm: { val: r => warm(r) ? "Warm" : "Kalt", opts: true },
-    "c-ch": { val: chText, opts: true },
+    /* sorts by the channel the lead goes out on; the filter keeps everyone who can be reached that way */
+    "c-ch": { val: chText, opts: true, choices: ["E-Mail", "LinkedIn", "Kein Kanal"], pick: (r, v) => {
+      const mail = !!r.email.trim(), li = !!r.linkedin.trim();
+      return v === "E-Mail" ? mail : v === "LinkedIn" ? li || !!r.sendpilotAt : !mail && !li && !r.sendpilotAt;
+    } },
     co: { val: r => r.company, search: true, empty: true },
     pn: { val: person, search: true, empty: true },
     ...(multi ? { "c-prof": { val: profName, opts: true } } : {}),
@@ -365,7 +371,11 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
     "c-new": { val: r => r.createdAt, as: "date" },
   };
   /* filters of columns the tenant does not have (profile, Anlass) are left out */
-  const colOk = (r: Lead) => Object.entries(cf).every(([id, f]) => !meta[id] || passes(meta[id].val(r), f));
+  const colOk = (r: Lead) => Object.entries(cf).every(([id, f]) => {
+    const m = meta[id];
+    if (!m) return true;
+    return m.pick && f.v ? m.pick(r, f.v) && passes(m.val(r), { ...f, v: undefined }) : passes(m.val(r), f);
+  });
   const colSort = cs && meta[cs.id] ? cs : null;
   const base = sort === "versand" ? byQueue : sorters[sort];
   const vis = scoped.filter(r => inFilter(r, filter) && (src === "alle" || r.source === src) && rated(r) && colOk(r) && matches(`${r.company} ${r.first} ${r.last} ${r.email}`, q))
@@ -607,7 +617,7 @@ export function Leads({ ctx, focus, onFocused }: { ctx: Ctx; focus?: number | nu
   /* every column with a value gets the header menu; columns without a label in the header (Warm / Kalt, Kanal) show only its icon */
   const menu = (c: Col) => <ColMenu label={c.label} m={meta[c.id]} f={cf[c.id] || {}} onFilter={f => setCf(c.id, f)} dir={colSort?.id === c.id ? (colSort.desc ? "desc" : "asc") : null}
     onSort={d => setCs(d ? { id: c.id, desc: d === "desc" } : colSort?.id === c.id ? null : colSort)} extra={c.extra} extraOn={c.extraOn} onClearExtra={c.clearExtra}
-    values={() => [...new Set(scoped.map(r => meta[c.id].val(r)).filter((v): v is string | number => v != null && v !== "").map(String))].sort((a, b) => a.localeCompare(b, "de"))} />;
+    values={() => meta[c.id].choices ?? [...new Set(scoped.map(r => meta[c.id].val(r)).filter((v): v is string | number => v != null && v !== "").map(String))].sort((a, b) => a.localeCompare(b, "de"))} />;
   const cols: Col[] = rawCols.map(c => !meta[c.id] ? c : c.head === null ? { ...c, head: menu(c) } : { ...c, filter: menu(c) });
   /* a click on a column's name sorts by it: up, down, back to the toolbar sort */
   const sortBy = (id: string) => setCs(colSort?.id !== id ? { id, desc: false } : colSort.desc ? null : { id, desc: true });

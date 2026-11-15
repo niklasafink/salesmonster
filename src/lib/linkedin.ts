@@ -254,6 +254,9 @@ async function counts(senderId: number, now: Date) {
 }
 
 /* Hands out the next action, or how long to wait. Order: settle what may have been sent, follow-up messages, invites, checks. */
+/* start of the pause reason the worker sets when LinkedIn ended its session; the claim route lifts exactly this pause again */
+export const LOGIN_PAUSE = "LinkedIn-Anmeldung abgelaufen";
+
 export async function claim(sender: Sender, now = new Date()): Promise<Claim> {
   await db.update(liSenders).set({ seenAt: now }).where(eq(liSenders.id, sender.id));
   if (sender.paused) return { wait: 600, reason: `pausiert: ${sender.pauseReason || "von Hand"}` };
@@ -357,7 +360,7 @@ export async function report(sender: Sender, actionId: number, r: Report, now = 
 
   if (r.outcome === "login") {
     await done("fehler");
-    await db.update(liSenders).set({ paused: true, pauseReason: "LinkedIn-Anmeldung abgelaufen, im Worker neu anmelden (npm run li:login)" }).where(eq(liSenders.id, sender.id));
+    await db.update(liSenders).set({ paused: true, pauseReason: `${LOGIN_PAUSE}: in Chrome bei linkedin.com anmelden, der Worker meldet sich dann selbst wieder an` }).where(eq(liSenders.id, sender.id));
     return { ok: true };
   }
   if (r.outcome === "unklar") {

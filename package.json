@@ -9,7 +9,8 @@
     "test": "vitest run",
     "li:login": "node bridge/linkedin.mjs login",
     "li:worker": "node bridge/linkedin.mjs run",
-    "li:probe": "node bridge/linkedin.mjs probe"
+    "li:probe": "node bridge/linkedin.mjs probe",
+    "li:autostart": "node bridge/linkedin.mjs autostart"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
@@ -32,6 +33,7 @@
     "next": "16.4.2",
     "nodemailer": "^10.1.2",
     "pdf-lib": "^1.17.1",
+    "playwright": "^1.64.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "^10.1.0",

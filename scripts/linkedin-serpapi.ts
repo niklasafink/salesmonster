@@ -11,6 +11,7 @@
    Then leads.linkedin is set. Without a hit, enrichMiss.linkedin gets the date so the next run skips the lead (--again searches
    those too). Hits with the name but nothing else are printed for a look by hand and not written. Names that are no names
    ("Travel Manager", "G F") are skipped without a search. --dry lists leads and queries and spends nothing.
+   Before the search the lead's website is checked for a linked profile (free, see fromWebsite).
    Key: SERPAPI_KEY in .env.local (free plan: 250 searches a month). */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -47,7 +48,7 @@ const ROLE = /wirtschaftspruef|steuerberat|audit|tax|partner|geschaeftsfuehr|man
 const PROFESSION = /wirtschaftspruef|steuerberat|audit|tax|pruefung/;
 
 type Hit = { link: string; title?: string; snippet?: string };
-type Lead = { id: number; first: string; last: string; company: string; city: string };
+type Lead = { id: number; first: string; last: string; company: string; city: string; website: string };
 
 async function serp(key: string, q: string): Promise<Hit[]> {
   const u = new URL("https://serpapi.com/search.json");
@@ -88,6 +89,23 @@ function judge(l: Lead, hits: Hit[]) {
   return { sure, unsure: sure ? undefined : named[0] };
 }
 
+/* Free first step: the lead's own website. Small firms often link the owner's profile in the page footer or in the page's
+   structured data (WPG Müller: linkedin.com/in/wpgmueller, which no Google search turned up). A link counts when its address
+   carries the last name. */
+async function fromWebsite(l: Lead) {
+  const base = l.website.trim().replace(/^(?!https?:\/\/)/, "https://").replace(/\/+$/, "");
+  if (!/^https?:\/\/[^/]+\.[a-z]{2,}/i.test(base)) return "";
+  const last = fold(cleanName(l).last).replace(/[^a-z]/g, "");
+  for (const path of ["", "/impressum", "/team"]) {
+    try {
+      const html = await (await fetch(base + path, { signal: AbortSignal.timeout(8000), redirect: "follow" })).text();
+      const hit = [...html.matchAll(/linkedin\.com\/in\/([^"'\s<>?#/\\]+)/gi)].map(m => profileUrl(m[0])).find(u => fold(decodeURIComponent(u)).replace(/[^a-z/]/g, "").includes(last));
+      if (hit) return hit;
+    } catch { /* site down or slow: go on with the search */ }
+  }
+  return "";
+}
+
 async function main() {
   const args = process.argv.slice(2), flags = new Set(args.filter(a => a.startsWith("--"))), [slug, max = "50"] = args.filter(a => !a.startsWith("--"));
   const key = process.env.SERPAPI_KEY;
@@ -98,7 +116,7 @@ async function main() {
   const [t] = await db.select().from(tenants).where(eq(tenants.slug, slug));
   if (!t) throw new Error("Mandant nicht gefunden");
 
-  const all: Lead[] = await db.select({ id: leads.id, first: leads.first, last: leads.last, company: leads.company, city: leads.city }).from(leads)
+  const all: Lead[] = await db.select({ id: leads.id, first: leads.first, last: leads.last, company: leads.company, city: leads.city, website: leads.website }).from(leads)
     .where(and(eq(leads.tenantId, t.id), eq(leads.linkedin, ""), ne(leads.first, ""), ne(leads.last, ""), notInArray(leads.status, ["papierkorb", "dublette"]),
       flags.has("--again") ? undefined : sql`not (${leads.enrichMiss} ? 'linkedin')`))
     .orderBy(sql`${leads.rating} desc nulls last`, desc(leads.createdAt));
@@ -109,9 +127,16 @@ async function main() {
   console.log(`${t.slug}: ${list.length} Leads ohne LinkedIn (${skipped.length} ohne brauchbaren Namen übersprungen), ${left} Suchen frei, jetzt ${n}${flags.has("--dry") ? " (Probelauf, keine Suche)" : ""}`);
   if (flags.has("--dry")) { list.slice(0, n).forEach(l => console.log(`  ${l.first} ${l.last} · ${l.company}  →  ${query(l)}`)); return; }
 
-  let found = 0, miss = 0;
+  let found = 0, miss = 0, searched = 0;
   const unsure: string[] = [], todo = list.slice(0, n), t0 = Date.now();
   const work = async (l: Lead) => {
+    const site = await fromWebsite(l);
+    if (site) {
+      await db.update(leads).set({ linkedin: site }).where(eq(leads.id, l.id));
+      found++; console.log(`✓ ${l.first} ${l.last} · ${l.company} → ${site} (Website)`);
+      return;
+    }
+    searched++;
     const { sure, unsure: maybe } = judge(l, await serp(key, query(l)));
     if (sure) {
       await db.update(leads).set({ linkedin: profileUrl(sure.link) }).where(eq(leads.id, l.id));
@@ -123,10 +148,10 @@ async function main() {
       console.log(`– ${l.first} ${l.last} · ${l.company}${maybe ? " (Name gefunden, sonst nichts)" : ""}`);
     }
   };
-  // five searches at a time: SerpAPI answers in about a second, now and then in ten
+  // five leads at a time: SerpAPI answers in about a second, now and then in ten
   const queue = [...todo];
   await Promise.all(Array.from({ length: 5 }, async () => { for (let l = queue.shift(); l; l = queue.shift()) await work(l); }));
-  console.log(`\nGefunden ${found}, nicht gefunden ${miss}, Suchen verbraucht ${n}, ${Math.round((Date.now() - t0) / 1000)} s`);
+  console.log(`\nGefunden ${found}, nicht gefunden ${miss}, Suchen verbraucht ${searched}, ${Math.round((Date.now() - t0) / 1000)} s`);
   if (unsure.length) console.log(`\nVon Hand prüfen (nicht eingetragen):\n${unsure.map(u => `  ${u}`).join("\n")}`);
 }
 main().then(() => process.exit(0), e => { console.error(e.message); process.exit(1); });

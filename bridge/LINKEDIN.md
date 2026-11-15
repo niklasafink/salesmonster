@@ -1,29 +1,55 @@
 # LinkedIn-Kampagnen ohne Fremdanbieter
 
-Das Portal plant die Kampagnen und passt auf, dass niemand doppelt angeschrieben wird. Gesendet wird von einem Worker auf deinem Mac,
-ohne Browser: Er spricht direkt mit der internen Schnittstelle, die auch linkedin.com nutzt (Voyager), angemeldet mit deinem Sitzungs-Cookie `li_at`.
-Diese Schnittstelle ist nicht dokumentiert. Ändert LinkedIn sie, stehen die Adressen gesammelt in `EP` in `bridge/linkedin.mjs`. Gesteuert wird alles über den Claude-Connector (Tools `linkedin_*`).
+Das Portal plant die Kampagnen und passt auf, dass niemand doppelt angeschrieben wird. Gesendet wird von einem Worker auf deinem Mac.
+Der Worker steuert ein echtes (unsichtbares) Chromium über Playwright und ruft die interne Schnittstelle, die auch linkedin.com nutzt (Voyager),
+als `fetch` im Seitenkontext auf. Dadurch lässt der Bot-Schutz von Cloudflare die Anfragen durch. Geklickt wird nichts: Der Worker lädt nur den
+Feed und schickt `fetch`-Aufrufe, angemeldet mit deinem Sitzungs-Cookie `li_at`. Die Schnittstelle ist nicht dokumentiert; ändert LinkedIn sie,
+stehen die Adressen gesammelt in `EP` in `bridge/linkedin.mjs`. Gesteuert wird alles über den Claude-Connector (Tools `linkedin_*`).
 
 Automatisierung mit dem eigenen Login verstößt gegen die LinkedIn-Nutzervereinbarung und kann zur Einschränkung des Kontos führen.
 Die Standardlimits sind deshalb niedrig gehalten. Erhöhe sie nur schrittweise.
 
 ## Einrichten
 
-1. Tabellen anlegen: `npx drizzle-kit push` (legt `li_senders`, `li_campaigns`, `li_enrollments` und `li_actions` an).
-2. Absender anlegen und Token holen: `npx tsx scripts/li-sender.ts <deine Portal-E-Mail>`.
-3. `~/.salesmonster/linkedin.env` anlegen:
+1. Playwright-Browser installieren: `npx playwright install chromium` (einmalig; der Worker braucht das Chromium von Playwright).
+2. Tabellen anlegen: `npx drizzle-kit push` (legt `li_senders`, `li_campaigns`, `li_enrollments` und `li_actions` an).
+3. Absender anlegen und Token holen: `npx tsx scripts/li-sender.ts <deine Portal-E-Mail>`.
+4. `~/.salesmonster/linkedin.env` anlegen:
 
    ```
    LI_API=https://<deine Portal-Domain>
    LI_TOKEN=li_…
    ```
 
-4. Einmal anmelden: `npm run li:login` fragt nach dem Cookie `li_at` (Chrome → linkedin.com → Entwicklertools → Anwendung → Cookies)
-   und speichert es in `~/.salesmonster/linkedin.env`. Meldest du dich bei LinkedIn ab, wird das Cookie ungültig; dann neu holen.
-   Optional `LI_UA=` mit dem User-Agent deines Chrome eintragen (chrome://version), damit die Anfragen wie dein Browser aussehen.
-5. Probe ohne Senden: `npm run li:probe -- https://www.linkedin.com/in/<jemand>/` zeigt, was der Worker liest
-   (Mitglieds-ID, Abstand, vernetzt, Anfrage offen, Verlauf).
-6. Worker starten: `npm run li:worker` (läuft im Terminal; `--once` erledigt genau eine Aktion). Der Mac muss in der Sendezeit wach sein.
+5. Einmal anmelden: `npm run li:login`. Ist der Worker schon angemeldet (Profil, gespeichertes Cookie oder ein Browser auf dem Mac), ist es
+   sofort fertig. Sonst öffnet sich ein Browserfenster auf linkedin.com: Dort meldest du dich einmal an (inkl. Code/2FA). Sobald dein Feed
+   erscheint, erkennt der Worker die Anmeldung von selbst, schließt das Fenster und merkt sich die Sitzung dauerhaft in seinem Profil
+   `~/.salesmonster/linkedin-profile`. Das ist der empfohlene Weg: Die Sitzung lebt dann im Browser des Workers und wird von LinkedIn nicht als
+   fremd behandelt. Alternativen ohne Fenster: `npm run li:login -- --paste` (li_at von Hand einfügen), oder der Worker liest li_at aus deinen
+   Browsern (Chrome/Safari/eigenes Profil) — dafür fragt macOS einmal nach dem Schlüsselbund („Chrome/Chromium Safe Storage“), „Immer erlauben“.
+6. Probe ohne Senden: `npm run li:probe -- https://www.linkedin.com/in/<jemand>/` zeigt, was der Worker liest
+   (Mitglieds-ID, Abstand, vernetzt, Anfrage offen, Verlauf). `LI_DEBUG=1` davor zeigt jeden Seiten- und API-Aufruf mit Status.
+   Zum Zusehen `LI_HEADFUL=1` setzen, dann öffnet sich das Browserfenster.
+7. Worker starten: `npm run li:worker` (läuft im Terminal; `--once` erledigt genau eine Aktion). Der Mac muss in der Sendezeit wach sein.
+   Autostart: `npm run li:autostart` richtet einen launchd-Agenten ein, der den Worker bei jeder Anmeldung am Mac startet und nach einem
+   Absturz neu startet (Log: `~/.salesmonster/linkedin-worker.log`). `npm run li:autostart -- off` entfernt ihn wieder.
+
+## Anmeldung bleibt erhalten
+
+Der Worker hält die Sitzung im eigenen Chromium-Profil (`~/.salesmonster/linkedin-profile`). Das Cookie `li_at` gilt bei LinkedIn etwa ein Jahr
+und überlebt Neustarts. Nach einem Neustart läuft der Worker mit der Sitzung im Profil weiter, ohne dass du etwas tust. Erklärt LinkedIn das
+Cookie für ungültig (Abmelden im Browser, Passwortwechsel, „überall abmelden“), holt der Worker alle 5 Minuten das aktuelle `li_at` aus den
+Browsern auf dem Mac: Du bleibst nur in einem Browser bei linkedin.com angemeldet, mehr nicht. Solange keine Sitzung da ist, steht der Absender
+im Portal auf Pause („LinkedIn-Anmeldung abgelaufen“); sobald der Worker wieder angemeldet ist, hebt er die Pause selbst auf. Eine von Hand
+gesetzte Pause bleibt bestehen.
+
+## Bot-Schutz (gelöst am 14.11.2026)
+
+LinkedIn liegt hinter Cloudflare (`__cf_bm`), das Anfragen ohne echten Browser abweist und ein so genutztes `li_at` entwertet. Der Worker fährt
+deshalb ein echtes Chromium über Playwright, lädt den Feed und ruft die Voyager-API als `fetch` im Seitenkontext auf — mit den Cookies, der
+Cloudflare-Freigabe und dem TLS-Fingerabdruck eines echten Browsers. Geklickt wird nichts. Getestet am 14.11.: Lesen von Profil, eigenem Konto
+und offenen Anfragen lief damit sauber durch. Weniger Anfragen in kurzer Zeit sind sicherer; wird zu schnell zu viel gelesen, antwortet LinkedIn
+zeitweise mit 401, dann hilft eine Pause.
 
 ## Ablauf über Claude
 
