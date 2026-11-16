@@ -1,8 +1,8 @@
-# Vercel Hobby runs each cron once a day; mails go out hourly inside each tenant's send window
+# The only send tick: hourly 4–21 h UTC (6–23 h Berlin), each tenant sends its share inside its own send window
 name: Versand
 on:
   schedule:
-    - cron: "37 * * * *"
+    - cron: "37 4-21 * * *"
   workflow_dispatch:
 jobs:
   tick:

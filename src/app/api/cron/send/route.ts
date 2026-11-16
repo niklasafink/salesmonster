@@ -6,12 +6,18 @@ import { refreshAccounts } from "@/lib/ratings";
 
 export const maxDuration = 300;
 
-/* Every hour (Vercel once per hour of the day, GitHub Actions on top): each tenant sends its share inside its own send window */
+/* HubSpot and the account ratings cost the most compute; twice a day is enough for them */
+const CRM_HOURS = [7, 13];
+const berlinHour = (d = new Date()) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Berlin", hour: "2-digit", hour12: false }).format(d)) % 24;
+
+/* Hourly from GitHub Actions: each tenant sends its share inside its own send window */
 export async function GET(req: Request) {
   if (!cronAuthorized(req)) return new Response("Unauthorized", { status: 401 });
   const all = await db.select().from(tenants);
   const out = await Promise.allSettled(all.map(async t => ({ t: t.slug, ...await sendApproved(t) })));
-  /* then the registered users from HubSpot, once an hour like the sending */
+  if (!CRM_HOURS.includes(berlinHour()))
+    return Response.json(out.map(o => o.status === "fulfilled" ? o.value : { error: String(o.reason?.message || o.reason) }));
+  /* then the registered users from HubSpot */
   const crm = await Promise.allSettled(all.map(async t => {
     const s = await syncCrm(t, 60_000);
     /* then who we spoke to and what the companies are, for the rating */
